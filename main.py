@@ -1,3 +1,4 @@
+
 # main.py
 from snowflake_connector import SnowflakeConnector
 from access_io import (
@@ -17,8 +18,8 @@ from cda_build_wgr import build_wgr_slice
 
 def main():
     gas_id = "886EFB8207A04F329A3C2A8E87687FD5"
-    start_date = "2024-10-13"
-    end_date_excl = "2024-10-16"  # exclusive end
+    start_date = "2024-08-13"
+    end_date_excl = "2024-11-20"  # exclusive end''
 
     sf = SnowflakeConnector()
 
@@ -84,3 +85,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
