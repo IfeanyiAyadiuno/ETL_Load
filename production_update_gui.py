@@ -2,7 +2,6 @@ import sys
 import os
 import configparser
 import time
-import random
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTextEdit, QLabel,
@@ -14,11 +13,15 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor
 from db_connection import get_sql_conn
 
+def get_settings_path():
+    """Get absolute path to settings.ini file (next to the script)"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, 'settings.ini')
+
 class ProductionUpdateGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.initUI()
-        self.current_operation = None
         
     def initUI(self):
         """Initialize the user interface"""
@@ -116,38 +119,6 @@ class ProductionUpdateGUI(QMainWindow):
         separator.setStyleSheet("background-color: #d1d5db; max-height: 1px;")
         layout.addWidget(separator)
         
-        # Selected operation display
-        self.selected_op_label = QLabel("Selected: None")
-        self.selected_op_label.setStyleSheet("color: #1a4d3e; font-weight: bold; font-size: 14px;")
-        layout.addWidget(self.selected_op_label)
-        
-        # Run button (green)
-        self.run_button = QPushButton("🔄 Run Selected Operation")
-        self.run_button.setMinimumHeight(50)
-        self.run_button.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-            QPushButton:pressed {
-                background-color: #0d3d2e;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
-        self.run_button.clicked.connect(self.run_operation)
-        self.run_button.setEnabled(False)  # Disabled until an operation is selected
-        layout.addWidget(self.run_button)
-        
         # Log area
         log_label = QLabel("📋 Operation Log")
         log_label.setStyleSheet("color: #1a4d3e; font-weight: bold; font-size: 14px; margin-top: 10px;")
@@ -219,27 +190,18 @@ class ProductionUpdateGUI(QMainWindow):
     
     def select_operation(self, operation_name):
         """Handle operation selection"""
-        self.current_operation = operation_name
-        self.selected_op_label.setText(f"Selected: {operation_name}")
-        
         if operation_name == "Settings":
-            self.run_button.setEnabled(False)
             self.open_settings()
         elif operation_name == "PA Allocations":
-            self.run_button.setEnabled(False)
             self.open_monthly_loader()
         elif operation_name == "Sales Ratios Update":
-            self.run_button.setEnabled(False)
             self.open_sales_ratios()
         elif operation_name == "Prodview/Snowflake Retrieve":
-            self.run_button.setEnabled(False)
             self.open_prodview_update()
         elif operation_name == "Well Master List":
-            self.run_button.setEnabled(False)
             self.open_well_master()
-        else:
-            self.run_button.setEnabled(True)
-            self.log(f"Selected operation: {operation_name}")
+        elif operation_name == "Exports/Reports":
+            self.open_exports()
 
     def open_well_master(self):
         """Open the well master list dialog"""
@@ -250,8 +212,6 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_well_master.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
 
     def open_prodview_update(self):
         """Open the prodview update dialog"""
@@ -262,8 +222,6 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_prodview.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
 
     def open_sales_ratios(self):
         """Open the sales ratios update dialog"""
@@ -274,8 +232,6 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_ratios.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
 
     
     def open_monthly_loader(self):
@@ -283,10 +239,10 @@ class ProductionUpdateGUI(QMainWindow):
         self.log("Opening PA Allocations dialog...")
         
         # Load settings
-        import configparser
         config = configparser.ConfigParser()
-        if os.path.exists('settings.ini'):
-            config.read('settings.ini')
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
         else:
             config['PATHS'] = {}
             config['SQL'] = {}
@@ -297,8 +253,6 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_allocations.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
         
     
     def open_settings(self):
@@ -312,68 +266,16 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_settings.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
     
-    def run_operation(self):
-        """Run the selected operation"""
-        if not self.current_operation:
-            QMessageBox.warning(self, "No Operation Selected", "Please select an operation first.")
-            return
+    def open_exports(self):
+        """Open the exports/reports dialog"""
+        self.log("Opening Exports/Reports dialog...")
         
-        # Confirm with user
-        reply = QMessageBox.question(self, "Confirm Operation", 
-                                     f"Are you sure you want to run '{self.current_operation}'?",
-                                     QMessageBox.Yes | QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            self.log(f"\n{'='*60}")
-            self.log(f"STARTING: {self.current_operation}")
-            self.log(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            self.log(f"{'='*60}")
-            
-            # Disable buttons during operation
-            self.set_buttons_enabled(False)
-            self.run_button.setEnabled(False)
-            self.status_label.setText(f"Running: {self.current_operation}...")
-            
-            # TODO: Launch appropriate worker thread based on operation
-            # For now, just simulate
-            self.simulate_operation()
-    
-    def simulate_operation(self):
-        """Simulate a long-running operation (for testing)"""
-        self.log("Starting simulated operation...")
-        self.log("This is where the real script would run")
-        self.log("Progress: 0%")
-        
-        # In a real implementation, this would be in a separate thread
-        import time
-        for i in range(1, 6):
-            time.sleep(1)
-            self.log(f"Progress: {i*20}%")
-        
-        self.log("Operation complete!")
-        self.operation_finished()
-    
-    def operation_finished(self):
-        """Called when an operation completes"""
-        self.log(f"\n{'='*60}")
-        self.log(f"COMPLETED: {self.current_operation}")
-        self.log(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        self.log(f"{'='*60}\n")
-        
-        # Re-enable buttons
-        self.set_buttons_enabled(True)
-        self.run_button.setEnabled(True)
-        self.status_label.setText("Ready")
+        dialog = ExportsDialog(self)
+        dialog.exec_()
         
         # Clear selection
-        for btn in [self.btn_settings, self.btn_well_master, self.btn_prodview,
-                   self.btn_allocations, self.btn_ratios, self.btn_exports]:
-            btn.setChecked(False)
-        self.current_operation = None
-        self.selected_op_label.setText("Selected: None")
+        self.btn_exports.setChecked(False)
     
     def set_buttons_enabled(self, enabled):
         """Enable or disable all operation buttons"""
@@ -575,7 +477,6 @@ class SettingsDialog(QDialog):
         
     def browse_valnav(self):
         """Browse for ValNav template file"""
-        from PyQt5.QtWidgets import QFileDialog
         filename, _ = QFileDialog.getOpenFileName(
             self, 
             "Select ValNav Template", 
@@ -587,7 +488,6 @@ class SettingsDialog(QDialog):
     
     def browse_accumap(self):
         """Browse for Accumap template file"""
-        from PyQt5.QtWidgets import QFileDialog
         filename, _ = QFileDialog.getOpenFileName(
             self, 
             "Select Public Data Accumap Template", 
@@ -599,11 +499,8 @@ class SettingsDialog(QDialog):
     
     def load_settings(self):
         """Load settings from file"""
-        import configparser
-        import os
-        
         config = configparser.ConfigParser()
-        settings_file = 'settings.ini'
+        settings_file = get_settings_path()
         
         if os.path.exists(settings_file):
             config.read(settings_file)
@@ -622,8 +519,6 @@ class SettingsDialog(QDialog):
     
     def save_settings(self):
         """Save settings to file"""
-        import configparser
-        
         config = configparser.ConfigParser()
         
         config['SQL'] = {
@@ -636,23 +531,105 @@ class SettingsDialog(QDialog):
             'accumap_template': self.accumap_input.text()
         }
         
-        with open('settings.ini', 'w') as f:
+        settings_file = get_settings_path()
+        with open(settings_file, 'w') as f:
             config.write(f)
         
         # Show success message
-        from PyQt5.QtWidgets import QMessageBox
         QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.")
         
         self.accept()
 
-    def test_connection(self):
-        """Test database connection (if you have this method)"""
-        try:
-            conn = get_sql_conn()
-            conn.close()
-            return True, "Connection successful"
-        except Exception as e:
-            return False, str(e)
+class ExportsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📁 Exports / Reports")
+        self.setModal(True)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(300)
+        self.initUI()
+        
+    def initUI(self):
+        """Initialize the exports dialog UI"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+        
+        # Title
+        title = QLabel("📁 Exports / Reports")
+        title.setStyleSheet("""
+            QLabel {
+                color: #1a4d3e;
+                font-size: 24px;
+                font-weight: bold;
+                padding: 10px;
+            }
+        """)
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
+        # Coming Soon Message
+        coming_soon = QLabel("🚧 Coming Soon 🚧")
+        coming_soon.setStyleSheet("""
+            QLabel {
+                color: #0066b3;
+                font-size: 32px;
+                font-weight: bold;
+                padding: 20px;
+                background-color: #e6f0fa;
+                border: 2px solid #0066b3;
+                border-radius: 10px;
+            }
+        """)
+        coming_soon.setAlignment(Qt.AlignCenter)
+        layout.addWidget(coming_soon)
+        
+        # Description
+        description = QLabel(
+            "The Exports / Reports feature is currently under development.\n"
+            "This functionality will be available in a future update."
+        )
+        description.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 14px;
+                padding: 10px;
+            }
+        """)
+        description.setAlignment(Qt.AlignCenter)
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        
+        # Add stretch
+        layout.addStretch()
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 10px 30px;
+                font-size: 14px;
+                font-weight: bold;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #8a929c;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+        """)
+        close_btn.clicked.connect(self.close)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
 class MonthlyLoaderDialog(QDialog):
     def __init__(self, settings_section, parent=None):
@@ -915,8 +892,6 @@ class MonthlyLoaderDialog(QDialog):
 
     def validate_inputs(self):
         """Validate file paths and database connection"""
-        import os
-        
         # Check ValNav file
         valnav_path = self.settings_section.get('valnav_template', '')
         if os.path.exists(valnav_path):
@@ -1077,8 +1052,8 @@ class SalesRatiosDialog(QDialog):
         
     def initUI(self):
         """Initialize the sales ratios dialog UI"""
-        self.setWindowTitle("📈 Sales Ratios Update")
-        self.setModal(True)
+        # Note: setWindowTitle and setModal already set in __init__
+        # Only update dimensions that differ from __init__
         self.setMinimumWidth(650)
         self.setMinimumHeight(600)
         
@@ -2968,10 +2943,23 @@ class WellMasterDialog(QDialog):
         
         print("Table editability setup complete")
    
+    def is_row_checked(self, row):
+        """Check if the checkbox for a given row is checked"""
+        widget = self.table.cellWidget(row, 0)
+        if widget:
+            checkbox = widget.findChild(QCheckBox)
+            if checkbox:
+                return checkbox.isChecked()
+        return False
+    
     def on_current_item_changed(self, item):
         """Handle cell edits in Current Wells tab"""
         row = item.row()
         col = item.column()
+        
+        # Only process changes if the row is checked (editing enabled)
+        if not self.is_row_checked(row):
+            return
         
         # Only update composite when relevant fields change
         if col in [4, 5, 8, 11]:  # Formation, Layer, Completions, Orient
@@ -2992,14 +2980,29 @@ class WellMasterDialog(QDialog):
                 self.pending_current_edits.add(row)
       
     def save_selected(self):
-        """Save changes to selected wells in Current Wells tab"""
-        if not hasattr(self, 'pending_current_edits') or not self.pending_current_edits:
-            QMessageBox.information(self, "No Changes", "No pending changes to save.")
+        """Save changes to selected (checked) wells in Current Wells tab"""
+        # Only save rows that are checked
+        checked_rows = []
+        for row in range(self.table.rowCount()):
+            if self.is_row_checked(row):
+                checked_rows.append(row)
+        
+        if not checked_rows:
+            QMessageBox.information(self, "No Selection", "Please check the wells you want to save.")
+            return
+        
+        # Filter pending edits to only include checked rows
+        if hasattr(self, 'pending_current_edits'):
+            rows_to_save = [row for row in self.pending_current_edits if row in checked_rows]
+        else:
+            rows_to_save = []
+        
+        if not rows_to_save:
+            QMessageBox.information(self, "No Changes", "No pending changes to save for selected wells.")
             return
         
         # Collect updates for rows with pending changes
         updates = []
-        rows_to_save = list(self.pending_current_edits)
         
         for row in rows_to_save:
             # Get values from table
@@ -3234,9 +3237,16 @@ class WellMasterDialog(QDialog):
                     item.setBackground(QColor("#f0f0f0"))
                 
                 # Composite name (col 12) should be read-only
-                if col == 12:
+                elif col == 12:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setBackground(QColor("#f0f0f0"))
+                
+                # Editable columns (4-11): Make non-editable by default (only editable when checkbox is checked)
+                else:
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    # Add visual indicator that editing is disabled
+                    if not is_pending:
+                        item.setBackground(QColor("#f8f9fa"))  # Light gray for non-editable
                 
                 # Highlight pending rows
                 if is_pending:
@@ -3248,7 +3258,7 @@ class WellMasterDialog(QDialog):
         self.table.itemChanged.connect(self.on_current_item_changed)
     
     def on_checkbox_changed(self, row, state):
-        """Handle checkbox state changes - stage pending wells to Add New tab"""
+        """Handle checkbox state changes - enable/disable editing and stage pending wells"""
         # Make sure we have valid row
         if row >= len(self.filtered_wells):
             return
@@ -3259,7 +3269,31 @@ class WellMasterDialog(QDialog):
         # Simple debug print
         print(f"Checkbox changed: row={row}, checked={is_checked}, well={well.get('well_name')}")
         
-        # Only proceed if checked and it's a pending well
+        # Enable/disable editing for editable columns (4-11) based on checkbox state
+        # Editable columns: 4=Formation, 5=Layer, 6=Fault Block, 7=Pad Name, 
+        #                   8=Completions, 9=Lateral Length, 10=Value Nav UWI, 11=Orient
+        editable_columns = [4, 5, 6, 7, 8, 9, 10, 11]
+        
+        for col in editable_columns:
+            item = self.table.item(row, col)
+            if item:
+                if is_checked:
+                    # Enable editing
+                    item.setFlags(item.flags() | Qt.ItemIsEditable)
+                    # Remove gray background if it was set
+                    if well not in self.pending_wells:
+                        item.setBackground(QColor("#ffffff"))  # White background for editable
+                else:
+                    # Disable editing
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                    # Add gray background to indicate non-editable
+                    if well not in self.pending_wells:
+                        item.setBackground(QColor("#f8f9fa"))  # Light gray for non-editable
+                    # Remove from pending edits if unchecked
+                    if hasattr(self, 'pending_current_edits') and row in self.pending_current_edits:
+                        self.pending_current_edits.remove(row)
+        
+        # Handle pending wells staging (existing logic)
         if is_checked and well in self.pending_wells:
             print(f"Adding to staged: {well.get('well_name')}")
             
