@@ -1301,7 +1301,7 @@ class SalesRatiosDialog(QDialog):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.results_text.clear()
-        self.status_label.setText("Initializing...")
+        #self.status_label.setText("Initializing...")#
         
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
@@ -1315,7 +1315,7 @@ class SalesRatiosDialog(QDialog):
         self.worker = ProdviewUpdateWorker(from_month, to_month)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
-        self.worker.status_signal.connect(self.status_label.setText)
+        #self.worker.status_signal.connect(self.status_label.setText)#
         self.worker.finished_signal.connect(self.update_finished)
         self.worker.error_signal.connect(self.update_error)
         self.worker.start()
