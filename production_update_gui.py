@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QFrame, QMessageBox, QDialog, QLineEdit,
                              QFileDialog, QComboBox, QProgressBar, QScrollArea,
                              QTabWidget, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QCheckBox)
+                             QHeaderView, QCheckBox, QRadioButton)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor
 from db_connection import get_sql_conn
@@ -1452,16 +1452,78 @@ class ProdviewUpdateDialog(QDialog):
         range_group.layout().addLayout(range_layout)
         layout.addWidget(range_group)
         
+        # Update Mode Selection
+        mode_group = self.create_group("⚙️ Update Mode")
+        mode_layout = QVBoxLayout()
+        
+        self.mode_full_rebuild = QRadioButton("Full Rebuild Mode")
+        self.mode_full_rebuild.setChecked(True)  # Default to Full Rebuild
+        self.mode_full_rebuild.setStyleSheet("""
+            QRadioButton {
+                font-size: 12pt;
+                padding: 5px;
+            }
+        """)
+        mode_layout.addWidget(self.mode_full_rebuild)
+        
+        full_rebuild_desc = QLabel(
+            "  • Processes ALL historical data\n"
+            "  • Clears and rebuilds entire PCE_Production table\n"
+            "  • Takes 30-40 minutes (full rebuild)"
+        )
+        full_rebuild_desc.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 10pt;
+                padding-left: 25px;
+                padding-bottom: 5px;
+            }
+        """)
+        mode_layout.addWidget(full_rebuild_desc)
+        
+        self.mode_quick_update = QRadioButton("Quick Update Mode")
+        self.mode_quick_update.setStyleSheet("""
+            QRadioButton {
+                font-size: 12pt;
+                padding: 5px;
+            }
+        """)
+        mode_layout.addWidget(self.mode_quick_update)
+        
+        quick_update_desc = QLabel(
+            "  • Processes only selected month range\n"
+            "  • Updates PCE_CDA for selected months\n"
+            "  • Updates PCE_Production for selected months\n"
+            "  • Recalculates sequences for affected wells only\n"
+            "  • Updates cumulatives incrementally"
+        )
+        quick_update_desc.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 10pt;
+                padding-left: 25px;
+                padding-bottom: 5px;
+            }
+        """)
+        mode_layout.addWidget(quick_update_desc)
+        
+        # Connect mode change to update info text
+        self.mode_full_rebuild.toggled.connect(self.update_info_text)
+        self.mode_quick_update.toggled.connect(self.update_info_text)
+        
+        mode_group.layout().addLayout(mode_layout)
+        layout.addWidget(mode_group)
+        
         # Info Group
         info_group = self.create_group("ℹ️ This will:")
         info_layout = QVBoxLayout()
         
-        info_text = QLabel(
+        self.info_text = QLabel(
             "  • Pull new data from Snowflake\n"
             "  • Update PCE_CDA\n"
             "  • Update PCE_Production"
         )
-        info_text.setStyleSheet("""
+        self.info_text.setStyleSheet("""
             QLabel {
                 background-color: #e6f0fa;
                 border: 1px solid #d1d5db;
@@ -1471,7 +1533,7 @@ class ProdviewUpdateDialog(QDialog):
                 font-size: 11pt;
             }
         """)
-        info_layout.addWidget(info_text)
+        info_layout.addWidget(self.info_text)
         info_group.layout().addLayout(info_layout)
         layout.addWidget(info_group)
         
@@ -1582,6 +1644,28 @@ class ProdviewUpdateDialog(QDialog):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
         
+        # Initialize info text based on default mode
+        self.update_info_text()
+    
+    def update_info_text(self):
+        """Update info text based on selected mode"""
+        if self.mode_full_rebuild.isChecked():
+            self.info_text.setText(
+                "  • Pull new data from Snowflake\n"
+                "  • Update PCE_CDA\n"
+                "  • Clear and rebuild entire PCE_Production table\n"
+                "  • Recalculate all sequences, cumulatives, and averages\n"
+                "  • ⚠️ Takes 30-40 minutes (full rebuild)"
+            )
+        else:
+            self.info_text.setText(
+                "  • Pull new data from Snowflake (selected range only)\n"
+                "  • Update PCE_CDA (selected months only)\n"
+                "  • Update PCE_Production (selected months only)\n"
+                "  • Recalculate sequences for affected wells only\n"
+                "  • Update cumulatives incrementally"
+            )
+    
     def create_group(self, title):
         """Create a styled group frame with title"""
         group = QFrame()
@@ -1663,13 +1747,15 @@ class ProdviewUpdateDialog(QDialog):
         
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
+        update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         
         self.log_result("=" * 60)
-        self.log_result("STARTING PRODVIEW/SNOWFLAKE UPDATE")
+        mode_name = "FULL REBUILD" if update_mode == "full_rebuild" else "QUICK UPDATE"
+        self.log_result(f"STARTING PRODVIEW/SNOWFLAKE UPDATE - {mode_name} MODE")
         self.log_result(f"Range: {from_month} to {to_month}")
         self.log_result("=" * 60)
         
-        self.worker = ProdviewUpdateWorker(from_month, to_month)
+        self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.status_signal.connect(self.status_label.setText)
@@ -1714,30 +1800,87 @@ class ProdviewUpdateWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
     
-    def __init__(self, from_month, to_month):  # ✅ CORRECT - only this __init__
+    def __init__(self, from_month, to_month, update_mode="full_rebuild"):
         super().__init__()
         self.from_month = from_month
         self.to_month = to_month
+        self.update_mode = update_mode
     
     def run(self):
         """Run the update"""
         try:
-            from prodview_update_gui import run_prodview_update
-            
-            def progress_callback(value):
-                self.progress_signal.emit(value)
-            
-            def log_callback(message):
-                self.log_signal.emit(message)
-            
-            self.status_signal.emit("Processing...")
-            
-            summary = run_prodview_update(
-                self.from_month,
-                self.to_month,
-                progress_callback,
-                log_callback
-            )
+            if self.update_mode == "full_rebuild":
+                # Full rebuild mode - use production_update.py
+                self.status_signal.emit("Running full rebuild...")
+                
+                # Import and run the full rebuild
+                import sys
+                import io
+                from production_update import main as run_full_rebuild
+                
+                # Create a custom stdout that captures and emits
+                class LogCapture:
+                    def __init__(self, log_callback):
+                        self.log_callback = log_callback
+                        self.buffer = ""
+                    
+                    def write(self, text):
+                        self.buffer += text
+                        # Emit complete lines
+                        while '\n' in self.buffer:
+                            line, self.buffer = self.buffer.split('\n', 1)
+                            if line.strip():
+                                self.log_callback(line)
+                    
+                    def flush(self):
+                        pass
+                
+                # Redirect stdout
+                old_stdout = sys.stdout
+                log_capture = LogCapture(self.log_signal.emit)
+                sys.stdout = log_capture
+                
+                try:
+                    # Run the full rebuild
+                    run_full_rebuild()
+                    
+                    # Flush any remaining output
+                    if log_capture.buffer.strip():
+                        self.log_signal.emit(log_capture.buffer.strip())
+                    
+                    sys.stdout = old_stdout
+                    
+                    # Create summary (production_update.py doesn't return one, so we create a basic one)
+                    summary = {
+                        'months_processed': 1,
+                        'wells_updated': 0,
+                        'cda_records': 0,
+                        'production_records': 0,
+                        'duration': 0
+                    }
+                    
+                except Exception as e:
+                    sys.stdout = old_stdout
+                    raise e
+                
+            else:
+                # Quick update mode
+                from prodview_update_gui import run_quick_update
+                
+                def progress_callback(value):
+                    self.progress_signal.emit(value)
+                
+                def log_callback(message):
+                    self.log_signal.emit(message)
+                
+                self.status_signal.emit("Running quick update...")
+                
+                summary = run_quick_update(
+                    self.from_month,
+                    self.to_month,
+                    progress_callback,
+                    log_callback
+                )
             
             if 'error' in summary:
                 self.error_signal.emit(summary['error'])
