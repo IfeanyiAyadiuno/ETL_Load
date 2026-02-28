@@ -1294,28 +1294,26 @@ class SalesRatiosDialog(QDialog):
         QApplication.processEvents()
     
     def run_update(self):
-        """Run the prodview update in a separate thread"""
+        """Run the sales ratios update in a separate thread"""
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.results_text.clear()
-        #self.status_label.setText("Initializing...")#
         
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
         
         self.log_result("=" * 60)
-        self.log_result("STARTING PRODVIEW/SNOWFLAKE UPDATE")
+        self.log_result("STARTING SALES RATIOS UPDATE")
         self.log_result(f"Range: {from_month} to {to_month}")
         self.log_result("=" * 60)
         
-        # This passes 2 arguments to __init__
-        self.worker = ProdviewUpdateWorker(from_month, to_month)
+        # Use SalesRatiosWorker, not ProdviewUpdateWorker
+        self.worker = SalesRatiosWorker(from_month, to_month)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
-        #self.worker.status_signal.connect(self.status_label.setText)#
         self.worker.finished_signal.connect(self.update_finished)
         self.worker.error_signal.connect(self.update_error)
         self.worker.start()
@@ -1342,6 +1340,7 @@ class SalesRatiosDialog(QDialog):
         """Handle update error"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.close_btn.setEnabled(True)
         self.log_result(f"\n❌ ERROR: {error_msg}")
 
 class SalesRatiosWorker(QThread):
