@@ -1160,8 +1160,8 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             if well_idx % 10 == 0:
                 log(f"  Processing well {well_idx + 1}/{len(affected_wells)}: {well_name}")
             
-            # Get ALL historical data for this well from PCE_CDA
-            cursor.execute("""
+            # Get ALL historical data for this well from PCE_CDA using pd.read_sql
+            query = """
                 SELECT 
                     [Well Name] as Source_Well_Name,
                     ProdDate as [Date],
@@ -1191,16 +1191,12 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 FROM PCE_CDA
                 WHERE [Well Name] = ?
                 ORDER BY ProdDate
-            """, well_name)
+            """
             
-            well_data_rows = cursor.fetchall()
+            well_df = pd.read_sql(query, conn, params=(well_name,))
             
-            if not well_data_rows:
+            if well_df.empty:
                 continue
-            
-            # Convert to DataFrame
-            columns = [desc[0] for desc in cursor.description]
-            well_df = pd.DataFrame(well_data_rows, columns=columns)
             
             # Apply well name mapping
             well_df = apply_well_names(well_df, composite_map, fallback_map)
