@@ -51,7 +51,10 @@ class ProductionUpdateGUI(QMainWindow):
         layout.setSpacing(20)
         layout.setContentsMargins(20, 20, 20, 20)
         
-        # Company Header
+        # Header with Settings button
+        header_layout = QHBoxLayout()
+        
+        # Company Header (centered)
         company_header = QLabel("Pacific Canbriam Energy LTD")
         company_header.setAlignment(Qt.AlignCenter)
         company_header.setStyleSheet("""
@@ -66,7 +69,34 @@ class ProductionUpdateGUI(QMainWindow):
                 margin-bottom: 5px;
             }
         """)
-        layout.addWidget(company_header)
+        
+        # Settings button (top-right)
+        self.btn_settings = QPushButton("⚙️ Settings")
+        self.btn_settings.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 8px 16px;
+                min-width: 100px;
+                min-height: 35px;
+            }
+            QPushButton:hover {
+                background-color: #8a929c;
+            }
+            QPushButton:pressed {
+                background-color: #545b62;
+            }
+        """)
+        self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
+        
+        # Add to header layout
+        header_layout.addWidget(company_header, 1)  # Stretch to fill space
+        header_layout.addWidget(self.btn_settings, 0)  # Fixed size on right
+        layout.addLayout(header_layout)
         
         # Sub-header
         sub_header = QLabel("Production Update System")
@@ -86,8 +116,7 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(10)
         
-        # Create 6 main buttons
-        self.btn_settings = self.create_main_button("⚙️ Settings", "#0066b3")
+        # Create 5 main buttons (Settings moved to header)
         self.btn_well_master = self.create_main_button("📋 Well Master List", "#0066b3")
         self.btn_prodview = self.create_main_button("❄️ Prodview/Snowflake Daily Production Retrieve", "#0066b3")
         self.btn_allocations = self.create_main_button("📊 PA Allocations (Monthly Loader)", "#0066b3")
@@ -95,7 +124,6 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
         
         # Add buttons to layout
-        buttons_layout.addWidget(self.btn_settings)
         buttons_layout.addWidget(self.btn_well_master)
         buttons_layout.addWidget(self.btn_prodview)
         buttons_layout.addWidget(self.btn_allocations)
@@ -103,7 +131,6 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_exports)
         
         # Connect buttons to click handlers
-        self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
         self.btn_well_master.clicked.connect(lambda: self.select_operation("Well Master List"))
         self.btn_prodview.clicked.connect(lambda: self.select_operation("Prodview/Snowflake Retrieve"))
         self.btn_allocations.clicked.connect(lambda: self.select_operation("PA Allocations"))
@@ -171,7 +198,7 @@ class ProductionUpdateGUI(QMainWindow):
                 font-size: 14px;
                 font-weight: bold;
                 padding: 8px 15px;
-                text-align: left;
+                text-align: center;
             }}
             QPushButton:hover {{
                 background-color: #2c7fc9;
