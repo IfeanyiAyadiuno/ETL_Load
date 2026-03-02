@@ -266,20 +266,29 @@ class MonthlyLoaderDialog(QDialog):
     def populate_months(self):
         """Populate month combo box with last 24 months in short format"""
         current = datetime.now()
-        months = []
-
         month_names = {
             1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
             7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
         }
 
-        for i in range(24):
-            dt = current.replace(day=1) - timedelta(days=i*30)
-            month_str = f"{month_names[dt.month]} {dt.year}"
-            months.append(month_str)
+        # Generate the last 24 distinct calendar months, oldest first
+        months = []
+        year = current.year
+        month = current.month
+        for _ in range(24):
+            months.append(f"{month_names[month]} {year}")
+            month -= 1
+            if month == 0:
+                month = 12
+                year -= 1
 
         months.reverse()
+
+        self.month_combo.clear()
         self.month_combo.addItems(months)
+        # Make sure full text (e.g. "Dec 2025") is visible
+        self.month_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.month_combo.setMinimumContentsLength(10)
 
     def validate_inputs(self):
         """Validate file paths and database connection"""

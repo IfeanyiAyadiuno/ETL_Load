@@ -246,21 +246,29 @@ class SalesRatiosDialog(QDialog):
     def populate_months(self, combo_box):
         """Populate month combo box with last 60 months"""
         current = datetime.now()
-        months = []
-
         month_names = {
             1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
             7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
         }
 
-        # Go back 60 months (5 years)
-        for i in range(60):
-            dt = current.replace(day=1) - timedelta(days=i*30)
-            month_str = f"{month_names[dt.month]} {dt.year}"
-            months.append(month_str)
+        # Generate the last 60 distinct calendar months, oldest first
+        months = []
+        year = current.year
+        month = current.month
+        for _ in range(60):
+            months.append(f"{month_names[month]} {year}")
+            month -= 1
+            if month == 0:
+                month = 12
+                year -= 1
 
         months.reverse()
+
+        combo_box.clear()
         combo_box.addItems(months)
+        # Make sure full text (e.g. "Dec 2025") is visible
+        combo_box.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        combo_box.setMinimumContentsLength(10)
 
     def log_result(self, message):
         """Add message to results area"""
