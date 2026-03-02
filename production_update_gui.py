@@ -964,6 +964,8 @@ class MonthlyLoaderDialog(QDialog):
         """Handle loader completion"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        if hasattr(self, 'close_btn'):
+            self.close_btn.setEnabled(True)
         
         self.log_result("\n" + "=" * 60)
         self.log_result("LOAD COMPLETE!")
@@ -977,6 +979,8 @@ class MonthlyLoaderDialog(QDialog):
         """Handle loader error"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        if hasattr(self, 'close_btn'):
+            self.close_btn.setEnabled(True)
         self.log_result(f"\n❌ ERROR: {error_msg}")
 
 class MonthlyLoaderWorker(QThread):
@@ -991,6 +995,14 @@ class MonthlyLoaderWorker(QThread):
         self.month = month
         self.valnav_path = valnav_path
         self.accumap_path = accumap_path
+        self._cancelled = False
+    
+    def cancel(self):
+        """Cancel the worker thread"""
+        self._cancelled = True
+        if self.isRunning():
+            self.terminate()
+            self.wait(3000)  # Wait up to 3 seconds for thread to finish
     
     def run(self):
         """Run the loader"""
@@ -1221,7 +1233,7 @@ class SalesRatiosDialog(QDialog):
                 background-color: #545b62;
             }
         """)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
         
         button_layout.addStretch()
@@ -1234,6 +1246,29 @@ class SalesRatiosDialog(QDialog):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
         
+        # Initialize worker to None
+        self.worker = None
+    
+    def handle_close(self):
+        """Handle close button - cancel if running, otherwise close"""
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            # Cancel the running operation
+            reply = QMessageBox.question(
+                self,
+                "Cancel Operation",
+                "A script is currently running. Do you want to cancel it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.worker.cancel()
+                self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setVisible(False)
+                self.run_btn.setEnabled(True)
+                self.close_btn.setEnabled(True)
+        else:
+            self.close()
+    
     def create_group(self, title):
         """Create a styled group frame with title"""
         group = QFrame()
@@ -1327,6 +1362,7 @@ class SalesRatiosDialog(QDialog):
         """Handle update completion"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.close_btn.setEnabled(True)
         
         # Don't add another header - the real function already did
         if summary:
@@ -1354,6 +1390,14 @@ class SalesRatiosWorker(QThread):
         super().__init__()
         self.from_month = from_month
         self.to_month = to_month
+        self._cancelled = False
+    
+    def cancel(self):
+        """Cancel the worker thread"""
+        self._cancelled = True
+        if self.isRunning():
+            self.terminate()
+            self.wait(3000)  # Wait up to 3 seconds for thread to finish
     
     def run(self):
         """Run the update"""
@@ -1630,7 +1674,7 @@ class ProdviewUpdateDialog(QDialog):
                 background-color: #545b62;
             }
         """)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
         
         button_layout.addStretch()
@@ -1645,6 +1689,29 @@ class ProdviewUpdateDialog(QDialog):
         
         # Initialize info text based on default mode
         self.update_info_text()
+        
+        # Initialize worker to None
+        self.worker = None
+    
+    def handle_close(self):
+        """Handle close button - cancel if running, otherwise close"""
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            # Cancel the running operation
+            reply = QMessageBox.question(
+                self,
+                "Cancel Operation",
+                "A script is currently running. Do you want to cancel it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.worker.cancel()
+                self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setVisible(False)
+                self.run_btn.setEnabled(True)
+                self.close_btn.setEnabled(True)
+        else:
+            self.close()
     
     def update_info_text(self):
         """Update info text based on selected mode"""
@@ -1804,6 +1871,14 @@ class ProdviewUpdateWorker(QThread):
         self.from_month = from_month
         self.to_month = to_month
         self.update_mode = update_mode
+        self._cancelled = False
+    
+    def cancel(self):
+        """Cancel the worker thread"""
+        self._cancelled = True
+        if self.isRunning():
+            self.terminate()
+            self.wait(3000)  # Wait up to 3 seconds for thread to finish
     
     def run(self):
         """Run the update"""
