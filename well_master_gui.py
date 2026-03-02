@@ -5,7 +5,8 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit
 )
-from PyQt5.QtCore import Qt, QStyledItemDelegate
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QStyledItemDelegate
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
 
