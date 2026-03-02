@@ -1888,8 +1888,7 @@ class ProdviewUpdateWorker(QThread):
             
         except Exception as e:
             self.error_signal.emit(str(e))
-
-    
+   
 # Database helper for PCE_WM
 class WellMasterDB:
     """Handles all database operations for Well Master List"""

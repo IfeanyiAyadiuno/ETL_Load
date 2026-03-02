@@ -426,8 +426,63 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             else:
                 result_df['AllocatedWater_Rate'] = None
 
-            # Calculate Condensate_WH_Production
+            # Calculate Condensate_WH_Production (initial calculation)
             result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
+
+            # -----------------------------------------------------------------
+            # STEP 5: Apply Gas WH replacement logic (VBA compatibility)
+            # -----------------------------------------------------------------
+            log("  Applying Gas WH replacement logic...")
+            
+            # Make sure we have the necessary columns
+            if 'GasWH_Production' in result_df.columns and 'Gathered_Gas_Production' in result_df.columns:
+                
+                # Create working copies
+                gas_wh_original = result_df['GasWH_Production'].copy()
+                gathered_gas = result_df['Gathered_Gas_Production'].copy()
+                
+                # Track changes for logging
+                replacement_count = 0
+                
+                # Process each row individually to match VBA logic exactly
+                for idx in result_df.index:
+                    gas_val = gas_wh_original[idx]
+                    gathered_val = gathered_gas[idx] if pd.notna(gathered_gas[idx]) else None
+                    
+                    # Skip if no gathered gas available
+                    if gathered_val is None or pd.isna(gathered_val):
+                        continue
+                    
+                    # VBA Logic: If Gas WH <= 2, use Gathered Gas
+                    if pd.notna(gas_val) and gas_val <= 2 and gas_val > 0:
+                        result_df.at[idx, 'GasWH_Production'] = gathered_val
+                        replacement_count += 1
+                    # If no Gas WH (null or zero), use Gathered Gas
+                    elif pd.isna(gas_val) or gas_val == 0:
+                        result_df.at[idx, 'GasWH_Production'] = gathered_val
+                        replacement_count += 1
+                
+                # Recalculate Condensate_WH_Production after Gas WH changes
+                result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
+                
+                log(f"    Applied Gas WH replacement to {replacement_count} rows")
+                
+                # Log sample of changes
+                if replacement_count > 0:
+                    sample_changes = result_df[
+                        (result_df['GasWH_Production'] != gas_wh_original) & 
+                        result_df['GasWH_Production'].notna() & 
+                        gas_wh_original.notna()
+                    ].head(3)
+                    if len(sample_changes) > 0:
+                        log(f"    Sample - Original vs New Gas WH values:")
+                        for _, row in sample_changes.iterrows():
+                            original = gas_wh_original[row.name]
+                            new_val = row['GasWH_Production']
+                            gathered = row['Gathered_Gas_Production']
+                            log(f"      Well {row['Well Name']}: {original:.2f} → {new_val:.2f} (Gathered: {gathered:.2f})")
+            else:
+                log("    ⚠️ Missing required columns for Gas WH replacement")
 
             # Check if we have any data
             has_data = False
@@ -443,7 +498,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 log(f"    Sample - GasWH_Production non-null: {result_df['GasWH_Production'].notna().sum()} rows")
             
             # -----------------------------------------------------------------
-            # STEP 5: Insert into PCE_CDA
+            # STEP 6: Insert into PCE_CDA
             # -----------------------------------------------------------------
             log("  Inserting into PCE_CDA...")
 
