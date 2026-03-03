@@ -24,7 +24,7 @@ from PyQt5.QtGui import QTextCursor
 class SalesRatiosDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("📈 Sales Ratios Update")
+        self.setWindowTitle("📈 Public Sales Data and Ratios")
         self.setModal(True)
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
@@ -53,7 +53,7 @@ class SalesRatiosDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Title
-        title = QLabel("📈 Sales Ratios Update")
+        title = QLabel("📈 Public Sales Data and Ratios")
         title.setStyleSheet("""
             QLabel {
                 color: #1a4d3e;

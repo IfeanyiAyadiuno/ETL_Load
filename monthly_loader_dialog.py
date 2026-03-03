@@ -26,7 +26,7 @@ class MonthlyLoaderDialog(QDialog):
     def __init__(self, settings_section, parent=None):
         super().__init__(parent)
         self.settings_section = settings_section
-        self.setWindowTitle("📊 PA Allocations - Monthly Loader")
+        self.setWindowTitle("📊 Production Accounting Allocations (PA)")
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
@@ -52,7 +52,7 @@ class MonthlyLoaderDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Title
-        title = QLabel("📊 PA Allocations - Monthly Loader")
+        title = QLabel("📊 Production Accounting Allocations (PA)")
         title.setStyleSheet("""
             QLabel {
                 color: #1a4d3e;

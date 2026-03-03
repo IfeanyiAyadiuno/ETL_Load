@@ -727,7 +727,7 @@ def allocation_factors_loader():
     """
     Load allocation factors from Excel to SQL Server database.
     Each well has 9 columns: 5 gas columns, 3 condensate columns, 1 empty column.
-    Loads data ONLY UNTIL END OF AUGUST 2025.
+    Loads data ONLY UNTIL END OF DEC 2025.
     Maps well names using PCE_WM table (Well Name_AF → Well Name)
     Also populates:
     - Gathered_Gas_Production and Gathered_Condensate_Production from PCE_CDA
@@ -737,7 +737,7 @@ def allocation_factors_loader():
     print("\n" + "="*70)
     print("ALLOCATION FACTORS LOADER - SQL SERVER VERSION")
     print("="*70)
-    print("(UNTIL AUGUST 2025)")
+    print("(UNTIL DECEMBER 2025)")
     
     # File paths
     excel_path = r"I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\Book1.xlsx"
@@ -885,8 +885,8 @@ def allocation_factors_loader():
         months = []
         data_start_row = 5  # Excel row 6
         
-        # Define the cutoff date - end of AUGUST 2025
-        cutoff_date = datetime(2025, 8, 31)
+        # Define the cutoff date - end of DECEMBER 2025
+        cutoff_date = datetime(2025, 12, 31)
         print(f"Cutoff date: {cutoff_date.strftime('%B %d, %Y')}")
         
         months_loaded = 0
@@ -906,11 +906,11 @@ def allocation_factors_loader():
                 except:
                     continue
             
-            # Check if month is BEFORE OR EQUAL to AUGUST 2025
+            # Check if month is BEFORE OR EQUAL to DECEMBER 2025
             month_year = month_date.year
             month_month = month_date.month
             
-            if month_year < 2025 or (month_year == 2025 and month_month <= 8):
+            if month_year < 2025 or (month_year == 2025 and month_month <= 12):
                 months.append({
                     'row': row,
                     'date': month_date
@@ -921,9 +921,9 @@ def allocation_factors_loader():
                 if months_skipped <= 5:
                     print(f"  Skipping {month_date.strftime('%B %Y')} - after cutoff")
         
-        print(f"\nLoaded {months_loaded} months (up to August 2025)")
+        print(f"\nLoaded {months_loaded} months (up to December 2025)")
         if months_skipped > 0:
-            print(f"Skipped {months_skipped} months (after August 2025)")
+            print(f"Skipped {months_skipped} months (after December 2025)")
         
         # Prepare for data insertion
         print("\nProcessing and inserting data...")
@@ -975,7 +975,7 @@ def allocation_factors_loader():
                 month_year = month_date.year
                 month_month = month_date.month
                 
-                if month_year > 2025 or (month_year == 2025 and month_month > 8):
+                if month_year > 2025 or (month_year == 2025 and month_month > 12):
                     continue
                 
                 try:
@@ -1104,8 +1104,8 @@ def allocation_factors_loader():
         print(f"   Wells without mapping: {len(unmapped_wells)}")
         print(f"   Wells with CDA data (at least one month): {wells_with_cda_data}")
         print(f"   Wells without any CDA data: {wells_without_cda_data}")
-        print(f"   Months loaded: {len(months)} (up to August 2025)")
-        print(f"   Months skipped: {months_skipped} (after August 2025)")
+        print(f"   Months loaded: {len(months)} (up to December 2025)")
+        print(f"   Months skipped: {months_skipped} (after December 2025)")
         print(f"   Previous records deleted: {existing_count:,}")
         print(f"   New records inserted: {total_inserted:,}")
         print(f"   Errors: {errors}")
@@ -1122,8 +1122,8 @@ def allocation_factors_loader():
                 print(f"  ... and {len(unmapped_wells) - 20} more")
         
         if months_skipped > 0:
-            print(f"\nNOTE: {months_skipped} months after August 2025 were NOT loaded.")
-            print("      Use the monthly update script for months after August 2025.")
+            print(f"\nNOTE: {months_skipped} months after December 2025 were NOT loaded.")
+            print("      Use the monthly update script for months after December 2025.")
         
         if errors > 0:
             print(f"\nWarning: {errors} errors occurred")

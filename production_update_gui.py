@@ -123,8 +123,8 @@ class ProductionUpdateGUI(QMainWindow):
         # Create 5 main buttons (Settings moved to header)
         self.btn_well_master = self.create_main_button("📋 Well Master List", "#0066b3")
         self.btn_prodview = self.create_main_button("❄️ Prodview/Snowflake Daily Production Retrieve", "#0066b3")
-        self.btn_allocations = self.create_main_button("📊 PA Allocations (Monthly Loader)", "#0066b3")
-        self.btn_ratios = self.create_main_button("📈 Sales Ratios Update", "#0066b3")
+        self.btn_allocations = self.create_main_button("📊 Production Accounting Allocations (PA)", "#0066b3")
+        self.btn_ratios = self.create_main_button("📈 Public Sales Data and Ratios", "#0066b3")
         self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
         
         # Add buttons to layout

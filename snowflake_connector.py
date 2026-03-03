@@ -25,7 +25,7 @@ class SnowflakeConnector:
         schema = os.getenv("SNOWFLAKE_SCHEMA")
         role = os.getenv("SNOWFLAKE_ROLE")
 
-        # Debug (safe): don't print password
+        
         if not account:
             raise RuntimeError("SNOWFLAKE_ACCOUNT is missing inside SnowflakeConnector.connect()")
 
