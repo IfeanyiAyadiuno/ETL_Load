@@ -26,6 +26,7 @@ class MonthlyLoaderDialog(QDialog):
     def __init__(self, settings_section, parent=None):
         super().__init__(parent)
         self.settings_section = settings_section
+        self.worker = None
         self.setWindowTitle("📊 Production Accounting Allocations (PA)")
         self.setModal(True)
         self.setMinimumWidth(750)
@@ -218,7 +219,7 @@ class MonthlyLoaderDialog(QDialog):
                 background-color: #545b62;
             }
         """)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
         button_layout.addStretch()
@@ -230,6 +231,37 @@ class MonthlyLoaderDialog(QDialog):
         # Set the scroll content
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def handle_close(self):
+        """
+        Handle dialog close.
+        If a loader is running, optionally cancel it before closing.
+        """
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Cancel Loader",
+                "The monthly loader is currently running.\n\n"
+                "Do you want to cancel it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    self.worker.cancel()
+                except Exception:
+                    try:
+                        self.worker.terminate()
+                    except Exception:
+                        pass
+                self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setVisible(False)
+                self.run_btn.setEnabled(True)
+                self.close_btn.setEnabled(True)
+            else:
+                return
+        else:
+            self.close()
 
     def create_group(self, title):
         """Create a styled group frame with title"""
@@ -331,6 +363,21 @@ class MonthlyLoaderDialog(QDialog):
 
     def run_loader(self):
         """Run the monthly loader in a separate thread"""
+        # Confirm before running
+        month = self.month_combo.currentText()
+        reply = QMessageBox.question(
+            self,
+            "Confirm Monthly Loader",
+            f"You are about to run the PA Monthly Loader for:\n\n"
+            f"  • Month: {month}\n\n"
+            f"This will update production accounting allocations in the database.\n\n"
+            f"Do you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         self.run_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -392,6 +439,15 @@ class MonthlyLoaderWorker(QThread):
         self.month = month
         self.valnav_path = valnav_path
         self.accumap_path = accumap_path
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the worker."""
+        self._cancelled = True
+        try:
+            self.terminate()
+        except Exception:
+            pass
 
     def run(self):
         """Run the loader"""

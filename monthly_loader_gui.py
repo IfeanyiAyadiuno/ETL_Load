@@ -1,3 +1,4 @@
+
 # monthly_loader_gui.py
 import pandas as pd
 import pyodbc
@@ -709,3 +710,4 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         log(error_msg)
         log(traceback.format_exc())
         return {"error": error_msg}
+    

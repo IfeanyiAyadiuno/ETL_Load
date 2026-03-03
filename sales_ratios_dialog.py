@@ -28,6 +28,7 @@ class SalesRatiosDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
+        self.worker = None
         self.initUI()
 
     def initUI(self):
@@ -200,7 +201,7 @@ class SalesRatiosDialog(QDialog):
                 background-color: #545b62;
             }
         """)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
         button_layout.addStretch()
@@ -212,6 +213,37 @@ class SalesRatiosDialog(QDialog):
         # Set the scroll content
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def handle_close(self):
+        """
+        Handle dialog close.
+        If an update is running, optionally cancel it before closing.
+        """
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Cancel Update",
+                "The Sales Ratios update is currently running.\n\n"
+                "Do you want to cancel it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    self.worker.cancel()
+                except Exception:
+                    try:
+                        self.worker.terminate()
+                    except Exception:
+                        pass
+                self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setVisible(False)
+                self.run_btn.setEnabled(True)
+                self.close_btn.setEnabled(True)
+            else:
+                return
+        else:
+            self.close()
 
     def create_group(self, title):
         """Create a styled group frame with title"""
@@ -280,6 +312,23 @@ class SalesRatiosDialog(QDialog):
 
     def run_update(self):
         """Run the sales ratios update in a separate thread"""
+        # Confirm before running
+        from_month = self.from_combo.currentText()
+        to_month = self.to_combo.currentText()
+        reply = QMessageBox.question(
+            self,
+            "Confirm Sales Ratios Update",
+            "You are about to run the Public Sales Data and Ratios update for:\n\n"
+            f"  • From: {from_month}\n"
+            f"  • To:   {to_month}\n\n"
+            "This will update calculated sales ratios in PCE_CDA and PCE_Production.\n\n"
+            "Do you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -339,6 +388,15 @@ class SalesRatiosWorker(QThread):
         super().__init__()
         self.from_month = from_month
         self.to_month = to_month
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the worker."""
+        self._cancelled = True
+        try:
+            self.terminate()
+        except Exception:
+            pass
 
     def run(self):
         """Run the update"""

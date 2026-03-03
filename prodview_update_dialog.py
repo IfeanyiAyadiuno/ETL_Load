@@ -29,6 +29,7 @@ class ProdviewUpdateDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
+        self.worker = None
         self.initUI()
 
     def initUI(self):
@@ -268,7 +269,7 @@ class ProdviewUpdateDialog(QDialog):
                 background-color: #545b62;
             }
         """)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
         button_layout.addStretch()
@@ -282,8 +283,36 @@ class ProdviewUpdateDialog(QDialog):
         self.update_info_text()
 
     def handle_close(self):
-        """Optional: hook if you want cancel behavior (currently just close)"""
-        self.close()
+        """
+        Handle dialog close.
+        If an update is running, optionally cancel it before closing.
+        """
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Cancel Update",
+                "The Prodview/Snowflake update is currently running.\n\n"
+                "Do you want to cancel it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    self.worker.cancel()
+                except Exception:
+                    try:
+                        self.worker.terminate()
+                    except Exception:
+                        pass
+                self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setVisible(False)
+                self.run_btn.setEnabled(True)
+                self.close_btn.setEnabled(True)
+                self.status_label.setText("Cancelled")
+            else:
+                return
+        else:
+            self.close()
 
     def update_info_text(self):
         """Update info text based on selected mode"""
@@ -374,6 +403,26 @@ class ProdviewUpdateDialog(QDialog):
 
     def run_update(self):
         """Run the prodview update in a separate thread"""
+        # Confirm before running
+        from_month = self.from_combo.currentText()
+        to_month = self.to_combo.currentText()
+        update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
+        mode_label = "FULL REBUILD (30–40 minutes, all history)" if update_mode == "full_rebuild" else "QUICK UPDATE (selected months only)"
+        reply = QMessageBox.question(
+            self,
+            "Confirm Prodview/Snowflake Update",
+            "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
+            f"  • Mode: {mode_label}\n"
+            f"  • From: {from_month}\n"
+            f"  • To:   {to_month}\n\n"
+            "This will update PCE_CDA and PCE_Production in SQL Server.\n\n"
+            "Do you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -443,6 +492,15 @@ class ProdviewUpdateWorker(QThread):
         self.from_month = from_month
         self.to_month = to_month
         self.update_mode = update_mode
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the worker."""
+        self._cancelled = True
+        try:
+            self.terminate()
+        except Exception:
+            pass
 
     def run(self):
         """Run the update"""
