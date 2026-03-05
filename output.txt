@@ -1,0 +1,105 @@
+╔════════════════════════════════════════════════════════════════════╗
+║               PA MONTHLY LOADER                                   ║
+╠════════════════════════════════════════════════════════════════════╣
+║  Started:     2026-03-04 18:59:11                                  ║
+║  Month:       Dec 2025                                             ║
+╚════════════════════════════════════════════════════════════════════╝
+
+
+================================================================================
+COMBINED MONTHLY LOADER - GUI VERSION
+================================================================================
+Month selected: December 2025
+
+================================================================================
+PROCESSING VALNAV DATA
+================================================================================
+   Looking for sheets containing: 'december 2025' or 'dec 2025'
+   Found matching sheet: 'Altares - Dec 2025'
+   Reading ValNav sheet: 'Altares - Dec 2025'
+   Successfully read 263 rows from ValNav
+   Processed 263 ValNav records with data
+
+================================================================================
+PROCESSING PUBLIC DATA ACCUMAP DATA
+================================================================================
+   Reading sheet: 'Sales Gas - to PRW'
+   Successfully read 15772 rows from Public Data Accumap
+   Found 0 Accumap records for December 2025
+   Processed 0 Accumap records with data
+
+================================================================================
+SQL SERVER OPERATIONS
+================================================================================
+
+Connecting to SQL Server...
+   Database connected successfully.
+
+Clearing existing data for the month...
+   Deleted 264 existing records for December 2025
+
+Fetching well mappings from PCE_WM...
+   Loaded 264 UWIs from PCE_WM table
+
+================================================================================
+LOADING PCE_CDA DATA FOR MONTH
+================================================================================
+   Aggregating PCE_CDA data for December 2025...
+   Found CDA data for 280 wells
+
+================================================================================
+MATCHING UWIS AND PREPARING COMBINED DATA
+================================================================================
+   Total unique UWIs from both sources: 263
+   Successfully matched: 261 wells
+   Unmatched ValNav UWIs: 2
+   Unmatched Accumap UWIs: 0
+   Unmatched in both sources: 0
+
+================================================================================
+CHECKING FOR MISSING WELLS
+================================================================================
+   Total wells in Allocation_Factors master list: 264
+   Wells successfully matched from ValNav/Accumap: 261
+
+   ⚠️ WARNING: 3 wells had no ValNav/Accumap data:
+      - b-43-A/94-B-8
+      - d-53-A/94-B-8
+      - d-B53-A/94-B-8
+
+   Adding missing wells to Allocation_Factors with zeros...
+   ✅ Added 3 wells to the load with zeros
+
+================================================================================
+INSERTING COMBINED DATA
+================================================================================
+
+Inserting data for 264 wells...
+   Inserted 50 wells...
+   Inserted 100 wells...
+   Inserted 150 wells...
+   Inserted 200 wells...
+   Inserted 250 wells...
+
+================================================================================
+LOAD COMPLETE!
+================================================================================
+
+╔════════════════════════════════════════════════════════════════════╗
+║                    ✓ OPERATION COMPLETE                            ║
+╠════════════════════════════════════════════════════════════════════╣
+║  Completed:   2026-03-04 18:59:16                                  ║
+╠────────────────────────────────────────────────────────────────────╣
+║  SUMMARY                                                           ║
+╠────────────────────────────────────────────────────────────────────╣
+║    ⚠️ WARNING           3 wells had no source data                   ║
+║    Month processed      Dec 2025                                     ║
+║    ValNav records       263                                          ║
+║    Accumap records      0                                            ║
+║    Wells successfully matched 261                                          ║
+║    Wells added with zeros 3                                            ║
+║    Total wells processed 264                                          ║
+║    Total time           5.0 seconds                                  ║
+╠────────────────────────────────────────────────────────────────────╣
+║  Duration:     5.0 seconds                                          ║
+╚════════════════════════════════════════════════════════════════════╝
