@@ -360,6 +360,23 @@ class MonthlyLoaderDialog(QDialog):
         cursor.movePosition(QTextCursor.End)
         self.results_text.setTextCursor(cursor)
         QApplication.processEvents()
+    
+    def format_timestamp(self):
+        """Get formatted timestamp for log entries"""
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def format_duration(self, seconds):
+        """Format duration in human-readable format"""
+        if seconds < 60:
+            return f"{seconds:.1f} seconds"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
 
     def run_loader(self):
         """Run the monthly loader in a separate thread"""
@@ -383,10 +400,16 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar.setRange(0, 0)
         self.results_text.clear()
 
-        self.log_result("=" * 60)
-        self.log_result(f"STARTING MONTHLY LOADER")
-        self.log_result(f"Month: {self.month_combo.currentText()}")
-        self.log_result("=" * 60)
+        # Professional header with timestamp
+        timestamp = self.format_timestamp()
+        month = self.month_combo.currentText()
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 15 + "PA MONTHLY LOADER" + " " * 35 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Started:     {timestamp:<52} ║")
+        self.log_result(f"║  Month:       {month:<52} ║")
+        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("")
 
         valnav_path = self.settings_section.get('valnav_template', '')
         accumap_path = self.settings_section.get('accumap_template', '')
@@ -412,19 +435,75 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
 
-        self.log_result("\n" + "=" * 60)
-        self.log_result("LOAD COMPLETE!")
-        self.log_result("=" * 60)
-
+        timestamp = self.format_timestamp()
+        self.log_result("")
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 20 + "✓ OPERATION COMPLETE" + " " * 28 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Completed:   {timestamp:<52} ║")
+        
         if summary:
+            # Extract key metrics from summary lines
+            duration = None
             for line in summary:
-                self.log_result(line)
+                if "Total time:" in line:
+                    try:
+                        duration_str = line.split("Total time:")[1].strip().split()[0]
+                        duration = float(duration_str)
+                    except:
+                        pass
+            
+            # Format summary nicely
+            self.log_result("╠" + "─" * 68 + "╣")
+            self.log_result("║  SUMMARY" + " " * 59 + "║")
+            self.log_result("╠" + "─" * 68 + "╣")
+            
+            for line in summary:
+                if "=" in line and len(line.strip()) > 10:
+                    continue  # Skip separator lines
+                if "LOAD SUMMARY" in line:
+                    continue
+                # Format summary lines nicely
+                clean_line = line.strip()
+                if clean_line:
+                    if ":" in clean_line:
+                        parts = clean_line.split(":", 1)
+                        label = parts[0].strip()
+                        value = parts[1].strip() if len(parts) > 1 else ""
+                        # Format numbers with commas
+                        if value.isdigit():
+                            value = f"{int(value):,}"
+                        self.log_result(f"║    {label:<20} {value:<44} ║")
+                    else:
+                        self.log_result(f"║    {clean_line:<64} ║")
+            
+            if duration:
+                formatted_duration = self.format_duration(duration)
+                self.log_result("╠" + "─" * 68 + "╣")
+                self.log_result(f"║  Duration:     {formatted_duration:<52} ║")
+        
+        self.log_result("╚" + "═" * 68 + "╝")
 
     def loader_error(self, error_msg):
         """Handle loader error"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
-        self.log_result(f"\n❌ ERROR: {error_msg}")
+        timestamp = self.format_timestamp()
+        self.log_result("")
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 22 + "✗ OPERATION FAILED" + " " * 28 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Time:         {timestamp:<52} ║")
+        self.log_result("╠" + "─" * 68 + "╣")
+        self.log_result(f"║  Error:        {error_msg[:56]:<52} ║")
+        if len(error_msg) > 56:
+            # Wrap long error messages
+            remaining = error_msg[56:]
+            while remaining:
+                chunk = remaining[:56]
+                remaining = remaining[56:]
+                self.log_result(f"║                {chunk:<52} ║")
+        self.log_result("╚" + "═" * 68 + "╝")
 
 
 class MonthlyLoaderWorker(QThread):

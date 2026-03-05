@@ -309,6 +309,23 @@ class SalesRatiosDialog(QDialog):
         cursor.movePosition(QTextCursor.End)
         self.results_text.setTextCursor(cursor)
         QApplication.processEvents()
+    
+    def format_timestamp(self):
+        """Get formatted timestamp for log entries"""
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def format_duration(self, seconds):
+        """Format duration in human-readable format"""
+        if seconds < 60:
+            return f"{seconds:.1f} seconds"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
 
     def run_update(self):
         """Run the sales ratios update in a separate thread"""
@@ -338,11 +355,17 @@ class SalesRatiosDialog(QDialog):
 
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
+        timestamp = self.format_timestamp()
 
-        self.log_result("=" * 60)
-        self.log_result("STARTING SALES RATIOS UPDATE")
-        self.log_result(f"Range: {from_month} to {to_month}")
-        self.log_result("=" * 60)
+        # Professional header with timestamp
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 12 + "SALES RATIOS UPDATE" + " " * 37 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Started:     {timestamp:<52} ║")
+        self.log_result(f"║  From:        {from_month:<52} ║")
+        self.log_result(f"║  To:          {to_month:<52} ║")
+        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("")
 
         self.worker = SalesRatiosWorker(from_month, to_month)
         self.worker.log_signal.connect(self.log_result)
@@ -362,19 +385,54 @@ class SalesRatiosDialog(QDialog):
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
 
+        timestamp = self.format_timestamp()
+        self.log_result("")
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 20 + "✓ OPERATION COMPLETE" + " " * 28 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Completed:   {timestamp:<52} ║")
+        
         if summary:
-            self.log_result(f"Months processed: {summary.get('months_processed', 0)}")
-            self.log_result(f"Wells updated: {summary.get('wells_updated', 0)}")
-            self.log_result(f"PCE_CDA records updated: {summary.get('cda_records', 0)}")
-            self.log_result(f"PCE_Production records updated: {summary.get('production_records', 0)}")
-            self.log_result(f"Total time: {summary.get('duration', 0):.1f} seconds")
+            self.log_result("╠" + "─" * 68 + "╣")
+            self.log_result("║  SUMMARY" + " " * 59 + "║")
+            self.log_result("╠" + "─" * 68 + "╣")
+            
+            months = summary.get('months_processed', 0)
+            wells = summary.get('wells_updated', 0)
+            cda_records = summary.get('cda_records', 0)
+            prod_records = summary.get('production_records', 0)
+            duration = summary.get('duration', 0)
+            
+            self.log_result(f"║    Months Processed:        {months:>10,} months" + " " * 28 + "║")
+            self.log_result(f"║    Wells Updated:           {wells:>10,} wells" + " " * 28 + "║")
+            self.log_result(f"║    PCE_CDA Records:         {cda_records:>10,} records" + " " * 24 + "║")
+            self.log_result(f"║    PCE_Production Records:  {prod_records:>10,} records" + " " * 22 + "║")
+            self.log_result("╠" + "─" * 68 + "╣")
+            formatted_duration = self.format_duration(duration)
+            self.log_result(f"║  Duration:     {formatted_duration:<52} ║")
+        
+        self.log_result("╚" + "═" * 68 + "╝")
 
     def update_error(self, error_msg):
         """Handle update error"""
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-        self.log_result(f"\n❌ ERROR: {error_msg}")
+        timestamp = self.format_timestamp()
+        self.log_result("")
+        self.log_result("╔" + "═" * 68 + "╗")
+        self.log_result("║" + " " * 22 + "✗ OPERATION FAILED" + " " * 28 + "║")
+        self.log_result("╠" + "═" * 68 + "╣")
+        self.log_result(f"║  Time:         {timestamp:<52} ║")
+        self.log_result("╠" + "─" * 68 + "╣")
+        self.log_result(f"║  Error:        {error_msg[:56]:<52} ║")
+        if len(error_msg) > 56:
+            remaining = error_msg[56:]
+            while remaining:
+                chunk = remaining[:56]
+                remaining = remaining[56:]
+                self.log_result(f"║                {chunk:<52} ║")
+        self.log_result("╚" + "═" * 68 + "╝")
 
 
 class SalesRatiosWorker(QThread):
