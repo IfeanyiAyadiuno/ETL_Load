@@ -455,14 +455,14 @@ class ProdviewUpdateDialog(QDialog):
         timestamp = self.format_timestamp()
 
         # Professional header with timestamp
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 8 + "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE" + " " * 18 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Started:     {timestamp:<52} ║")
-        self.log_result(f"║  Mode:        {mode_name:<52} ║")
-        self.log_result(f"║  From:        {from_month:<52} ║")
-        self.log_result(f"║  To:          {to_month:<52} ║")
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result("|" + " " * 10 + "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE" + " " * 16 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Started:     {timestamp:<54} |")
+        self.log_result(f"|  Mode:        {mode_name:<54} |")
+        self.log_result(f"|  From:        {from_month:<54} |")
+        self.log_result(f"|  To:          {to_month:<54} |")
+        self.log_result("+" + "-" * 70 + "+")
         self.log_result("")
 
         self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
@@ -486,15 +486,15 @@ class ProdviewUpdateDialog(QDialog):
 
         timestamp = self.format_timestamp()
         self.log_result("")
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 20 + "✓ OPERATION COMPLETE" + " " * 28 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Completed:   {timestamp:<52} ║")
+        self.log_result("+" + "=" * 70 + "+")
+        self.log_result("|" + " " * 22 + "OPERATION COMPLETE" + " " * 30 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Completed:   {timestamp:<54} |")
         
         if summary:
-            self.log_result("╠" + "─" * 68 + "╣")
-            self.log_result("║  SUMMARY" + " " * 59 + "║")
-            self.log_result("╠" + "─" * 68 + "╣")
+            self.log_result("+" + "-" * 70 + "+")
+            self.log_result("|  SUMMARY" + " " * 60 + "|")
+            self.log_result("+" + "-" * 70 + "+")
             
             months = summary.get('months_processed', 0)
             wells = summary.get('wells_updated', 0)
@@ -502,15 +502,15 @@ class ProdviewUpdateDialog(QDialog):
             prod_records = summary.get('production_records', 0)
             duration = summary.get('duration', 0)
             
-            self.log_result(f"║    Months Processed:        {months:>10,} months" + " " * 28 + "║")
-            self.log_result(f"║    Wells Updated:           {wells:>10,} wells" + " " * 28 + "║")
-            self.log_result(f"║    PCE_CDA Records:         {cda_records:>10,} records" + " " * 24 + "║")
-            self.log_result(f"║    PCE_Production Records:   {prod_records:>10,} records" + " " * 22 + "║")
-            self.log_result("╠" + "─" * 68 + "╣")
+            self.log_result(f"|    Months Processed:        {months:>10,} months" + " " * 30 + "|")
+            self.log_result(f"|    Wells Updated:           {wells:>10,} wells" + " " * 30 + "|")
+            self.log_result(f"|    PCE_CDA Records:         {cda_records:>10,} records" + " " * 26 + "|")
+            self.log_result(f"|    PCE_Production Records:  {prod_records:>10,} records" + " " * 24 + "|")
+            self.log_result("+" + "-" * 70 + "+")
             formatted_duration = self.format_duration(duration)
-            self.log_result(f"║  Duration:     {formatted_duration:<52} ║")
+            self.log_result(f"|  Duration:     {formatted_duration:<54} |")
         
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "=" * 70 + "+")
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -520,19 +520,25 @@ class ProdviewUpdateDialog(QDialog):
         self.status_label.setText("Error")
         timestamp = self.format_timestamp()
         self.log_result("")
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 22 + "✗ OPERATION FAILED" + " " * 28 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Time:         {timestamp:<52} ║")
-        self.log_result("╠" + "─" * 68 + "╣")
-        self.log_result(f"║  Error:        {error_msg[:56]:<52} ║")
-        if len(error_msg) > 56:
-            remaining = error_msg[56:]
-            while remaining:
-                chunk = remaining[:56]
-                remaining = remaining[56:]
-                self.log_result(f"║                {chunk:<52} ║")
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "=" * 70 + "+")
+        self.log_result("|" + " " * 24 + "OPERATION FAILED" + " " * 30 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Time:         {timestamp:<54} |")
+        self.log_result("+" + "-" * 70 + "+")
+        # Wrap error message properly
+        error_lines = []
+        remaining = error_msg
+        while remaining:
+            chunk = remaining[:58]
+            remaining = remaining[58:]
+            error_lines.append(chunk)
+        
+        for i, chunk in enumerate(error_lines):
+            if i == 0:
+                self.log_result(f"|  Error:        {chunk:<54} |")
+            else:
+                self.log_result(f"|                {chunk:<54} |")
+        self.log_result("+" + "=" * 70 + "+")
 
 
 class ProdviewUpdateWorker(QThread):

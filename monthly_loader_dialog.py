@@ -403,12 +403,12 @@ class MonthlyLoaderDialog(QDialog):
         # Professional header with timestamp
         timestamp = self.format_timestamp()
         month = self.month_combo.currentText()
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 15 + "PA MONTHLY LOADER" + " " * 35 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Started:     {timestamp:<52} ║")
-        self.log_result(f"║  Month:       {month:<52} ║")
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result("|" + " " * 20 + "PA MONTHLY LOADER" + " " * 33 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Started:     {timestamp:<54} |")
+        self.log_result(f"|  Month:       {month:<54} |")
+        self.log_result("+" + "-" * 70 + "+")
         self.log_result("")
 
         valnav_path = self.settings_section.get('valnav_template', '')
@@ -437,10 +437,10 @@ class MonthlyLoaderDialog(QDialog):
 
         timestamp = self.format_timestamp()
         self.log_result("")
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 20 + "✓ OPERATION COMPLETE" + " " * 28 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Completed:   {timestamp:<52} ║")
+        self.log_result("+" + "=" * 70 + "+")
+        self.log_result("|" + " " * 22 + "OPERATION COMPLETE" + " " * 30 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Completed:   {timestamp:<54} |")
         
         if summary:
             # Extract key metrics from summary lines
@@ -454,9 +454,9 @@ class MonthlyLoaderDialog(QDialog):
                         pass
             
             # Format summary nicely
-            self.log_result("╠" + "─" * 68 + "╣")
-            self.log_result("║  SUMMARY" + " " * 59 + "║")
-            self.log_result("╠" + "─" * 68 + "╣")
+            self.log_result("+" + "-" * 70 + "+")
+            self.log_result("|  SUMMARY" + " " * 60 + "|")
+            self.log_result("+" + "-" * 70 + "+")
             
             for line in summary:
                 if "=" in line and len(line.strip()) > 10:
@@ -471,18 +471,22 @@ class MonthlyLoaderDialog(QDialog):
                         label = parts[0].strip()
                         value = parts[1].strip() if len(parts) > 1 else ""
                         # Format numbers with commas
-                        if value.isdigit():
-                            value = f"{int(value):,}"
-                        self.log_result(f"║    {label:<20} {value:<44} ║")
+                        if value.replace(',', '').isdigit():
+                            value = f"{int(value.replace(',', '')):,}"
+                        # Ensure proper width
+                        label_padded = label[:30].ljust(30)
+                        value_padded = value[:36].ljust(36)
+                        self.log_result(f"|    {label_padded} {value_padded} |")
                     else:
-                        self.log_result(f"║    {clean_line:<64} ║")
+                        clean_line_padded = clean_line[:66].ljust(66)
+                        self.log_result(f"|    {clean_line_padded} |")
             
             if duration:
                 formatted_duration = self.format_duration(duration)
-                self.log_result("╠" + "─" * 68 + "╣")
-                self.log_result(f"║  Duration:     {formatted_duration:<52} ║")
+                self.log_result("+" + "-" * 70 + "+")
+                self.log_result(f"|  Duration:     {formatted_duration:<54} |")
         
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "=" * 70 + "+")
 
     def loader_error(self, error_msg):
         """Handle loader error"""
@@ -490,20 +494,25 @@ class MonthlyLoaderDialog(QDialog):
         self.run_btn.setEnabled(True)
         timestamp = self.format_timestamp()
         self.log_result("")
-        self.log_result("╔" + "═" * 68 + "╗")
-        self.log_result("║" + " " * 22 + "✗ OPERATION FAILED" + " " * 28 + "║")
-        self.log_result("╠" + "═" * 68 + "╣")
-        self.log_result(f"║  Time:         {timestamp:<52} ║")
-        self.log_result("╠" + "─" * 68 + "╣")
-        self.log_result(f"║  Error:        {error_msg[:56]:<52} ║")
-        if len(error_msg) > 56:
-            # Wrap long error messages
-            remaining = error_msg[56:]
-            while remaining:
-                chunk = remaining[:56]
-                remaining = remaining[56:]
-                self.log_result(f"║                {chunk:<52} ║")
-        self.log_result("╚" + "═" * 68 + "╝")
+        self.log_result("+" + "=" * 70 + "+")
+        self.log_result("|" + " " * 24 + "OPERATION FAILED" + " " * 30 + "|")
+        self.log_result("+" + "-" * 70 + "+")
+        self.log_result(f"|  Time:         {timestamp:<54} |")
+        self.log_result("+" + "-" * 70 + "+")
+        # Wrap error message properly
+        error_lines = []
+        remaining = error_msg
+        while remaining:
+            chunk = remaining[:58]
+            remaining = remaining[58:]
+            error_lines.append(chunk)
+        
+        for i, chunk in enumerate(error_lines):
+            if i == 0:
+                self.log_result(f"|  Error:        {chunk:<54} |")
+            else:
+                self.log_result(f"|                {chunk:<54} |")
+        self.log_result("+" + "=" * 70 + "+")
 
 
 class MonthlyLoaderWorker(QThread):
