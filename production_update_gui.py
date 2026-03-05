@@ -663,7 +663,6 @@ class ExportsDialog(QDialog):
         layout.addLayout(btn_layout)
 
 
-
 def main():
     app = QApplication(sys.argv)
     gui = ProductionUpdateGUI()
