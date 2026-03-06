@@ -36,8 +36,14 @@ class WellMasterDB:
                 [Lateral Length],
                 [Value Navigator UWI],
                 [Orient],
-                [Composite Name]
+                [Composite Name],
+                [Horizontal Distance Right],
+                [Horizontal Distance Left],
+                [Vertical Distance Above],
+                [Vertical Distance Below],
+                [Exception]
             FROM PCE_WM
+            WHERE [Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N'
             ORDER BY [Well Name]
             """
 
@@ -48,6 +54,13 @@ class WellMasterDB:
             # Convert to list of dicts
             wells = []
             for row in rows:
+                # Map SQL columns to dictionary keys
+                exception_val = row[16]
+                if exception_val is None or str(exception_val).strip() == "":
+                    exception_val = "N"
+                else:
+                    exception_val = str(exception_val).strip().upper()
+
                 well = {
                     'well_name': row[0],
                     'gas_idrec': row[1],
@@ -60,7 +73,12 @@ class WellMasterDB:
                     'lateral_length': row[8],
                     'value_nav_uwi': row[9],
                     'orient': row[10],
-                    'composite_name': row[11]
+                    'composite_name': row[11],
+                    'horizontal_right': row[12],
+                    'horizontal_left': row[13],
+                    'vertical_above': row[14],
+                    'vertical_below': row[15],
+                    'exception': exception_val,
                 }
                 wells.append(well)
 
@@ -179,9 +197,14 @@ class WellMasterDB:
                     'pad_name': '[Pad Name]',
                     'completions_tech': '[Completions Technology]',
                     'lateral_length': '[Lateral Length]',
+                    'horizontal_distance_right': '[Horizontal Distance Right]',
+                    'horizontal_distance_left': '[Horizontal Distance Left]',
+                    'vertical_distance_above': '[Vertical Distance Above]',
+                    'vertical_distance_below': '[Vertical Distance Below]',
                     'value_nav_uwi': '[Value Navigator UWI]',
                     'orient': '[Orient]',
-                    'composite_name': '[Composite Name]'
+                    'composite_name': '[Composite Name]',
+                    'exception': '[Exception]',
                 }
 
                 for key, db_field in field_mapping.items():
@@ -265,12 +288,38 @@ class WellMasterDialog(QDialog):
         self.row_widgets = []          # References to staged table widgets
         self.pending_current_edits = set()
         # Column widths (used in both tabs)
-        self.col_widths = [30, 130, 180, 180, 100, 80, 80, 100, 100, 70, 120, 60, 200]
+        # Index: 0    1            2           3               4          5       6            7
+        #        ""   Well Name    GasIDREC    PressuresIDREC  Formation  Layer   Fault Block  Pad Name
+        #        8         9              10                      11                      12
+        #        Completions  Lateral Len  Horiz Dist Right  Horiz Dist Left  Vert Dist Above
+        #        13                    14               15            16               17
+        #        Vert Dist Below  Value Nav UWI  Orient      Composite Name   Exception
+        self.col_widths = [
+            30, 150, 120, 120,
+            110, 90,  90,  110,
+            110, 80,  100, 100,
+            100, 100, 130, 70,
+            220, 70
+        ]
         self.headers = [
-            "", "Well Name", "GasIDREC", "PressuresIDREC",
-            "Formation", "Layer", "Fault Block", "Pad Name",
-            "Completions", "Lateral Length", "Value Nav UWI",
-            "Orient", "Composite Name"
+            "",
+            "Well Name",
+            "GasIDREC",
+            "PressuresIDREC",
+            "Formation",
+            "Layer",
+            "Fault Block",
+            "Pad Name",
+            "Completions",
+            "Lateral Length",
+            "Horizontal Distance Right",
+            "Horizontal Distance Left",
+            "Vertical Distance Above",
+            "Vertical Distance Below",
+            "Value Nav UWI",
+            "Orient",
+            "Composite Name",
+            "Exception",
         ]
 
         # Buttons (will be initialized in initUI)
@@ -553,7 +602,7 @@ class WellMasterDialog(QDialog):
             5: 'Layer Producer',
             6: 'Fault Block',
             8: 'Completions Technology',
-            11: 'Orient'
+            15: 'Orient',  # updated index for Orient column
         }
 
         for col, field in dropdown_columns.items():
@@ -581,16 +630,16 @@ class WellMasterDialog(QDialog):
         if not self.is_row_checked(row):
             return
 
-        if col in [4, 5, 8, 11]:
+        if col in [4, 5, 8, 15]:
             well_name = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
             layer = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
             tech = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
-            orient = self.table.item(row, 11).text() if self.table.item(row, 11) else ""
+            orient = self.table.item(row, 15).text() if self.table.item(row, 15) else ""
 
             composite = WellMasterDB.compose_name(well_name, layer, tech, orient)
-            if composite and self.table.item(row, 12):
+            if composite and self.table.item(row, 16):
                 self.table.blockSignals(True)
-                self.table.item(row, 12).setText(composite)
+                self.table.item(row, 16).setText(composite)
                 self.table.blockSignals(False)
 
                 self.pending_current_edits.add(row)
@@ -625,9 +674,14 @@ class WellMasterDialog(QDialog):
             pad_name = self.table.item(row, 7).text() if self.table.item(row, 7) else ""
             completions_tech = self.table.item(row, 8).text() if self.table.item(row, 8) else ""
             lateral_length = self.table.item(row, 9).text() if self.table.item(row, 9) else ""
-            value_nav_uwi = self.table.item(row, 10).text() if self.table.item(row, 10) else ""
-            orient = self.table.item(row, 11).text() if self.table.item(row, 11) else ""
-            composite_name = self.table.item(row, 12).text() if self.table.item(row, 12) else ""
+            horiz_right = self.table.item(row, 10).text() if self.table.item(row, 10) else ""
+            horiz_left = self.table.item(row, 11).text() if self.table.item(row, 11) else ""
+            vert_above = self.table.item(row, 12).text() if self.table.item(row, 12) else ""
+            vert_below = self.table.item(row, 13).text() if self.table.item(row, 13) else ""
+            value_nav_uwi = self.table.item(row, 14).text() if self.table.item(row, 14) else ""
+            orient = self.table.item(row, 15).text() if self.table.item(row, 15) else ""
+            composite_name = self.table.item(row, 16).text() if self.table.item(row, 16) else ""
+            exception_val = self.table.item(row, 17).text() if self.table.item(row, 17) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -637,6 +691,7 @@ class WellMasterDialog(QDialog):
             value_nav_uwi = value_nav_uwi if value_nav_uwi.strip() else None
             orient = orient if orient.strip() else None
             composite_name = composite_name if composite_name.strip() else None
+            exception_val = exception_val.strip().upper() if exception_val.strip() else "N"
 
             lateral_length_val = None
             if lateral_length.strip():
@@ -644,11 +699,32 @@ class WellMasterDialog(QDialog):
                     lateral_length_val = float(lateral_length)
                 except ValueError:
                     QMessageBox.warning(
-                        self,
-                        "Invalid Input",
+                        self, 
+                        "Invalid Input", 
                         f"Lateral Length for {well_name} must be a number."
                     )
                     return
+
+            def parse_real(value_str, label):
+                if not value_str.strip():
+                    return None
+                try:
+                    return float(value_str)
+                except ValueError:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Input",
+                        f"{label} for {well_name} must be a number."
+                    )
+                    raise
+
+            try:
+                horiz_right_val = parse_real(horiz_right, "Horizontal Distance Right")
+                horiz_left_val = parse_real(horiz_left, "Horizontal Distance Left")
+                vert_above_val = parse_real(vert_above, "Vertical Distance Above")
+                vert_below_val = parse_real(vert_below, "Vertical Distance Below")
+            except Exception:
+                return
 
             update_data = {
                 'well_name': well_name,
@@ -658,9 +734,14 @@ class WellMasterDialog(QDialog):
                 'pad_name': pad_name,
                 'completions_tech': completions_tech,
                 'lateral_length': lateral_length_val,
+                'horizontal_distance_right': horiz_right_val,
+                'horizontal_distance_left': horiz_left_val,
+                'vertical_distance_above': vert_above_val,
+                'vertical_distance_below': vert_below_val,
                 'value_nav_uwi': value_nav_uwi,
                 'orient': orient,
-                'composite_name': composite_name
+                'composite_name': composite_name,
+                'exception': exception_val,
             }
 
             updates.append(update_data)
@@ -811,10 +892,15 @@ class WellMasterDialog(QDialog):
                 well.get('fault_block', ''),
                 well.get('pad_name', ''),
                 well.get('completions_tech', ''),
-                str(well.get('lateral_length', '')),
+                str(well.get('lateral_length', '') or ''),
+                str(well.get('horizontal_right', '') or ''),
+                str(well.get('horizontal_left', '') or ''),
+                str(well.get('vertical_above', '') or ''),
+                str(well.get('vertical_below', '') or ''),
                 well.get('value_nav_uwi', ''),
                 well.get('orient', ''),
-                well.get('composite_name', '')
+                well.get('composite_name', ''),
+                well.get('exception', 'N'),
             ]
 
             is_pending = WellMasterDB.is_pending(well)
@@ -825,7 +911,7 @@ class WellMasterDialog(QDialog):
                 if col in [1, 2, 3]:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setBackground(QColor("#f0f0f0"))
-                elif col == 12:
+                elif col == 16:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setBackground(QColor("#f0f0f0"))
                 else:
@@ -848,7 +934,22 @@ class WellMasterDialog(QDialog):
         well = self.filtered_wells[row]
         is_checked = (state == Qt.Checked)
 
-        editable_columns = [4, 5, 6, 7, 8, 9, 10, 11]
+        # Columns that can be edited when a row is checked
+        editable_columns = [
+            4,   # Formation
+            5,   # Layer
+            6,   # Fault Block
+            7,   # Pad Name
+            8,   # Completions
+            9,   # Lateral Length
+            10,  # Horizontal Distance Right
+            11,  # Horizontal Distance Left
+            12,  # Vertical Distance Above
+            13,  # Vertical Distance Below
+            14,  # Value Nav UWI
+            15,  # Orient
+            17,  # Exception (Y/N)
+        ]
 
         for col in editable_columns:
             item = self.table.item(row, col)
@@ -1274,7 +1375,12 @@ class WellMasterDialog(QDialog):
             text_fields = [
                 (7, 'pad_name'),
                 (9, 'lateral_length'),
-                (10, 'value_nav_uwi')
+                (10, 'horizontal_right'),
+                (11, 'horizontal_left'),
+                (12, 'vertical_above'),
+                (13, 'vertical_below'),
+                (14, 'value_nav_uwi'),
+                (17, 'exception'),
             ]
 
             for col, field in text_fields:
@@ -1288,7 +1394,7 @@ class WellMasterDialog(QDialog):
                 (5, 'layer', self.dropdown_options.get('Layer Producer', [])),
                 (6, 'fault_block', self.dropdown_options.get('Fault Block', [])),
                 (8, 'completions_tech', self.dropdown_options.get('Completions Technology', [])),
-                (11, 'orient', self.dropdown_options.get('Orient', []))
+                (15, 'orient', self.dropdown_options.get('Orient', [])),
             ]
 
             for col, field, options in dropdown_fields:
@@ -1304,7 +1410,7 @@ class WellMasterDialog(QDialog):
             comp_item = QTableWidgetItem("")
             comp_item.setFlags(comp_item.flags() & ~Qt.ItemIsEditable)
             comp_item.setBackground(QColor("#f0f0f0"))
-            self.staged_table.setItem(row, 12, comp_item)
+            self.staged_table.setItem(row, 16, comp_item)
             row_widgets['composite'] = comp_item
 
             self.row_widgets.append(row_widgets)
@@ -1346,9 +1452,14 @@ class WellMasterDialog(QDialog):
             pad_name = self.staged_table.item(row, 7).text() if self.staged_table.item(row, 7) else ""
             completions_tech = self.staged_table.item(row, 8).text() if self.staged_table.item(row, 8) else ""
             lateral_length = self.staged_table.item(row, 9).text() if self.staged_table.item(row, 9) else ""
-            value_nav_uwi = self.staged_table.item(row, 10).text() if self.staged_table.item(row, 10) else ""
-            orient = self.staged_table.item(row, 11).text() if self.staged_table.item(row, 11) else ""
-            composite_name = self.staged_table.item(row, 12).text() if self.staged_table.item(row, 12) else ""
+            horiz_right = self.staged_table.item(row, 10).text() if self.staged_table.item(row, 10) else ""
+            horiz_left = self.staged_table.item(row, 11).text() if self.staged_table.item(row, 11) else ""
+            vert_above = self.staged_table.item(row, 12).text() if self.staged_table.item(row, 12) else ""
+            vert_below = self.staged_table.item(row, 13).text() if self.staged_table.item(row, 13) else ""
+            value_nav_uwi = self.staged_table.item(row, 14).text() if self.staged_table.item(row, 14) else ""
+            orient = self.staged_table.item(row, 15).text() if self.staged_table.item(row, 15) else ""
+            composite_name = self.staged_table.item(row, 16).text() if self.staged_table.item(row, 16) else ""
+            exception_val = self.staged_table.item(row, 17).text() if self.staged_table.item(row, 17) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -1358,6 +1469,7 @@ class WellMasterDialog(QDialog):
             value_nav_uwi = value_nav_uwi if value_nav_uwi.strip() else None
             orient = orient if orient.strip() else None
             composite_name = composite_name if composite_name.strip() else None
+            exception_val = exception_val.strip().upper() if exception_val.strip() else "N"
 
             lateral_length_val = None
             if lateral_length.strip():
@@ -1371,6 +1483,27 @@ class WellMasterDialog(QDialog):
                     )
                     return
 
+            def parse_real(value_str, label):
+                if not value_str.strip():
+                    return None
+                try:
+                    return float(value_str)
+                except ValueError:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Input",
+                        f"{label} for {well.get('well_name')} must be a number."
+                    )
+                    raise
+
+            try:
+                horiz_right_val = parse_real(horiz_right, "Horizontal Distance Right")
+                horiz_left_val = parse_real(horiz_left, "Horizontal Distance Left")
+                vert_above_val = parse_real(vert_above, "Vertical Distance Above")
+                vert_below_val = parse_real(vert_below, "Vertical Distance Below")
+            except Exception:
+                return
+
             update_data = {
                 'well_name': well.get('well_name'),
                 'formation': formation,
@@ -1379,9 +1512,14 @@ class WellMasterDialog(QDialog):
                 'pad_name': pad_name,
                 'completions_tech': completions_tech,
                 'lateral_length': lateral_length_val,
+                'horizontal_distance_right': horiz_right_val,
+                'horizontal_distance_left': horiz_left_val,
+                'vertical_distance_above': vert_above_val,
+                'vertical_distance_below': vert_below_val,
                 'value_nav_uwi': value_nav_uwi,
                 'orient': orient,
-                'composite_name': composite_name
+                'composite_name': composite_name,
+                'exception': exception_val,
             }
 
             updates.append(update_data)
