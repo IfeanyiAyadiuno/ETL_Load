@@ -69,8 +69,9 @@ class SurveyImportWorker(QThread):
 
 
 class SurveyImportDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, settings_section, parent=None):
         super().__init__(parent)
+        self.settings_section = settings_section
         self.worker = None
         self.setWindowTitle("📐 Survey Data Import")
         self.setModal(True)
@@ -111,12 +112,12 @@ class SurveyImportDialog(QDialog):
         
         # Excel File Group
         file_group = self.create_group("📁 Excel File")
-        file_layout = QVBoxLayout()
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("Path:"))
         
-        file_path_layout = QHBoxLayout()
-        file_path_layout.addWidget(QLabel("File:"))
-        
-        self.file_label = QLabel("No file selected")
+        self.file_label = QLabel()
+        survey_path = self.settings_section.get('survey_file', 'Not configured in Settings')
+        self.file_label.setText(survey_path)
         self.file_label.setStyleSheet("""
             QLabel {
                 background-color: #f0f0f0;
@@ -127,26 +128,7 @@ class SurveyImportDialog(QDialog):
             }
         """)
         self.file_label.setWordWrap(True)
-        file_path_layout.addWidget(self.file_label, 1)
-        
-        self.browse_btn = QPushButton("Browse...")
-        self.browse_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 6px 12px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #5a6268;
-            }
-        """)
-        self.browse_btn.clicked.connect(self.browse_file)
-        file_path_layout.addWidget(self.browse_btn)
-        
-        file_layout.addLayout(file_path_layout)
+        file_layout.addWidget(self.file_label, 1)
         file_group.layout().addLayout(file_layout)
         layout.addWidget(file_group)
         
@@ -290,30 +272,23 @@ class SurveyImportDialog(QDialog):
         
         return group
     
-    def browse_file(self):
-        """Browse for Excel file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Survey Excel File",
-            "",
-            "Excel Files (*.xlsx *.xls);;All Files (*)"
-        )
-        
-        if file_path:
-            self.file_label.setText(file_path)
-            self.validate_inputs()
-    
     def validate_inputs(self):
         """Validate inputs and enable/disable run button"""
-        has_file = self.file_label.text() != "No file selected" and os.path.exists(self.file_label.text())
+        file_path = self.file_label.text()
+        has_file = file_path != "Not configured in Settings" and file_path and os.path.exists(file_path)
         self.run_btn.setEnabled(has_file)
     
     def run_import(self):
         """Run the survey import"""
         file_path = self.file_label.text()
         
-        if not file_path or file_path == "No file selected" or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Invalid File", "Please select a valid Excel file.")
+        if not file_path or file_path == "Not configured in Settings" or not os.path.exists(file_path):
+            QMessageBox.warning(
+                self, 
+                "Invalid File", 
+                "Survey file path is not configured in Settings or file does not exist.\n\n"
+                "Please configure the survey file path in Settings."
+            )
             return
         
         # Confirm before running
@@ -345,7 +320,6 @@ class SurveyImportDialog(QDialog):
         
         # Disable controls
         self.run_btn.setEnabled(False)
-        self.browse_btn.setEnabled(False)
         self.mode_append.setEnabled(False)
         self.mode_overwrite.setEnabled(False)
         self.cancel_btn.setText("Cancel")
@@ -374,7 +348,6 @@ class SurveyImportDialog(QDialog):
         
         # Re-enable controls
         self.run_btn.setEnabled(True)
-        self.browse_btn.setEnabled(True)
         self.mode_append.setEnabled(True)
         self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")
@@ -406,7 +379,6 @@ class SurveyImportDialog(QDialog):
         
         # Re-enable controls
         self.run_btn.setEnabled(True)
-        self.browse_btn.setEnabled(True)
         self.mode_append.setEnabled(True)
         self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")

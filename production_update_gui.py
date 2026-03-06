@@ -295,7 +295,16 @@ class ProductionUpdateGUI(QMainWindow):
         """Open the survey import dialog"""
         self.log("Opening Survey Data Import dialog...")
         
-        dialog = SurveyImportDialog(self)
+        # Load settings
+        config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
+        else:
+            config['PATHS'] = {}
+        
+        # Pass settings_section and parent
+        dialog = SurveyImportDialog(config['PATHS'], self)
         dialog.exec_()
         
         # Clear selection
@@ -477,6 +486,29 @@ class SettingsDialog(QDialog):
         accumap_layout.addWidget(accumap_browse)
         paths_layout.addLayout(accumap_layout)
         
+        # Survey file path
+        survey_layout = QHBoxLayout()
+        survey_layout.addWidget(QLabel("Survey File:"))
+        self.survey_input = QLineEdit()
+        self.survey_input.setPlaceholderText("Path to Survey Excel file...")
+        survey_layout.addWidget(self.survey_input)
+        survey_browse = QPushButton("Browse")
+        survey_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #0066b3;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #2c7fc9;
+            }
+        """)
+        survey_browse.clicked.connect(self.browse_survey)
+        survey_layout.addWidget(survey_browse)
+        paths_layout.addLayout(survey_layout)
+        
         layout.addWidget(paths_group)
         
         # Buttons
@@ -544,6 +576,17 @@ class SettingsDialog(QDialog):
         if filename:
             self.accumap_input.setText(filename)
     
+    def browse_survey(self):
+        """Browse for Survey Excel file"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select Survey Excel File", 
+            self.survey_input.text() or "",
+            "Excel files (*.xlsx *.xls);;All Files (*)"
+        )
+        if filename:
+            self.survey_input.setText(filename)
+    
     def load_settings(self):
         """Load settings from file"""
         config = configparser.ConfigParser()
@@ -559,6 +602,7 @@ class SettingsDialog(QDialog):
             # File paths
             self.valnav_input.setText(config.get('PATHS', 'valnav_template', fallback=''))
             self.accumap_input.setText(config.get('PATHS', 'accumap_template', fallback=''))
+            self.survey_input.setText(config.get('PATHS', 'survey_file', fallback=''))
         else:
             # Set defaults
             self.server_input.setText('CALVMSQL02')
@@ -575,7 +619,8 @@ class SettingsDialog(QDialog):
         
         config['PATHS'] = {
             'valnav_template': self.valnav_input.text(),
-            'accumap_template': self.accumap_input.text()
+            'accumap_template': self.accumap_input.text(),
+            'survey_file': self.survey_input.text()
         }
         
         settings_file = get_settings_path()
