@@ -211,7 +211,12 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         log("\nFetching well mappings from PCE_WM...")
         
-        cursor.execute("SELECT [Value Navigator UWI], [Well Name] FROM PCE_WM WHERE [Value Navigator UWI] IS NOT NULL")
+        cursor.execute(
+            "SELECT [Value Navigator UWI], [Well Name] "
+            "FROM PCE_WM "
+            "WHERE [Value Navigator UWI] IS NOT NULL "
+            "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')"
+        )
         all_pce_uwis = cursor.fetchall()
         
         # Create lookup dictionaries

@@ -83,6 +83,7 @@ def fetch_well_mapping():
         [Well Name] as FallbackWell
     FROM PCE_WM
     WHERE [Well Name] IS NOT NULL
+      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
     """
     
     with get_sql_conn() as conn:

@@ -169,6 +169,7 @@ class WellMasterDB:
     def save_well_updates(updates):
         """Save multiple well updates to database"""
         from db_connection import get_sql_conn
+        from purge_exception_wells import purge_wells
 
         if not updates:
             return 0, ["No updates provided"]
@@ -179,12 +180,33 @@ class WellMasterDB:
             cursor = conn.cursor()
             updated = 0
             errors = []
+            wells_to_purge = set()
 
             for update in updates:
                 well_name = update.get('well_name')
                 if not well_name:
                     errors.append("Missing well name")
                     continue
+
+                # Determine if Exception is changing from N -> Y for this well
+                new_exception = update.get('exception')
+                if new_exception is not None:
+                    new_exception_norm = str(new_exception).strip().upper() or "N"
+                    # Fetch current exception from DB
+                    cursor.execute(
+                        "SELECT [Exception] FROM PCE_WM WHERE [Well Name] = ?", well_name
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        current_exception = row[0]
+                        if current_exception is None or str(current_exception).strip() == "":
+                            current_exception_norm = "N"
+                        else:
+                            current_exception_norm = str(current_exception).strip().upper()
+
+                        # Mark for purge only on transition N -> Y
+                        if current_exception_norm != "Y" and new_exception_norm == "Y":
+                            wells_to_purge.add(well_name)
 
                 # Build update query dynamically based on provided fields
                 set_clauses = []
@@ -230,6 +252,12 @@ class WellMasterDB:
                     errors.append(f"Well not found: {well_name}")
 
             conn.commit()
+
+            # After WM updates are committed, purge data for any wells
+            # whose Exception flag was changed from N -> Y during this save.
+            if wells_to_purge:
+                purge_wells(list(wells_to_purge))
+
             return updated, errors
 
         except Exception as e:

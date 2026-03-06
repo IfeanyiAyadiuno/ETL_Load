@@ -53,7 +53,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         cursor = conn.cursor()
         log("✅ Database connected")
         
-        # Get well mapping from PCE_WM
+        # Get well mapping from PCE_WM (exclude exception wells)
         log("\nFetching well mapping from PCE_WM...")
         cursor.execute("""
             SELECT 
@@ -68,6 +68,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 [Orient]
             FROM PCE_WM
             WHERE GasIDREC IS NOT NULL
+              AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
         """)
         
         mapping_rows = cursor.fetchall()
@@ -707,6 +708,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 [Orient]
             FROM PCE_WM
             WHERE GasIDREC IS NOT NULL
+              AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
         """)
         
         mapping_rows = cursor.fetchall()

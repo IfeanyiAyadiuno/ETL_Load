@@ -182,11 +182,12 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             
             # -----------------------------------------------------------------
             # UPDATE PCE_PRODUCTION
-            # Update PCE_Production
+            # Update PCE_Production (exclude exception wells)
             cursor.execute("""
                 SELECT [Well Name], [Composite Name]
                 FROM PCE_WM
                 WHERE [Composite Name] IS NOT NULL
+                  AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
             """)
             well_mapping = dict(cursor.fetchall())
 
