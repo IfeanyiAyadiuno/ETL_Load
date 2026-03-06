@@ -1268,7 +1268,8 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Calculate sequences
             well_df = calculate_sequences(well_df)
             
-            # Calculate cumulatives
+            # Calculate cumulatives over full history for this well
+            # (running totals that never reset within the well)
             well_df = calculate_cumulatives(well_df)
             
             # Calculate monthly averages
@@ -1277,20 +1278,19 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Add On Production Year
             well_df = add_on_production_year(well_df)
             
-            # Filter to only the affected date range for updating PCE_Production
-            update_mask = (well_df['Date'] >= start_date_first_date) & (well_df['Date'] <= end_date_last_date)
-            well_df_update = well_df[update_mask].copy()
-            
-            if well_df_update.empty:
-                continue
-            
-            # Delete existing records for this well in the date range
+            # For PCE_Production, we want cumulatives that are consistent
+            # over the full life of the well. To guarantee that, we delete
+            # and re‑insert this well's entire history in PCE_Production,
+            # not just the selected date range.
+            well_df_update = well_df.copy()
+
+            # Delete all existing records for this well
             cursor.execute("""
                 DELETE FROM PCE_Production
-                WHERE [Well Name] = ? AND [Date] BETWEEN ? AND ?
-            """, well_df_update.iloc[0]['Well Name'], start_date_first_date, end_date_last_date)
+                WHERE [Well Name] = ?
+            """, well_df_update.iloc[0]['Well Name'])
             
-            # Insert updated records
+            # Insert updated records for full history
             insert_prod_sql = """
             INSERT INTO PCE_Production (
                 [Date], [Days Seq], [Day Seq UPRT], [Well Name],

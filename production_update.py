@@ -289,10 +289,17 @@ def calculate_sequences(df):
 
 def calculate_cumulatives(df):
     """
-    Calculate cumulative totals for each well (optimized)
+    Calculate cumulative totals for each well.
+
+    For each well, cumulative columns are simple running totals
+    over time that NEVER reset within a well and always reflect
+    the sum of the daily values up to and including that date.
     """
     print("\nCalculating cumulative totals...")
     
+    # Ensure data is sorted by well and date so running totals are stable
+    df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
+
     # List of source columns and their cumulative target columns
     cumulatives = [
         ('Gas WH Production (10³m³)', 'Gas WH Cumulative Production (10³m³)'),
@@ -301,31 +308,15 @@ def calculate_cumulatives(df):
         ('Condensate Sales (m³/d)', 'Condensate Sales Cumulative Production (m³)'),
         ('Condensate WH (m³/d)', 'Condensate WH Cumulative Production (m³)'),
         ('Gathered Gas (e³m³/d)', 'Gas Gathered Cumulative (e³m³)'),
-        ('Gathered Condensate (m³/d)', 'Condensate Gathered Cumulative (m³)')
+        ('Gathered Condensate (m³/d)', 'Condensate Gathered Cumulative (m³)'),
     ]
-    
-    # Initialize cumulative columns
-    for _, cum_col in cumulatives:
-        df[cum_col] = 0.0
-    
-    # Process each well
-    wells = df['Well Name'].unique()
-    total_wells = len(wells)
-    
-    for well_idx, well_name in enumerate(wells, 1):
-        well_mask = df['Well Name'] == well_name
-        well_indices = df[well_mask].index
-        
-        # Process all cumulative columns at once for this well
-        for source_col, target_col in cumulatives:
-            # Get values, convert to float, fill NA with 0
-            values = pd.to_numeric(df.loc[well_indices, source_col], errors='coerce').fillna(0)
-            df.loc[well_indices, target_col] = values.cumsum().values
-        
-        # Show progress every 50 wells
-        if well_idx % 50 == 0:
-            print(f"    Processed {well_idx}/{total_wells} wells for cumulatives...")
-    
+
+    # For each pair, compute per‑well running total that never resets
+    for source_col, target_col in cumulatives:
+        # Convert to numeric and fill NaNs with zero for clean sums
+        values = pd.to_numeric(df[source_col], errors='coerce').fillna(0.0)
+        df[target_col] = values.groupby(df['Well Name']).cumsum()
+
     print("  Cumulative calculations complete")
     return df
 
