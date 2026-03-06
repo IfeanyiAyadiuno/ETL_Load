@@ -16,6 +16,7 @@ from monthly_loader_dialog import MonthlyLoaderDialog
 from sales_ratios_dialog import SalesRatiosDialog
 from prodview_update_dialog import ProdviewUpdateDialog
 from well_master_gui import WellMasterDialog
+from survey_import_dialog import SurveyImportDialog
 
 def get_settings_path():
     """Get absolute path to settings.ini file (next to the script)"""
@@ -120,11 +121,12 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(10)
         
-        # Create 5 main buttons (Settings moved to header)
+        # Create 6 main buttons (Settings moved to header)
         self.btn_well_master = self.create_main_button("📋 Well Master List", "#0066b3")
         self.btn_prodview = self.create_main_button("❄️ Prodview/Snowflake Daily Production Retrieve", "#0066b3")
         self.btn_allocations = self.create_main_button("📊 Production Accounting Allocations (PA)", "#0066b3")
         self.btn_ratios = self.create_main_button("📈 Public Sales Data and Ratios", "#0066b3")
+        self.btn_survey = self.create_main_button("📐 Survey Data Import", "#0066b3")
         self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
         
         # Add buttons to layout
@@ -132,6 +134,7 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_prodview)
         buttons_layout.addWidget(self.btn_allocations)
         buttons_layout.addWidget(self.btn_ratios)
+        buttons_layout.addWidget(self.btn_survey)
         buttons_layout.addWidget(self.btn_exports)
         
         # Connect buttons to click handlers
@@ -139,6 +142,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_prodview.clicked.connect(lambda: self.select_operation("Prodview/Snowflake Retrieve"))
         self.btn_allocations.clicked.connect(lambda: self.select_operation("PA Allocations"))
         self.btn_ratios.clicked.connect(lambda: self.select_operation("Sales Ratios Update"))
+        self.btn_survey.clicked.connect(lambda: self.select_operation("Survey Import"))
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
         
         layout.addLayout(buttons_layout)
@@ -231,6 +235,8 @@ class ProductionUpdateGUI(QMainWindow):
             self.open_prodview_update()
         elif operation_name == "Well Master List":
             self.open_well_master()
+        elif operation_name == "Survey Import":
+            self.open_survey_import()
         elif operation_name == "Exports/Reports":
             self.open_exports()
 
@@ -284,6 +290,16 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_allocations.setChecked(False)
+    
+    def open_survey_import(self):
+        """Open the survey import dialog"""
+        self.log("Opening Survey Data Import dialog...")
+        
+        dialog = SurveyImportDialog(self)
+        dialog.exec_()
+        
+        # Clear selection
+        self.btn_survey.setChecked(False)
         
     
     def open_settings(self):

@@ -224,16 +224,17 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         # -----------------------------------------------------------------
         log(f"\n🔄 Processing with mode: {import_mode}")
         
-        if import_mode == "overwrite":
+        if import_mode == "overwrite" or import_mode == "rewrite":
             # Delete existing records for these UWI values
             uwis = matched_df['UWI'].unique().tolist()
             
             cursor = conn.cursor()
+            total_deleted = 0
             for uwi in uwis:
                 cursor.execute("DELETE FROM Surveys WHERE UWI = ?", uwi)
-            deleted = cursor.rowcount
+                total_deleted += cursor.rowcount
             conn.commit()
-            log(f"   Deleted {deleted} existing records for {len(uwis)} wells")
+            log(f"   Deleted {total_deleted} existing records for {len(uwis)} wells")
         
         progress(60)
         
