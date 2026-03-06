@@ -29,9 +29,9 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*80)
+    log("\n" + "="*60)
     log("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE")
-    log("="*80)
+    log("="*60)
     log(f"Range: {start_month} to {end_month}")
     
     total_start = time.time()
@@ -128,15 +128,9 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             month_end_date = month_end.date()
             days_in_month = (month_end_date - month_start_date).days + 1
             
-            log(f"\n{'='*60}")
-            log(f"Processing {month_name}...")
-            log(f"Range: {month_start_date} to {month_end_date}")
-            log(f"Month {month_idx + 1} of {total_months}")
+            log(f"\nProcessing {month_name} ({month_idx + 1}/{total_months})...")
             
-            # -----------------------------------------------------------------
-            # STEP 1: Pull data from Snowflake
-            # -----------------------------------------------------------------
-            log("  Pulling data from Snowflake...")
+            # Pull data from Snowflake
             
             sf = SnowflakeConnector()
             
@@ -234,41 +228,28 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             
             sf.close()
             
-            log(f"    ECF: {len(ecf_df)} rows")
-            log(f"    GasWH: {len(gaswh_df)} rows")
-            log(f"    CGR: {len(cgr_df)} rows")
-            log(f"    WGR: {len(wgr_df)} rows")
-            log(f"    Pressures: {len(pressures_df)} rows")
-            log(f"    Allocations: {len(alloc_df)} rows")
-            log(f"    Water: {len(water_df)} rows")
+            total_rows = len(ecf_df) + len(gaswh_df) + len(cgr_df) + len(wgr_df) + len(pressures_df) + len(alloc_df) + len(water_df)
+            log(f"Retrieved {total_rows:,} rows from Snowflake")
             
-            # -----------------------------------------------------------------
-            # STEP 2: Delete existing data for this month
-            # -----------------------------------------------------------------
-            log("  Clearing existing data for month...")
-            
-            # Delete from PCE_CDA
+            # Delete existing data for this month
             cursor.execute("""
                 DELETE FROM PCE_CDA 
                 WHERE ProdDate BETWEEN ? AND ?
             """, month_start_date, month_end_date)
             deleted_cda = cursor.rowcount
-            log(f"    Deleted {deleted_cda} records from PCE_CDA")
             
-            # Delete from PCE_Production
             cursor.execute("""
                 DELETE FROM PCE_Production 
                 WHERE [Date] BETWEEN ? AND ?
             """, month_start_date, month_end_date)
             deleted_prod = cursor.rowcount
-            log(f"    Deleted {deleted_prod} records from PCE_Production")
             
             conn.commit()
             
-            # -----------------------------------------------------------------
-            # STEP 3: Build spine and insert into PCE_CDA
-            # -----------------------------------------------------------------
-            log("  Building daily data spine...")
+            if deleted_cda > 0 or deleted_prod > 0:
+                log(f"Cleared {deleted_cda:,} CDA and {deleted_prod:,} Production records")
+            
+            # Build daily data spine
 
             # Create date spine for each well
             all_rows = []
@@ -290,14 +271,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                     })
 
             spine_df = pd.DataFrame(all_rows)
-            log(f"    Created spine with {len(spine_df)} rows")
 
-            # -----------------------------------------------------------------
-            # STEP 4: Process and merge each data source
-            # -----------------------------------------------------------------
-            log("  Processing and merging data sources...")
-
-            # Start with spine
+            # Process and merge data sources
             result_df = spine_df.copy()
 
             # Helper function to clean and prepare dataframes
@@ -329,7 +304,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process ECF
             if not ecf_df.empty:
-                log("    Processing ECF data...")
                 ecf_processed = prepare_df(ecf_df, 'GASIDREC', 'PRODDATE', ['ECF_Ratio'])
                 if not ecf_processed.empty:
                     result_df = result_df.merge(ecf_processed, on=['GasIDREC', 'ProdDate'], how='left')
@@ -340,7 +314,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process GasWH
             if not gaswh_df.empty:
-                log("    Processing GasWH data...")
                 gaswh_processed = prepare_df(gaswh_df, 'GASIDREC', 'PRODDATE', ['GasWH_Production', 'OnProdHours'])
                 if not gaswh_processed.empty:
                     result_df = result_df.merge(gaswh_processed, on=['GasIDREC', 'ProdDate'], how='left')
@@ -353,7 +326,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process CGR (uses PressuresIDREC)
             if not cgr_df.empty:
-                log("    Processing CGR data...")
                 cgr_processed = prepare_df(cgr_df, 'PRESSURESIDREC', 'PRODDATE', ['CGR_Ratio'])
                 if not cgr_processed.empty:
                     cgr_processed = cgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
@@ -366,7 +338,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process WGR (uses PressuresIDREC)
             if not wgr_df.empty:
-                log("    Processing WGR data...")
                 wgr_processed = prepare_df(wgr_df, 'PRESSURESIDREC', 'PRODDATE', ['WGR_Ratio'])
                 if not wgr_processed.empty:
                     wgr_processed = wgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
@@ -379,7 +350,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process Pressures (uses PressuresIDREC)
             if not pressures_df.empty:
-                log("    Processing Pressures data...")
                 pressures_processed = prepare_df(pressures_df, 'PRESSURESIDREC', 'PRODDATE', 
                                                 ['TubingPressure', 'CasingPressure', 'ChokeSize'])
                 if not pressures_processed.empty:
@@ -397,7 +367,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process Allocations (uses PressuresIDREC)
             if not alloc_df.empty:
-                log("    Processing Allocations data...")
                 alloc_processed = prepare_df(alloc_df, 'PRESSURESIDREC', 'PRODDATE', 
                                             ['Gathered_Gas_Production', 'Gathered_Condensate_Production', 'NGL_Production'])
                 if not alloc_processed.empty:
@@ -415,7 +384,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             # Process Allocated Water (uses PressuresIDREC)
             if not water_df.empty:
-                log("    Processing Allocated Water data...")
                 water_processed = prepare_df(water_df, 'PRESSURESIDREC', 'PRODDATE', ['AllocatedWater_Rate'])
                 if not water_processed.empty:
                     water_processed = water_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
@@ -429,78 +397,29 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             # Calculate Condensate_WH_Production (initial calculation)
             result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
 
-            # -----------------------------------------------------------------
-            # STEP 5: Apply Gas WH replacement logic (VBA compatibility)
-            # -----------------------------------------------------------------
-            log("  Applying Gas WH replacement logic...")
-            
-            # Make sure we have the necessary columns
+            # Apply Gas WH replacement logic (VBA compatibility)
             if 'GasWH_Production' in result_df.columns and 'Gathered_Gas_Production' in result_df.columns:
-                
-                # Create working copies
                 gas_wh_original = result_df['GasWH_Production'].copy()
                 gathered_gas = result_df['Gathered_Gas_Production'].copy()
-                
-                # Track changes for logging
                 replacement_count = 0
                 
-                # Process each row individually to match VBA logic exactly
                 for idx in result_df.index:
                     gas_val = gas_wh_original[idx]
                     gathered_val = gathered_gas[idx] if pd.notna(gathered_gas[idx]) else None
                     
-                    # Skip if no gathered gas available
                     if gathered_val is None or pd.isna(gathered_val):
                         continue
                     
-                    # VBA Logic: If Gas WH <= 2, use Gathered Gas
                     if pd.notna(gas_val) and gas_val <= 2 and gas_val > 0:
                         result_df.at[idx, 'GasWH_Production'] = gathered_val
                         replacement_count += 1
-                    # If no Gas WH (null or zero), use Gathered Gas
                     elif pd.isna(gas_val) or gas_val == 0:
                         result_df.at[idx, 'GasWH_Production'] = gathered_val
                         replacement_count += 1
                 
-                # Recalculate Condensate_WH_Production after Gas WH changes
                 result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-                
-                log(f"    Applied Gas WH replacement to {replacement_count} rows")
-                
-                # Log sample of changes
-                if replacement_count > 0:
-                    sample_changes = result_df[
-                        (result_df['GasWH_Production'] != gas_wh_original) & 
-                        result_df['GasWH_Production'].notna() & 
-                        gas_wh_original.notna()
-                    ].head(3)
-                    if len(sample_changes) > 0:
-                        log(f"    Sample - Original vs New Gas WH values:")
-                        for _, row in sample_changes.iterrows():
-                            original = gas_wh_original[row.name]
-                            new_val = row['GasWH_Production']
-                            gathered = row['Gathered_Gas_Production']
-                            log(f"      Well {row['Well Name']}: {original:.2f} → {new_val:.2f} (Gathered: {gathered:.2f})")
-            else:
-                log("    ⚠️ Missing required columns for Gas WH replacement")
-
-            # Check if we have any data
-            has_data = False
-            for col in ['GasWH_Production', 'ECF_Ratio', 'CGR_Ratio', 'Gathered_Gas_Production']:
-                if col in result_df.columns and result_df[col].notna().any():
-                    has_data = True
-                    break
-
-            if not has_data:
-                log("    ⚠️ WARNING: No data found for this month!")
-            else:
-                log(f"    Merged dataframe has {len(result_df)} rows")
-                log(f"    Sample - GasWH_Production non-null: {result_df['GasWH_Production'].notna().sum()} rows")
             
-            # -----------------------------------------------------------------
-            # STEP 6: Insert into PCE_CDA
-            # -----------------------------------------------------------------
-            log("  Inserting into PCE_CDA...")
+            # Insert into PCE_CDA
 
             insert_sql = """
             INSERT INTO PCE_CDA (
@@ -559,7 +478,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             conn.commit()
             total_cda_records += rows_inserted
-            log(f"  ✅ Inserted {rows_inserted} records into PCE_CDA")
+            log(f"Inserted {rows_inserted:,} records into PCE_CDA")
 
             # -----------------------------------------------------------------
             # STEP 6: Update PCE_Production
@@ -616,19 +535,12 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             prod_inserted = cursor.rowcount
             conn.commit()
             total_production_records += prod_inserted
-            log(f"  ✅ Inserted {prod_inserted} records into PCE_Production")
             
             # Update overall progress
             progress_percent = int((month_idx + 1) / total_months * 100)
             progress(progress_percent)
         
-        # -----------------------------------------------------------------
-        # STEP 6: Recalculate sequences and cumulatives for affected wells
-        # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("Recalculating sequences and cumulatives...")
-        
-        # Get unique wells in the updated range
+        # Recalculate sequences and cumulatives for affected wells
         cursor.execute("""
             SELECT DISTINCT [Well Name]
             FROM PCE_CDA
@@ -636,11 +548,9 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         """, start_date.date(), end_date.date())
         
         affected_wells = [row[0] for row in cursor.fetchall()]
-        log(f"Found {len(affected_wells)} wells to recalculate")
+        log(f"\nRecalculating sequences for {len(affected_wells)} wells...")
         
         for well_idx, well_name in enumerate(affected_wells):
-            if well_idx % 10 == 0:
-                log(f"  Processing well {well_idx + 1}/{len(affected_wells)}...")
             
             # Get all dates for this well in order
             cursor.execute("""
@@ -686,8 +596,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             
             conn.commit()
         
-        log("✅ Sequence recalculation complete")
-        
         conn.close()
         
         total_time = time.time() - total_start
@@ -700,14 +608,11 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             'duration': total_time
         }
         
-        log("\n" + "="*80)
-        log("UPDATE COMPLETE!")
-        log("="*80)
-        log(f"Months processed: {months_processed}")
-        log(f"Wells updated: {len(affected_wells)}")
-        log(f"PCE_CDA records: {total_cda_records:,}")
-        log(f"PCE_Production records: {total_production_records:,}")
-        log(f"Total time: {total_time:.1f} seconds")
+        log("\n" + "="*60)
+        log("UPDATE COMPLETE")
+        log("="*60)
+        log(f"Months: {months_processed} | Wells: {len(affected_wells)} | CDA: {total_cda_records:,} | Production: {total_production_records:,}")
+        log(f"Duration: {total_time:.1f} seconds")
         
         return summary
         
@@ -1183,7 +1088,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             
             conn.commit()
             total_cda_records += rows_inserted
-            log(f"  ✅ Inserted {rows_inserted} records into PCE_CDA")
+            log(f"Inserted {rows_inserted:,} records into PCE_CDA")
             
             months_processed += 1
             
@@ -1192,12 +1097,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             progress(progress_percent)
         
         # -----------------------------------------------------------------
-        # STEP 2: Get affected wells and recalculate sequences/cumulatives
-        # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("Recalculating sequences, cumulatives, and averages for affected wells...")
-        
-        # Get unique wells in the updated range
+        # Get affected wells and recalculate sequences/cumulatives
         cursor.execute("""
             SELECT DISTINCT [Well Name]
             FROM PCE_CDA
@@ -1205,15 +1105,13 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         """, start_date_first_date, end_date_last_date)
         
         affected_wells = [row[0] for row in cursor.fetchall()]
-        log(f"Found {len(affected_wells)} affected wells")
+        log(f"\nRecalculating sequences and cumulatives for {len(affected_wells)} wells...")
         
         # Fetch well mapping for name conversion
         composite_map, fallback_map = fetch_well_mapping()
         
         # Process each affected well
         for well_idx, well_name in enumerate(affected_wells):
-            if well_idx % 10 == 0:
-                log(f"  Processing well {well_idx + 1}/{len(affected_wells)}: {well_name}")
             
             # Get ALL historical data for this well from PCE_CDA using pd.read_sql
             query = """
@@ -1382,14 +1280,11 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             'duration': total_time
         }
         
-        log("\n" + "="*80)
-        log("QUICK UPDATE COMPLETE!")
-        log("="*80)
-        log(f"Months processed: {months_processed}")
-        log(f"Wells updated: {len(affected_wells)}")
-        log(f"PCE_CDA records: {total_cda_records:,}")
-        log(f"PCE_Production records: {total_production_records:,}")
-        log(f"Total time: {total_time:.1f} seconds")
+        log("\n" + "="*60)
+        log("QUICK UPDATE COMPLETE")
+        log("="*60)
+        log(f"Months: {months_processed} | Wells: {len(affected_wells)} | CDA: {total_cda_records:,} | Production: {total_production_records:,}")
+        log(f"Duration: {total_time:.1f} seconds")
         
         return summary
         

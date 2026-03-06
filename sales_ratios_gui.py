@@ -27,9 +27,9 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*80)
+    log("\n" + "="*60)
     log("SALES RATIOS UPDATE")
-    log("="*80)
+    log("="*60)
     log(f"Range: {start_month} to {end_month}")
     
     total_start = time.time()
@@ -46,10 +46,8 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             return {"error": error_msg}
         
         # Connect to database
-        log("\nConnecting to SQL Server...")
         conn = get_sql_conn()
         cursor = conn.cursor()
-        log("✅ Database connected")
         
         # Get all months in range
         cursor.execute("""
@@ -60,7 +58,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
         """, start_date, end_date)
         
         all_months = cursor.fetchall()
-        log(f"Found {len(all_months)} months to process")
+        log(f"Processing {len(all_months)} month(s)")
         
         if len(all_months) == 0:
             log("No allocation factors found in selected range")
@@ -91,9 +89,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             month_end_date = month_end.date()
             days_in_month = (month_end_date - month_start_date).days + 1
             
-            log(f"\n{'='*60}")
-            log(f"Processing {month_name}...")
-            log(f"Range: {month_start_date} to {month_end_date}")
+            log(f"\nProcessing {month_name}...")
             
             # Get allocation factors for this month
             cursor.execute("""
@@ -109,7 +105,6 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             alloc_rows = cursor.fetchall()
             
             if len(alloc_rows) == 0:
-                log(f"  No allocation factors for {month_name}, skipping")
                 continue
             
             month_wells_updated = 0
@@ -181,24 +176,19 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                     month_wells_updated += 1
                     
                 except Exception as e:
-                    log(f"  Error updating well '{well_name}': {str(e)[:100]}")
             
             # Commit CDA updates
             conn.commit()
             
             # -----------------------------------------------------------------
             # UPDATE PCE_PRODUCTION
-            # -----------------------------------------------------------------
-            log(f"  Updating PCE_Production for {month_name}...")
-
-            # First, get the mapping between Well Name and Composite Name
+            # Update PCE_Production
             cursor.execute("""
                 SELECT [Well Name], [Composite Name]
                 FROM PCE_WM
                 WHERE [Composite Name] IS NOT NULL
             """)
             well_mapping = dict(cursor.fetchall())
-            log(f"  Loaded {len(well_mapping)} well name mappings")
 
             # Update PCE_Production by joining through PCE_WM
             cursor.execute("""
@@ -217,8 +207,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             production_updated = cursor.rowcount
             conn.commit()
 
-            log(f"  ✅ Updated {production_updated} records in PCE_Production")
-            log(f"  ✅ Updated {month_wells_updated} wells in PCE_CDA")
+            log(f"Updated {month_wells_updated} wells in CDA, {production_updated:,} records in Production")
             
             
             # Update progress
@@ -237,9 +226,9 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             'duration': total_time
         }
         
-        log("\n" + "="*80)
-        log("UPDATE COMPLETE!")
-        log("="*80)
+        log("\n" + "="*60)
+        log("UPDATE COMPLETE")
+        log("="*60)
         
         return summary
         

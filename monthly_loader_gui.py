@@ -36,9 +36,9 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*80)
-    log("COMBINED MONTHLY LOADER - GUI VERSION")
-    log("="*80)
+    log("\n" + "="*60)
+    log("COMBINED MONTHLY LOADER")
+    log("="*60)
     
     total_start = time.time()
     
@@ -73,15 +73,9 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
     missing_report = None
     
     try:
-        # -----------------------------------------------------------------
-        # READ VALNAV DATA
-        # -----------------------------------------------------------------
-        log("\n" + "="*80)
-        log("PROCESSING VALNAV DATA")
-        log("="*80)
+        # Read ValNav data
         progress(10)
         
-        # Read ValNav Excel file
         xl_file = pd.ExcelFile(valnav_path)
         sheet_names = xl_file.sheet_names
         
@@ -90,25 +84,17 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         month_search_full = month_start.strftime("%B %Y").lower()
         month_search_abbr = month_start.strftime("%b %Y").lower()
 
-        log(f"   Looking for sheets containing: '{month_search_full}' or '{month_search_abbr}'")
-
         for sheet in sheet_names:
             sheet_lower = sheet.lower()
             if month_search_full in sheet_lower or month_search_abbr in sheet_lower:
                 target_valnav_sheet = sheet
-                log(f"   Found matching sheet: '{sheet}'")
                 break
 
         if target_valnav_sheet is None:
-            log(f"\nWARNING: Could not find sheet for {month_start.strftime('%B %Y')} in ValNav file.")
             target_valnav_sheet = sheet_names[0]
-            log(f"   Using first sheet: '{target_valnav_sheet}'")
-        
-        log(f"   Reading ValNav sheet: '{target_valnav_sheet}'")
         
         # Read ValNav data
         df_valnav = pd.read_excel(valnav_path, sheet_name=target_valnav_sheet)
-        log(f"   Successfully read {len(df_valnav)} rows from ValNav")
         
         # Clean ValNav UWI values
         df_valnav['UWI_clean_valnav'] = df_valnav['McDaniel database'].astype(str).str.strip()
@@ -133,32 +119,20 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 'Sales_Cond': float(cond_volume)
             }
         
-        log(f"   Processed {len(valnav_data)} ValNav records with data")
+        log(f"Loaded {len(valnav_data)} ValNav records")
         progress(20)
         
-        # -----------------------------------------------------------------
-        # READ ACCUMAP DATA
-        # -----------------------------------------------------------------
-        log("\n" + "="*80)
-        log("PROCESSING PUBLIC DATA ACCUMAP DATA")
-        log("="*80)
-        
-        # Read Accumap Excel file
+        # Read Accumap data
         accumap_xl = pd.ExcelFile(accumap_path)
         accumap_sheets = accumap_xl.sheet_names
         
         # Try to find the correct sheet
         target_accumap_sheet = 'Sales Gas - to PRW'
         if target_accumap_sheet not in accumap_sheets:
-            log(f"   WARNING: '{target_accumap_sheet}' sheet not found.")
             target_accumap_sheet = accumap_sheets[0]
-            log(f"   Using first sheet: '{target_accumap_sheet}'")
-        
-        log(f"   Reading sheet: '{target_accumap_sheet}'")
         
         # Read Accumap data
         df_accumap = pd.read_excel(accumap_path, sheet_name=target_accumap_sheet)
-        log(f"   Successfully read {len(df_accumap)} rows from Public Data Accumap")
         
         # Clean UWI values
         df_accumap['UWI_clean_accumap'] = df_accumap['Unique Well ID'].astype(str).str.strip()
@@ -175,7 +149,6 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             (df_accumap['Date_parsed'].dt.month == month_start.month)
         ].copy()
         
-        log(f"   Found {len(df_accumap_filtered)} Accumap records for {month_start.strftime('%B %Y')}")
         
         # Prepare data dictionary
         accumap_data = {}
@@ -195,13 +168,13 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 'Sales_Gas': float(sales_gas)
             }
         
-        log(f"   Processed {len(accumap_data)} Accumap records with data")
+        log(f"Loaded {len(accumap_data)} Accumap records")
         progress(30)
         
         # -----------------------------------------------------------------
         # CONNECT TO SQL SERVER
         # -----------------------------------------------------------------
-        log("\n" + "="*80)
+        log("\n" + "="*60)
         log("SQL SERVER OPERATIONS")
         log("="*80)
         
@@ -229,9 +202,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 WHERE MonthStartDate = ?
             """, month_start)
             conn.commit()
-            log(f"   Deleted {existing_count} existing records for {month_start.strftime('%B %Y')}")
-        else:
-            log(f"   No existing records found for {month_start.strftime('%B %Y')}")
+            log(f"Deleted {existing_count} existing records for {month_start.strftime('%B %Y')}")
         
         progress(40)
         
@@ -280,7 +251,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         # LOAD PCE_CDA DATA FOR THE MONTH
         # -----------------------------------------------------------------
-        log("\n" + "="*80)
+        log("\n" + "="*60)
         log("LOADING PCE_CDA DATA FOR MONTH")
         log("="*80)
         
@@ -324,7 +295,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         # MATCH UWIS AND PREPARE COMBINED DATA
         # -----------------------------------------------------------------
-        log("\n" + "="*80)
+        log("\n" + "="*60)
         log("MATCHING UWIS AND PREPARING COMBINED DATA")
         log("="*80)
         
@@ -403,7 +374,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         # CHECK FOR MISSING WELLS
         # -----------------------------------------------------------------
-        log("\n" + "="*80)
+        log("\n" + "="*60)
         log("CHECKING FOR MISSING WELLS")
         log("="*80)
         
@@ -479,7 +450,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         # INSERT COMBINED DATA
         # -----------------------------------------------------------------
-        log("\n" + "="*80)
+        log("\n" + "="*60)
         log("INSERTING COMBINED DATA")
         log("="*80)
         
@@ -612,9 +583,9 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             'warnings': ', '.join(warning_messages) if warning_messages else None
         }
         
-        log("\n" + "="*80)
-        log("LOAD COMPLETE!")
-        log("="*80)
+        log("\n" + "="*60)
+        log("LOAD COMPLETE")
+        log("="*60)
         
         return summary
         

@@ -27,19 +27,16 @@ def get_sql_conn():
 
 def clear_pce_production():
     """Clear all data from PCE_Production table"""
-    print("\nClearing PCE_Production table...")
     with get_sql_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM PCE_Production")
         deleted = cursor.rowcount
         conn.commit()
-        print(f"  Deleted {deleted:,} records")
+        print(f"Cleared PCE_Production: {deleted:,} records deleted")
         return deleted
 
 def fetch_cda_data():
     """Fetch all daily production data from PCE_CDA ordered by well and date"""
-    print("\nFetching data from PCE_CDA...")
-    
     query = """
     SELECT 
         [Well Name] as [Source_Well_Name],
@@ -74,13 +71,11 @@ def fetch_cda_data():
     with get_sql_conn() as conn:
         df = pd.read_sql(query, conn)
     
-    print(f"  Fetched {len(df):,} rows from PCE_CDA")
+    print(f"Loaded {len(df):,} rows from PCE_CDA")
     return df
 
 def fetch_well_mapping():
     """Fetch well name mappings from PCE_WM (Composite Name and Well Name)"""
-    print("\nFetching well name mappings from PCE_WM...")
-    
     query = """
     SELECT 
         [Well Name] as SourceWell,
@@ -110,8 +105,7 @@ def fetch_well_mapping():
         # Always store fallback (Well Name itself)
         fallback_map[source] = str(fallback).strip()
     
-    print(f"  Loaded {len(composite_map)} composite name mappings")
-    print(f"  Loaded {len(fallback_map)} fallback name mappings")
+    print(f"Loaded {len(fallback_map)} well name mappings")
     
     return composite_map, fallback_map
 
@@ -119,8 +113,6 @@ def apply_well_names(df, composite_map, fallback_map):
     """
     Apply well name mapping: use Composite Name if available, otherwise use Well Name
     """
-    print("\nApplying well name mappings...")
-    
     original_count = len(df)
     
     # Track unmapped wells
@@ -174,8 +166,6 @@ def filter_to_first_production(df):
     Uses Gas WH if available, otherwise falls back to Gathered Gas
     Matches VBA logic: If Gas WH <= 2, use Gathered Gas
     """
-    print("\nFiltering to first production date for each well...")
-    
     original_count = len(df)
     wells = df['Well Name'].unique()
     total_wells = len(wells)
@@ -228,22 +218,16 @@ def filter_to_first_production(df):
             
             filtered_dfs.append(well_filtered)
             wells_with_data += 1
-            
-            if well_idx % 50 == 0:
-                print(f"    Processed {well_idx}/{total_wells} wells...")
         else:
             wells_without_data += 1
     
     if filtered_dfs:
         df_filtered = pd.concat(filtered_dfs, ignore_index=True)
-        print(f"  Wells with production data: {wells_with_data}")
-        print(f"  Wells with NO production data: {wells_without_data}")
-        print(f"  Rows before filtering: {original_count:,}")
-        print(f"  Rows after filtering: {len(df_filtered):,}")
-        print(f"  Rows removed: {original_count - len(df_filtered):,} ({((original_count - len(df_filtered))/original_count*100):.1f}%)")
+        rows_removed = original_count - len(df_filtered)
+        print(f"Filtered to first production: {wells_with_data} wells, {len(df_filtered):,} rows ({rows_removed:,} removed)")
         return df_filtered
     else:
-        print("  No wells with production data found!")
+        print("No wells with production data found!")
         return pd.DataFrame()
 
 def calculate_sequences(df):
@@ -253,8 +237,6 @@ def calculate_sequences(df):
     - Days Seq: simple counter that resets per well
     - Day Seq UPRT: stays same when production <= 0, increments otherwise
     """
-    print("\nCalculating sequence columns...")
-    
     df['Days Seq'] = 0
     df['Day Seq UPRT'] = 0
     
@@ -281,10 +263,8 @@ def calculate_sequences(df):
                 seq_uprt.append(counter - 1 if counter > 1 else 1)
         
         df.loc[well_indices, 'Day Seq UPRT'] = seq_uprt
-        
-        if well_idx % 50 == 0:
-            print(f"    Processed {well_idx}/{total_wells} wells...")
     
+    print(f"Calculated sequences for {total_wells} wells")
     return df
 
 def calculate_cumulatives(df):
@@ -295,8 +275,6 @@ def calculate_cumulatives(df):
     over time that NEVER reset within a well and always reflect
     the sum of the daily values up to and including that date.
     """
-    print("\nCalculating cumulative totals...")
-    
     # Ensure data is sorted by well and date so running totals are stable
     df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
 
@@ -317,15 +295,12 @@ def calculate_cumulatives(df):
         values = pd.to_numeric(df[source_col], errors='coerce').fillna(0.0)
         df[target_col] = values.groupby(df['Well Name']).cumsum()
 
-    print("  Cumulative calculations complete")
     return df
 
 def calculate_monthly_averages(df):
     """
     Calculate monthly averages for each well with progress tracking
     """
-    print("\nCalculating monthly averages...")
-    
     # Create year-month column for grouping
     df['YearMonth'] = pd.to_datetime(df['Date']).dt.to_period('M')
     
@@ -344,10 +319,6 @@ def calculate_monthly_averages(df):
     # Get unique wells
     wells = df['Well Name'].unique()
     total_wells = len(wells)
-    print(f"  Processing {total_wells} wells...")
-    
-    # Track progress
-    total_months_processed = 0
     
     # Calculate monthly averages per well
     for well_idx, well_name in enumerate(wells, 1):
@@ -363,41 +334,25 @@ def calculate_monthly_averages(df):
                 if len(month_values) > 0:
                     monthly_avg = month_values.mean()
                     df.loc[month_indices, avg_col] = monthly_avg
-            
-            total_months_processed += 1
-        
-        # Show progress every 25 wells
-        if well_idx % 25 == 0 or well_idx == total_wells:
-            pct = (well_idx / total_wells) * 100
-            print(f"    Progress: {well_idx}/{total_wells} wells ({pct:.1f}%) - {total_months_processed:,} months")
     
     # Drop the temporary YearMonth column
     df = df.drop(columns=['YearMonth'])
     
-    print(f"  ✅ Monthly average calculations complete")
     return df
 
 def add_on_production_year(df):
     """
     Add On Production Year column (year of first production date for each well)
     """
-    print("\nAdding On Production Year...")
-    
     df['On Production Year'] = 0
     
     wells = df['Well Name'].unique()
-    total_wells = len(wells)
     
-    for well_idx, well_name in enumerate(wells, 1):
+    for well_name in wells:
         well_mask = df['Well Name'] == well_name
         first_date = pd.to_datetime(df.loc[well_mask, 'Date'].min())
         df.loc[well_mask, 'On Production Year'] = first_date.year
-        
-        # Show progress every 50 wells
-        if well_idx % 50 == 0:
-            print(f"    Processed {well_idx}/{total_wells} wells...")
     
-    print("  On Production Year added")
     return df
 
 def insert_pce_production(df):
@@ -405,10 +360,8 @@ def insert_pce_production(df):
     Insert dataframe into PCE_Production table
     """
     if df.empty:
-        print("  No rows to insert")
+        print("No rows to insert")
         return 0
-    
-    print(f"\nInserting {len(df):,} rows into PCE_Production...")
     
     # Define the insert SQL with 39 parameters
     insert_sql = """
@@ -499,24 +452,19 @@ def insert_pce_production(df):
                 except Exception as row_e:
                     if "Violation of UNIQUE KEY" in str(row_e):
                         duplicate_skipped += 1
-                        if duplicate_skipped <= 5:  # Show first 5 duplicates
-                            print(f"      ⚠️ Duplicate skipped at position {i+j}")
                     else:
-                        print(f"      ❌ Error at position {i+j}: {row_e}")
-            
-            if (i + batch_size) % 5000 == 0 or (i + batch_size) >= len(rows_to_insert):
-                print(f"    Progress: {min(i + batch_size, len(rows_to_insert)):,} rows processed...")
+                        print(f"Error inserting row {i+j}: {row_e}")
     
-    print(f"  ✅ Successfully inserted {total_inserted:,} rows")
+    print(f"Inserted {total_inserted:,} rows into PCE_Production")
     if duplicate_skipped > 0:
-        print(f"  ⚠️ Skipped {duplicate_skipped:,} duplicate rows")
+        print(f"Warning: Skipped {duplicate_skipped:,} duplicate rows")
     
     return total_inserted
 
 def main():
-    print("=" * 80)
+    print("=" * 60)
     print("PCE_PRODUCTION POPULATION SCRIPT")
-    print("=" * 80)
+    print("=" * 60)
     
     # Step 1: Clear existing data
     clear_pce_production()
@@ -561,14 +509,13 @@ def main():
     rows_inserted = insert_pce_production(df)
     
     # Step 11: Final summary
-    print("\n" + "=" * 80)
-    print("POPULATION SUMMARY")
-    print("=" * 80)
+    print("\n" + "=" * 60)
+    print("SUMMARY")
+    print("=" * 60)
     print(f"Wells processed: {len(df['Well Name'].unique()):,}")
     print(f"Total records: {len(df):,}")
     print(f"Records inserted: {rows_inserted:,}")
-    print(f"Columns populated: {len(df.columns)}")
-    print("=" * 80)
+    print("=" * 60)
 
 if __name__ == "__main__":
     main()
