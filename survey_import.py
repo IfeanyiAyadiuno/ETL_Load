@@ -224,17 +224,83 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         # -----------------------------------------------------------------
         log(f"\n🔄 Processing with mode: {import_mode}")
         
+        cursor = conn.cursor()
+        
         if import_mode == "overwrite" or import_mode == "rewrite":
             # Delete existing records for these UWI values
             uwis = matched_df['UWI'].unique().tolist()
             
-            cursor = conn.cursor()
             total_deleted = 0
             for uwi in uwis:
                 cursor.execute("DELETE FROM Surveys WHERE UWI = ?", uwi)
                 total_deleted += cursor.rowcount
             conn.commit()
             log(f"   Deleted {total_deleted} existing records for {len(uwis)} wells")
+        
+        elif import_mode == "append":
+            # Check for existing records and filter them out
+            log("   Checking for existing records...")
+            
+            # Get unique UWIs from the data we're importing
+            uwis_to_check = matched_df['UWI'].dropna().unique().tolist()
+            
+            # Initialize skipped_count for summary
+            skipped_count = 0
+            original_matched_count = len(matched_df)
+            
+            if uwis_to_check:
+                # Query existing records for these UWIs
+                # Create a set of tuples (UWI, Station Number) to identify existing records
+                # Assuming UWI + Station Number is the unique key combination
+                placeholders = ','.join(['?' for _ in uwis_to_check])
+                existing_query = f"""
+                    SELECT [UWI], [Station Number]
+                    FROM Surveys
+                    WHERE [UWI] IN ({placeholders})
+                """
+                cursor.execute(existing_query, uwis_to_check)
+                existing_records = cursor.fetchall()
+                
+                # Create a set of (UWI, Station Number) tuples for fast lookup
+                existing_set = set()
+                for record in existing_records:
+                    uwi = record[0]
+                    station = record[1]
+                    # Handle None values
+                    uwi_str = str(uwi).strip() if uwi is not None else None
+                    station_val = station if station is not None else None
+                    existing_set.add((uwi_str, station_val))
+                
+                log(f"   Found {len(existing_set)} existing records in database")
+                
+                # Filter matched_df to only include records that don't exist
+                def record_exists(row):
+                    uwi = row.get('UWI')
+                    station = row.get('Station Number')
+                    uwi_str = str(uwi).strip() if pd.notna(uwi) and uwi is not None else None
+                    station_val = station if pd.notna(station) and station is not None else None
+                    return (uwi_str, station_val) in existing_set
+                
+                # Filter out existing records
+                before_count = len(matched_df)
+                matched_df = matched_df[~matched_df.apply(record_exists, axis=1)].copy()
+                after_count = len(matched_df)
+                skipped_count = before_count - after_count
+                
+                log(f"   Filtered out {skipped_count} existing records")
+                log(f"   {after_count} new records to insert")
+                
+                if matched_df.empty:
+                    log("\n   No new records to insert. All records already exist in database.")
+                    conn.close()
+                    return {
+                        'total_rows': len(df),
+                        'matched': original_matched_count,
+                        'unmatched': len(unmatched_df),
+                        'inserted': 0,
+                        'duplicates': skipped_count,
+                        'errors': 0
+                    }
         
         progress(60)
         
@@ -299,8 +365,6 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         total_inserted = 0
         duplicate_skipped = 0
         
-        cursor = conn.cursor()
-        
         for i in range(0, len(rows_to_insert), batch_size):
             batch = rows_to_insert[i:i + batch_size]
             
@@ -317,7 +381,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             conn.commit()
             
             if (i + batch_size) % 5000 == 0 or (i + batch_size) >= len(rows_to_insert):
-                pct = int((i + len(batch)) / len(rows_to_insert) * 100)
+                pct = int((i + len(batch)) / len(rows_to_insert) * 100) if rows_to_insert else 0
                 progress(60 + int(pct * 0.4))
                 log(f"      Progress: {min(i + batch_size, len(rows_to_insert))}/{len(rows_to_insert)} rows")
         
@@ -328,12 +392,21 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         # -----------------------------------------------------------------
         # STEP 8: Return summary
         # -----------------------------------------------------------------
+        # For append mode, use skipped_count if it was calculated, otherwise use duplicate_skipped
+        if import_mode == "append" and 'skipped_count' in locals():
+            duplicates_final = skipped_count
+            # Original matched count includes both new and skipped
+            matched_final = original_matched_count
+        else:
+            duplicates_final = duplicate_skipped
+            matched_final = len(matched_df) + duplicate_skipped if duplicate_skipped > 0 else len(matched_df)
+        
         summary = {
             'total_rows': len(df),
-            'matched': len(matched_df),
+            'matched': matched_final,
             'unmatched': len(unmatched_df),
             'inserted': total_inserted,
-            'duplicates': duplicate_skipped,
+            'duplicates': duplicates_final,
             'errors': 0
         }
         
