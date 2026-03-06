@@ -398,7 +398,8 @@ class SurveyImportDialog(QDialog):
             reply = QMessageBox.question(
                 self,
                 "Cancel Import?",
-                "An import is currently running. Do you want to cancel it?",
+                "An import operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -418,7 +419,8 @@ class SurveyImportDialog(QDialog):
             reply = QMessageBox.question(
                 self,
                 "Cancel Import?",
-                "An import is currently running. Do you want to cancel it?",
+                "An import operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )

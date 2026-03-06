@@ -290,18 +290,20 @@ class ProdviewUpdateDialog(QDialog):
         if self.worker is not None and self.worker.isRunning():
             reply = QMessageBox.question(
                 self,
-                "Cancel Update",
-                "The Prodview/Snowflake update is currently running.\n\n"
-                "Do you want to cancel it?",
+                "Cancel Update?",
+                "A Prodview/Snowflake update operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
                 try:
                     self.worker.cancel()
+                    self.worker.wait()
                 except Exception:
                     try:
                         self.worker.terminate()
+                        self.worker.wait()
                     except Exception:
                         pass
                 self.log_result("\n⚠️ Operation cancelled by user")
@@ -313,6 +315,33 @@ class ProdviewUpdateDialog(QDialog):
                 return
         else:
             self.close()
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Cancel Update?",
+                "A Prodview/Snowflake update operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    self.worker.cancel()
+                    self.worker.wait()
+                except Exception:
+                    try:
+                        self.worker.terminate()
+                        self.worker.wait()
+                    except Exception:
+                        pass
+            else:
+                event.ignore()
+                return
+        
+        event.accept()
 
     def update_info_text(self):
         """Update info text based on selected mode"""

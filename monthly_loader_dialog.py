@@ -240,18 +240,20 @@ class MonthlyLoaderDialog(QDialog):
         if self.worker is not None and self.worker.isRunning():
             reply = QMessageBox.question(
                 self,
-                "Cancel Loader",
-                "The monthly loader is currently running.\n\n"
-                "Do you want to cancel it?",
+                "Cancel Loader?",
+                "A monthly loader operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
                 try:
                     self.worker.cancel()
+                    self.worker.wait()
                 except Exception:
                     try:
                         self.worker.terminate()
+                        self.worker.wait()
                     except Exception:
                         pass
                 self.log_result("\n⚠️ Operation cancelled by user")
@@ -262,6 +264,33 @@ class MonthlyLoaderDialog(QDialog):
                 return
         else:
             self.close()
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if self.worker is not None and self.worker.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "Cancel Loader?",
+                "A monthly loader operation is currently running.\n\n"
+                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    self.worker.cancel()
+                    self.worker.wait()
+                except Exception:
+                    try:
+                        self.worker.terminate()
+                        self.worker.wait()
+                    except Exception:
+                        pass
+            else:
+                event.ignore()
+                return
+        
+        event.accept()
 
     def create_group(self, title):
         """Create a styled group frame with title"""
