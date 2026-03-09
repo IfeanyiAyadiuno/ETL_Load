@@ -62,23 +62,24 @@ def get_string_value(val):
         return None
     return s
 
-def import_typecurves(excel_path):
-    print("=" * 60)
-    print("TYPE CURVES IMPORTER")
-    print("=" * 60)
-    print(f"File: {excel_path}")
+def import_typecurves(excel_path, log_callback=None, progress_callback=None):
+    """Import type curves from Excel file"""
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+    
+    def progress(value):
+        if progress_callback:
+            progress_callback(value)
     
     try:
-        # Step 1: Read Excel
-        print("\nReading Excel file...")
+        log("Reading Excel file...")
+        progress(5)
         df_raw = pd.read_excel(excel_path, header=None)
         df_data = df_raw.iloc[1:].copy().reset_index(drop=True)
-        print(f"Read {len(df_data)} data rows")
         
-        # Step 2: Extract and process data
-        print("\nProcessing data...")
-        
-        # Extract columns by position (0-based indexing)
         data = {
             'Well Name': df_data[3].astype(str).str.strip(),
             'Gas_mcf': df_data[6],
@@ -95,113 +96,71 @@ def import_typecurves(excel_path):
         }
         
         df = pd.DataFrame(data)
-        
-        # Filter invalid wells
         df = df[df['Well Name'].notna() & (df['Well Name'] != '') & (df['Well Name'] != 'nan')]
         df = df[~df['Well Name'].str.contains('nan', case=False, na=False)]
         
         if len(df) == 0:
-            print("No valid rows found")
+            log("No valid rows found")
             return False
         
-        # Convert numeric fields with safe_float
         for col in ['Gas_mcf', 'Gas_mmcf', 'Cond_bbl', 'Cond_mbbl', 'Lateral_raw', 'Reserves_raw']:
             df[col] = df[col].apply(safe_float)
         
-        # Convert string fields
         for col in ['Formation', 'Layer', 'Fault', 'Pad', 'Remarks']:
             df[col] = df[col].apply(lambda x: get_string_value(x))
         
-        # Calculate all fields
         current_date = datetime.now().date()
         
-        # Gas conversions - rounded to 4 decimals
         df['Gas_WH_Prod'] = np.where(df['Gas_mcf'].notna(), (df['Gas_mcf'] / 35.473).round(4), None)
         df['Gas_WH_Cum'] = np.where(df['Gas_mmcf'].notna(), (df['Gas_mmcf'] / 35.473).round(4), None)
         df['Gas_S2_Prod'] = np.where(df['Gas_mcf'].notna(), (df['Gas_mcf'] / 35.493998762).round(4), None)
         df['Gas_S2_Cum'] = np.where(df['Gas_mmcf'].notna(), ((df['Gas_mmcf'] * 1000) / 35.493998762).round(4), None)
-        
-        # Condensate conversions - rounded to 4 decimals
         df['Cond_WH'] = np.where(df['Cond_bbl'].notna(), (df['Cond_bbl'] / 6.28981077).round(4), None)
         df['Cond_WH_Cum'] = np.where(df['Cond_mbbl'].notna(), ((df['Cond_mbbl'] * 1000) / 6.28981077).round(4), None)
         df['Cond_Sales'] = np.where(df['Cond_bbl'].notna(), (df['Cond_bbl'] / 6.293).round(4), None)
         df['Cond_Sales_Cum'] = np.where(df['Cond_mbbl'].notna(), ((df['Cond_mbbl'] * 1000) / 6.293).round(4), None)
-        
-        # Gathered fields
         df['Gathered_Gas'] = df['Gas_WH_Prod']
         df['Gas_Gathered_Cum'] = df['Gas_WH_Cum']
         df['Gathered_Cond'] = df['Cond_WH']
         df['Cond_Gathered_Cum'] = df['Cond_WH_Cum']
-        
-        # On Production Year
         df['On_Prod_Year'] = np.where(df['Reserves_raw'].notna(), df['Reserves_raw'].astype(int), None)
         
-        print(f"Processed {len(df)} rows")
-        
-        # Step 3: Connect to database
-        print("\nConnecting to database...")
+        log(f"Processed {len(df)} rows")
+        progress(30)
+        log("Connecting to database...")
         conn, cursor = get_connection()
+        progress(40)
         
-        # Step 4: Delete existing data
-        print("\nDeleting existing type curve data...")
+        log("Deleting existing type curve data...")
         cursor.execute("DELETE FROM dbo.PCE_Production WHERE [Well Name] LIKE 'YE2%'")
         conn.commit()
-        print(f"Deleted {cursor.rowcount} rows")
+        log(f"Deleted {cursor.rowcount} rows")
+        progress(50)
         
-        # Step 5: Prepare data for bulk insert
-        print("\nPreparing data...")
-
-        # Convert to list of tuples with proper type handling
         rows = []
-        bad_rows = 0
-
         for idx, row in df.iterrows():
             try:
                 rows.append((
-                    str(row['Well Name']),
-                    current_date,
-                    0, 0,
-                    get_float_value(row['Gas_WH_Prod']),
-                    get_float_value(row['Gas_WH_Cum']),
-                    get_float_value(row['Gas_S2_Prod']),
-                    get_float_value(row['Gas_S2_Cum']),
-                    get_float_value(row['Cond_WH']),
-                    get_float_value(row['Cond_WH_Cum']),
-                    get_float_value(row['Cond_Sales']),
-                    get_float_value(row['Cond_Sales_Cum']),
-                    get_float_value(row['Gathered_Gas']),
-                    get_float_value(row['Gas_Gathered_Cum']),
-                    get_float_value(row['Gathered_Cond']),
-                    get_float_value(row['Cond_Gathered_Cum']),
-                    None, None, None, None,
-                    None, None, None, None,
-                    None, None,
-                    None, None,
-                    None, None,
-                    row['Formation'],
-                    row['Layer'],
-                    row['Fault'],
-                    row['Pad'],
-                    get_float_value(row['Lateral_raw']),
-                    None,
-                    row['On_Prod_Year'],
-                    row['Remarks']
+                    str(row['Well Name']), current_date, 0, 0,
+                    get_float_value(row['Gas_WH_Prod']), get_float_value(row['Gas_WH_Cum']),
+                    get_float_value(row['Gas_S2_Prod']), get_float_value(row['Gas_S2_Cum']),
+                    get_float_value(row['Cond_WH']), get_float_value(row['Cond_WH_Cum']),
+                    get_float_value(row['Cond_Sales']), get_float_value(row['Cond_Sales_Cum']),
+                    get_float_value(row['Gathered_Gas']), get_float_value(row['Gas_Gathered_Cum']),
+                    get_float_value(row['Gathered_Cond']), get_float_value(row['Cond_Gathered_Cum']),
+                    None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                    row['Formation'], row['Layer'], row['Fault'], row['Pad'],
+                    get_float_value(row['Lateral_raw']), None, row['On_Prod_Year'], row['Remarks']
                 ))
-            except Exception as e:
-                bad_rows += 1
-                if bad_rows < 10:
-                    print(f"Warning: Skipping row {idx}: {e}")
-
-        print(f"Prepared {len(rows)} valid rows ({bad_rows} skipped)")
+            except Exception:
+                pass
 
         if len(rows) == 0:
-            print("No rows to insert")
+            log("No rows to insert")
             conn.close()
             return False
 
-        # Step 6: Bulk insert
-        print("\nInserting data...")
-
+        progress(60)
         insert_sql = """
         INSERT INTO dbo.PCE_Production (
             [Well Name], [Date], [Days Seq], [Day Seq UPRT],
@@ -224,6 +183,7 @@ def import_typecurves(excel_path):
 
         batch_size = 250
         total_inserted = 0
+        total_batches = (len(rows) + batch_size - 1) // batch_size
 
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
@@ -231,36 +191,29 @@ def import_typecurves(excel_path):
                 cursor.executemany(insert_sql, batch)
                 conn.commit()
                 total_inserted += len(batch)
-                print(f"Inserted {total_inserted}/{len(rows)} rows...")
+                log(f"Inserted {total_inserted}/{len(rows)} rows...")
+                progress(60 + int((i / len(rows)) * 35))
             except Exception as e:
-                print(f"Batch failed at rows {i} to {i+len(batch)-1}")
-                print(f"Error: {e}")
+                log(f"Batch failed, trying row-by-row...")
                 conn.rollback()
-                
-                # Try row by row for this batch
-                print(f"Attempting row-by-row for this batch...")
                 for j, row in enumerate(batch):
                     try:
                         cursor.execute(insert_sql, row)
                         conn.commit()
                         total_inserted += 1
-                    except Exception as row_error:
-                        print(f"Row {i+j} failed for well {row[0]}: {row_error}")
+                    except Exception:
+                        pass
+                progress(60 + int((total_inserted / len(rows)) * 35))
 
         conn.close()
-        
-        print("\n" + "=" * 60)
-        print("IMPORT COMPLETE")
-        print("=" * 60)
-        print(f"Rows imported: {total_inserted}/{len(rows)}")
-        print("=" * 60)
-        
+        progress(100)
+        log(f"Import complete: {total_inserted}/{len(rows)} rows imported")
         return True
         
     except Exception as e:
-        print(f"ERROR: {e}")
+        log(f"ERROR: {e}")
         import traceback
-        traceback.print_exc()
+        log(traceback.format_exc())
         return False
 
 def main():
@@ -275,4 +228,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    "I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\PCE_TCs_MTHLY.xlsx"

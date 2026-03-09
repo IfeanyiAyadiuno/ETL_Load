@@ -257,6 +257,8 @@ class MonthlyLoaderDialog(QDialog):
                     except Exception:
                         pass
                 self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(False)
                 self.run_btn.setEnabled(True)
                 self.close_btn.setEnabled(True)
@@ -425,8 +427,10 @@ class MonthlyLoaderDialog(QDialog):
             return
 
         self.run_btn.setEnabled(False)
+        self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.results_text.clear()
 
         # Professional header with timestamp
@@ -461,8 +465,11 @@ class MonthlyLoaderDialog(QDialog):
 
     def loader_finished(self, summary):
         """Handle loader completion"""
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.close_btn.setEnabled(True)
 
         timestamp = self.format_timestamp()
         self.log_result("")
@@ -519,8 +526,11 @@ class MonthlyLoaderDialog(QDialog):
 
     def loader_error(self, error_msg):
         """Handle loader error"""
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.close_btn.setEnabled(True)
         timestamp = self.format_timestamp()
         self.log_result("")
         self.log_result("+" + "=" * 70 + "+")

@@ -1,4 +1,4 @@
-# survey_import_dialog.py
+# type_curves_import_dialog.py
 
 import os
 from PyQt5.QtWidgets import (
@@ -14,50 +14,45 @@ from PyQt5.QtWidgets import (
     QWidget,
     QFileDialog,
     QMessageBox,
-    QRadioButton,
-    QButtonGroup,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
-from survey_import import import_surveys
+from type import import_typecurves
 
 
-class SurveyImportWorker(QThread):
-    """Worker thread for survey import"""
+class TypeCurvesImportWorker(QThread):
+    """Worker thread for type curves import"""
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(dict)
+    finished_signal = pyqtSignal(bool)
     error_signal = pyqtSignal(str)
     
-    def __init__(self, excel_path, import_mode):
+    def __init__(self, excel_path, log_callback):
         super().__init__()
         self.excel_path = excel_path
-        self.import_mode = import_mode
+        self.log_callback = log_callback
         self._cancelled = False
     
     def run(self):
-        """Run the survey import"""
+        """Run the type curves import"""
         try:
-            def progress_callback(value):
+            def log(message):
+                if not self._cancelled:
+                    self.log_signal.emit(message)
+                    if self.log_callback:
+                        self.log_callback(message)
+            
+            def progress(value):
                 if not self._cancelled:
                     self.progress_signal.emit(value)
             
-            def log_callback(message):
-                if not self._cancelled:
-                    self.log_signal.emit(message)
-            
-            result = import_surveys(
-                self.excel_path,
-                import_mode=self.import_mode,
-                progress_callback=progress_callback,
-                log_callback=log_callback
-            )
+            result = import_typecurves(self.excel_path, log_callback=log, progress_callback=progress)
             
             if not self._cancelled:
-                if "error" in result:
-                    self.error_signal.emit(result["error"])
+                if result:
+                    self.finished_signal.emit(True)
                 else:
-                    self.finished_signal.emit(result)
+                    self.error_signal.emit("Import failed")
         except Exception as e:
             if not self._cancelled:
                 self.error_signal.emit(str(e))
@@ -68,38 +63,34 @@ class SurveyImportWorker(QThread):
         self.terminate()
 
 
-class SurveyImportDialog(QDialog):
+class TypeCurvesImportDialog(QDialog):
     def __init__(self, settings_section, parent=None):
         super().__init__(parent)
         self.settings_section = settings_section
         self.worker = None
-        self.setWindowTitle("📐 Survey Data Import")
+        self.setWindowTitle("📊 Type Curves Import")
         self.setModal(True)
         self.setMinimumWidth(750)
-        self.setMinimumHeight(700)
+        self.setMinimumHeight(600)
         self.initUI()
         self.validate_inputs()
     
     def initUI(self):
-        """Initialize the survey import dialog UI"""
-        # Main layout
+        """Initialize the type curves import dialog UI"""
         main_layout = QVBoxLayout(self)
         
-        # Create scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("QScrollArea { background-color: transparent; }")
         
-        # Create scroll content widget
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(scroll_content)
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
         
-        # Title
-        title = QLabel("📐 Survey Data Import")
+        title = QLabel("📊 Type Curves Import")
         title.setStyleSheet("""
             QLabel {
                 color: #1a4d3e;
@@ -110,14 +101,13 @@ class SurveyImportDialog(QDialog):
         """)
         layout.addWidget(title)
         
-        # Excel File Group
         file_group = self.create_group("📁 Excel File")
         file_layout = QHBoxLayout()
         file_layout.addWidget(QLabel("Path:"))
         
         self.file_label = QLabel()
-        survey_path = self.settings_section.get('survey_file', 'Not configured in Settings')
-        self.file_label.setText(survey_path)
+        type_curves_path = self.settings_section.get('type_curves_file', 'Not configured in Settings')
+        self.file_label.setText(type_curves_path)
         self.file_label.setStyleSheet("""
             QLabel {
                 background-color: #f0f0f0;
@@ -132,27 +122,6 @@ class SurveyImportDialog(QDialog):
         file_group.layout().addLayout(file_layout)
         layout.addWidget(file_group)
         
-        # Import Mode Group
-        mode_group = self.create_group("⚙️ Import Mode")
-        mode_layout = QVBoxLayout()
-        
-        self.mode_button_group = QButtonGroup(self)
-        
-        self.mode_append = QRadioButton("Append Mode")
-        self.mode_append.setChecked(True)
-        self.mode_append.setToolTip("Only adds entries not already present in the database")
-        self.mode_button_group.addButton(self.mode_append, 0)
-        mode_layout.addWidget(self.mode_append)
-        
-        self.mode_overwrite = QRadioButton("Overwrite Mode")
-        self.mode_overwrite.setToolTip("Deletes existing data for matching UWIs, then inserts new data")
-        self.mode_button_group.addButton(self.mode_overwrite, 1)
-        mode_layout.addWidget(self.mode_overwrite)
-        
-        mode_group.layout().addLayout(mode_layout)
-        layout.addWidget(mode_group)
-        
-        # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet("""
@@ -170,7 +139,6 @@ class SurveyImportDialog(QDialog):
         """)
         layout.addWidget(self.progress_bar)
         
-        # Log Output
         log_group = self.create_group("📋 Import Log")
         log_layout = QVBoxLayout()
         
@@ -192,7 +160,6 @@ class SurveyImportDialog(QDialog):
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
         
-        # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
@@ -239,7 +206,6 @@ class SurveyImportDialog(QDialog):
         
         layout.addLayout(button_layout)
         
-        # Set scroll content
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
     
@@ -279,28 +245,27 @@ class SurveyImportDialog(QDialog):
         self.run_btn.setEnabled(has_file)
     
     def run_import(self):
-        """Run the survey import"""
+        """Run the type curves import"""
         file_path = self.file_label.text()
         
         if not file_path or file_path == "Not configured in Settings" or not os.path.exists(file_path):
             QMessageBox.warning(
                 self, 
                 "Invalid File", 
-                "Survey file path is not configured in Settings or file does not exist.\n\n"
-                "Please configure the survey file path in Settings."
+                "Type curves file path is not configured in Settings or file does not exist.\n\n"
+                "Please configure the type curves file path in Settings."
             )
             return
         
-        # Confirm before running
-        mode = "overwrite" if self.mode_overwrite.isChecked() else "append"
-        mode_text = "Overwrite Mode" if mode == "overwrite" else "Append Mode"
-        
-        reply = QMessageBox.question(
+        reply = QMessageBox.warning(
             self,
-            "Confirm Import",
-            f"Run survey import in {mode_text}?\n\n"
+            "⚠️ WARNING: Direct Database Import",
+            "This will import data directly into the Production table.\n\n"
             f"File: {os.path.basename(file_path)}\n\n"
-            f"{'This will delete existing data for matching UWIs.' if mode == 'overwrite' else 'This will only add new entries.'}",
+            "This operation will:\n"
+            "• Delete existing type curve records (wells starting with 'YE2')\n"
+            "• Insert new type curve data from the Excel file\n\n"
+            "Are you sure you want to continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -308,29 +273,27 @@ class SurveyImportDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
         
-        # Clear log
         self.log_output.clear()
         self.log_output.append("=" * 60)
-        self.log_output.append("SURVEY DATA IMPORT")
+        self.log_output.append("TYPE CURVES IMPORT")
         self.log_output.append("=" * 60)
         self.log_output.append(f"File: {file_path}")
-        self.log_output.append(f"Mode: {mode_text}")
         self.log_output.append("=" * 60)
         self.log_output.append("")
         
-        # Disable controls
         self.run_btn.setEnabled(False)
-        self.mode_append.setEnabled(False)
-        self.mode_overwrite.setEnabled(False)
         self.cancel_btn.setText("Cancel")
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         
-        # Create and start worker
-        self.worker = SurveyImportWorker(file_path, mode)
-        self.worker.progress_signal.connect(self.progress_bar.setValue)
+        def log_callback(message):
+            if hasattr(self.parent(), 'log'):
+                self.parent().log(message)
+        
+        self.worker = TypeCurvesImportWorker(file_path, log_callback)
         self.worker.log_signal.connect(self.log)
+        self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.import_finished)
         self.worker.error_signal.connect(self.import_error)
         self.worker.start()
@@ -338,52 +301,33 @@ class SurveyImportDialog(QDialog):
     def log(self, message):
         """Add message to log output"""
         self.log_output.append(message)
-        # Auto-scroll to bottom
         cursor = self.log_output.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_output.setTextCursor(cursor)
     
-    def import_finished(self, result):
+    def import_finished(self, success):
         """Handle import completion"""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
-        
-        # Re-enable controls
         self.run_btn.setEnabled(True)
-        self.mode_append.setEnabled(True)
-        self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")
         
-        # Show summary
         self.log("")
         self.log("=" * 60)
-        self.log("IMPORT SUMMARY")
-        self.log("=" * 60)
-        self.log(f"Total rows in file: {result.get('total_rows', 0):,}")
-        self.log(f"Rows matched to wells: {result.get('matched', 0):,}")
-        self.log(f"Rows unmatched: {result.get('unmatched', 0):,}")
-        self.log(f"Rows inserted: {result.get('inserted', 0):,}")
-        self.log(f"Duplicates skipped: {result.get('duplicates', 0):,}")
+        self.log("IMPORT COMPLETE")
         self.log("=" * 60)
         
         QMessageBox.information(
             self,
             "Import Complete",
-            f"Survey import completed successfully!\n\n"
-            f"Inserted: {result.get('inserted', 0):,} rows\n"
-            f"Matched: {result.get('matched', 0):,} rows\n"
-            f"Unmatched: {result.get('unmatched', 0):,} rows"
+            "Type curves import completed successfully!"
         )
     
     def import_error(self, error_msg):
         """Handle import error"""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        
-        # Re-enable controls
         self.run_btn.setEnabled(True)
-        self.mode_append.setEnabled(True)
-        self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")
         
         self.log("")
@@ -402,7 +346,7 @@ class SurveyImportDialog(QDialog):
                 self,
                 "Cancel Import?",
                 "An import operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "Are you sure you want to cancel?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -423,7 +367,7 @@ class SurveyImportDialog(QDialog):
                 self,
                 "Cancel Import?",
                 "An import operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "Are you sure you want to cancel?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )

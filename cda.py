@@ -138,6 +138,7 @@ def insert_pce_cda_rows(df):
     
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         
         for i in range(0, len(rows_to_insert), batch_size):
             batch = rows_to_insert[i:i + batch_size]
@@ -981,6 +982,7 @@ def insert_pce_cda_rows(df):
     
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         
         for i in range(0, len(rows_to_insert), batch_size):
             batch = rows_to_insert[i:i + batch_size]

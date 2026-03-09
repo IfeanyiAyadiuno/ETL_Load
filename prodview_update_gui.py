@@ -51,6 +51,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         log("\nConnecting to SQL Server...")
         conn = get_sql_conn()
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         log("✅ Database connected")
         
         # Get well mapping from PCE_WM (exclude exception wells)
@@ -691,6 +692,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         log("\nConnecting to SQL Server...")
         conn = get_sql_conn()
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         log("✅ Database connected")
         
         # Get well mapping from PCE_WM
@@ -775,95 +777,110 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Pull data from Snowflake (same logic as run_prodview_update)
             log("  Pulling data from Snowflake...")
             
+            # Validate dates are proper date objects
+            if not isinstance(month_start_date, (datetime, type(month_start_date))):
+                raise ValueError(f"Invalid start date: {month_start_date}")
+            if not isinstance(month_end_date, (datetime, type(month_end_date))):
+                raise ValueError(f"Invalid end date: {month_end_date}")
+            
+            # Format dates safely for SQL (YYYY-MM-DD)
+            start_date_str = month_start_date.strftime('%Y-%m-%d')
+            end_date_str = month_end_date.strftime('%Y-%m-%d')
+            
             sf = SnowflakeConnector()
             
-            # Pull all data sources (same queries as run_prodview_update)
-            ecf_query = f"""
-            SELECT
-                IDRECPARENT AS GasIDREC,
-                CAST (DTTM AS DATE) AS ProdDate,
-                EFFLUENTFACTOR AS ECF_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            ecf_df = sf.query(ecf_query)
+            try:
+                # Pull all data sources (same queries as run_prodview_update)
+                ecf_query = f"""
+                SELECT
+                    IDRECPARENT AS GasIDREC,
+                    CAST (DTTM AS DATE) AS ProdDate,
+                    EFFLUENTFACTOR AS ECF_Ratio
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                ecf_df = sf.query(ecf_query)
             
-            gaswh_query = f"""
-            SELECT
-                IDRECPARENT AS GasIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLENTERGAS AS GasWH_Production,
-                DURONOR AS OnProdHours
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            gaswh_df = sf.query(gaswh_query)
-            
-            cgr_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                CASE
-                    WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
-                    ELSE (RATEHCLIQ / RATEGAS)
-                END AS CGR_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            cgr_df = sf.query(cgr_query)
-            
-            wgr_query = f"""
-            SELECT
-                IDRECPARENT AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                WGR AS WGR_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            wgr_df = sf.query(wgr_query)
-            
-            pressures_query = f"""
-            SELECT
-                IDRECPARENT AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                PRESTUB AS TubingPressure,
-                PRESCAS AS CasingPressure,
-                SZCHOKE AS ChokeSize
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            pressures_df = sf.query(pressures_query)
-            
-            alloc_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLPRODGATHGAS AS Gathered_Gas_Production,
-                VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
-                VOLNEWPRODALLOCNGL AS NGL_Production
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            alloc_df = sf.query(alloc_query)
-            
-            water_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLWATER AS AllocatedWater_Rate
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            water_df = sf.query(water_query)
-            
-            sf.close()
+                gaswh_query = f"""
+                SELECT
+                    IDRECPARENT AS GasIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    VOLENTERGAS AS GasWH_Production,
+                    DURONOR AS OnProdHours
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                gaswh_df = sf.query(gaswh_query)
+                
+                cgr_query = f"""
+                SELECT
+                    IDRECCOMP AS PressuresIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    CASE
+                        WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
+                        ELSE (RATEHCLIQ / RATEGAS)
+                    END AS CGR_Ratio
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                cgr_df = sf.query(cgr_query)
+                
+                wgr_query = f"""
+                SELECT
+                    IDRECPARENT AS PressuresIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    WGR AS WGR_Ratio
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                wgr_df = sf.query(wgr_query)
+                
+                pressures_query = f"""
+                SELECT
+                    IDRECPARENT AS PressuresIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    PRESTUB AS TubingPressure,
+                    PRESCAS AS CasingPressure,
+                    SZCHOKE AS ChokeSize
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                pressures_df = sf.query(pressures_query)
+                
+                alloc_query = f"""
+                SELECT
+                    IDRECCOMP AS PressuresIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    VOLPRODGATHGAS AS Gathered_Gas_Production,
+                    VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
+                    VOLNEWPRODALLOCNGL AS NGL_Production
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                alloc_df = sf.query(alloc_query)
+                
+                water_query = f"""
+                SELECT
+                    IDRECCOMP AS PressuresIDREC,
+                    CAST(DTTM AS DATE) AS ProdDate,
+                    VOLWATER AS AllocatedWater_Rate
+                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
+                WHERE DTTM >= '{start_date_str}'
+                  AND DTTM <= '{end_date_str}'
+                """
+                water_df = sf.query(water_query)
+            except Exception as e:
+                sf.close()
+                log(f"❌ Error pulling data from Snowflake: {e}")
+                raise
+            finally:
+                sf.close()
             
             log(f"    ECF: {len(ecf_df)} rows")
             log(f"    GasWH: {len(gaswh_df)} rows")
@@ -876,21 +893,26 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Delete existing data for this month
             log("  Clearing existing data for month...")
             
-            cursor.execute("""
-                DELETE FROM PCE_CDA 
-                WHERE ProdDate BETWEEN ? AND ?
-            """, month_start_date, month_end_date)
-            deleted_cda = cursor.rowcount
-            log(f"    Deleted {deleted_cda} records from PCE_CDA")
-            
-            cursor.execute("""
-                DELETE FROM PCE_Production 
-                WHERE [Date] BETWEEN ? AND ?
-            """, month_start_date, month_end_date)
-            deleted_prod = cursor.rowcount
-            log(f"    Deleted {deleted_prod} records from PCE_Production")
-            
-            conn.commit()
+            try:
+                cursor.execute("""
+                    DELETE FROM PCE_CDA 
+                    WHERE ProdDate BETWEEN ? AND ?
+                """, month_start_date, month_end_date)
+                deleted_cda = cursor.rowcount
+                log(f"    Deleted {deleted_cda} records from PCE_CDA")
+                
+                cursor.execute("""
+                    DELETE FROM PCE_Production 
+                    WHERE [Date] BETWEEN ? AND ?
+                """, month_start_date, month_end_date)
+                deleted_prod = cursor.rowcount
+                log(f"    Deleted {deleted_prod} records from PCE_Production")
+                
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                log(f"❌ Error deleting existing data: {e}")
+                raise
             
             # Build spine and merge data (same as run_prodview_update)
             log("  Building daily data spine...")
@@ -945,6 +967,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 return result
             
             # Merge all data sources (same as run_prodview_update)
+            log("    Merging ECF data...")
             if not ecf_df.empty:
                 ecf_processed = prepare_df(ecf_df, 'GASIDREC', 'PRODDATE', ['ECF_Ratio'])
                 if not ecf_processed.empty:
@@ -953,6 +976,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['ECF_Ratio'] = None
             else:
                 result_df['ECF_Ratio'] = None
+            log("    Merging GasWH data...")
             
             if not gaswh_df.empty:
                 gaswh_processed = prepare_df(gaswh_df, 'GASIDREC', 'PRODDATE', ['GasWH_Production', 'OnProdHours'])
@@ -964,6 +988,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             else:
                 result_df['GasWH_Production'] = None
                 result_df['OnProdHours'] = None
+            log("    Merging CGR data...")
             
             if not cgr_df.empty:
                 cgr_processed = prepare_df(cgr_df, 'PRESSURESIDREC', 'PRODDATE', ['CGR_Ratio'])
@@ -975,6 +1000,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['CGR_Ratio'] = None
             else:
                 result_df['CGR_Ratio'] = None
+            log("    Merging WGR data...")
             
             if not wgr_df.empty:
                 wgr_processed = prepare_df(wgr_df, 'PRESSURESIDREC', 'PRODDATE', ['WGR_Ratio'])
@@ -986,6 +1012,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['WGR_Ratio'] = None
             else:
                 result_df['WGR_Ratio'] = None
+            log("    Merging Pressures data...")
             
             if not pressures_df.empty:
                 pressures_processed = prepare_df(pressures_df, 'PRESSURESIDREC', 'PRODDATE', 
@@ -1002,6 +1029,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 result_df['TubingPressure'] = None
                 result_df['CasingPressure'] = None
                 result_df['ChokeSize'] = None
+            log("    Merging Allocations data...")
             
             if not alloc_df.empty:
                 alloc_processed = prepare_df(alloc_df, 'PRESSURESIDREC', 'PRODDATE', 
@@ -1018,6 +1046,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 result_df['Gathered_Gas_Production'] = None
                 result_df['Gathered_Condensate_Production'] = None
                 result_df['NGL_Production'] = None
+            log("    Merging Water data...")
             
             if not water_df.empty:
                 water_processed = prepare_df(water_df, 'PRESSURESIDREC', 'PRODDATE', ['AllocatedWater_Rate'])
@@ -1030,10 +1059,13 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             else:
                 result_df['AllocatedWater_Rate'] = None
             
+            log("    Calculating Condensate WH Production...")
             result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
+            log(f"    Data merge complete. Total rows: {len(result_df):,}")
             
             # Insert into PCE_CDA
             log("  Inserting into PCE_CDA...")
+            log(f"    Preparing {len(result_df):,} rows for insertion...")
             
             insert_sql = """
             INSERT INTO PCE_CDA (
@@ -1051,8 +1083,10 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             rows_inserted = 0
             batch_size = 1000
             rows_batch = []
+            total_rows = len(result_df)
             
-            for _, row in result_df.iterrows():
+            for row_idx, row in enumerate(result_df.iterrows()):
+                _, row = row
                 rows_batch.append((
                     row.get('GasIDREC'),
                     row.get('PressuresIDREC'),
@@ -1088,15 +1122,21 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 cursor.executemany(insert_sql, rows_batch)
                 rows_inserted += len(rows_batch)
             
-            conn.commit()
-            total_cda_records += rows_inserted
-            log(f"Inserted {rows_inserted:,} records into PCE_CDA")
+            try:
+                conn.commit()
+                total_cda_records += rows_inserted
+                log(f"    ✅ Inserted {rows_inserted:,} records into PCE_CDA for {month_name}")
+            except Exception as e:
+                conn.rollback()
+                log(f"❌ Error committing PCE_CDA data for {month_name}: {e}")
+                raise
             
             months_processed += 1
             
-            # Update progress
-            progress_percent = int((month_idx + 1) / total_months * 100)
-            progress(progress_percent)
+            # Update progress (80% for month processing, 20% for well recalculation)
+            month_progress = int((month_idx + 1) / total_months * 80)
+            progress(month_progress)
+            log(f"✅ Completed {month_name} ({month_idx + 1}/{total_months})")
         
         # -----------------------------------------------------------------
         # Get affected wells and recalculate sequences/cumulatives
@@ -1113,7 +1153,12 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         composite_map, fallback_map = fetch_well_mapping()
         
         # Process each affected well
+        total_wells = len(affected_wells)
+        log(f"  Processing {total_wells} wells...")
+        
         for well_idx, well_name in enumerate(affected_wells):
+            if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
+                log(f"    Processing well {well_idx + 1}/{total_wells}: {well_name}")
             
             # Get ALL historical data for this well from PCE_CDA using pd.read_sql
             query = """
@@ -1178,6 +1223,10 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Add On Production Year
             well_df = add_on_production_year(well_df)
             
+            # Update progress for well processing
+            well_progress = int((well_idx + 1) / total_wells * 20)  # 20% of total progress for well processing
+            progress(80 + well_progress)
+            
             # For PCE_Production, we want cumulatives that are consistent
             # over the full life of the well. To guarantee that, we delete
             # and re‑insert this well's entire history in PCE_Production,
@@ -1185,12 +1234,14 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             well_df_update = well_df.copy()
 
             # Delete all existing records for this well
+            well_name_for_prod = well_df_update.iloc[0]['Well Name']
             cursor.execute("""
                 DELETE FROM PCE_Production
                 WHERE [Well Name] = ?
-            """, well_df_update.iloc[0]['Well Name'])
+            """, well_name_for_prod)
             
             # Insert updated records for full history
+            prod_rows_to_insert = len(well_df_update)
             insert_prod_sql = """
             INSERT INTO PCE_Production (
                 [Date], [Days Seq], [Day Seq UPRT], [Well Name],
@@ -1215,7 +1266,8 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
             """
             
-            for _, row in well_df_update.iterrows():
+            for prod_idx, row in enumerate(well_df_update.iterrows()):
+                _, row = row
                 cursor.execute(insert_prod_sql, (
                     row['Date'],
                     int(row['Days Seq']),
@@ -1259,8 +1311,10 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 ))
             
             conn.commit()
+            if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
+                log(f"    ✅ Updated PCE_Production for {well_name}: {prod_rows_to_insert:,} records")
         
-        log("✅ Sequence, cumulative, and average recalculation complete")
+        log(f"\n✅ Sequence, cumulative, and average recalculation complete for {total_wells} wells")
         
         # Get total production records updated
         cursor.execute("""

@@ -239,6 +239,8 @@ class SalesRatiosDialog(QDialog):
                     except Exception:
                         pass
                 self.log_result("\n⚠️ Operation cancelled by user")
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(False)
                 self.run_btn.setEnabled(True)
                 self.close_btn.setEnabled(True)
@@ -410,6 +412,8 @@ class SalesRatiosDialog(QDialog):
 
     def update_finished(self, summary):
         """Handle update completion"""
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
@@ -444,6 +448,8 @@ class SalesRatiosDialog(QDialog):
 
     def update_error(self, error_msg):
         """Handle update error"""
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)

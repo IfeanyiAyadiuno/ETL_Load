@@ -17,6 +17,7 @@ from sales_ratios_dialog import SalesRatiosDialog
 from prodview_update_dialog import ProdviewUpdateDialog
 from well_master_gui import WellMasterDialog
 from survey_import_dialog import SurveyImportDialog
+from type_curves_import_dialog import TypeCurvesImportDialog
 
 def get_settings_path():
     """Get absolute path to settings.ini file (next to the script)"""
@@ -121,12 +122,13 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(10)
         
-        # Create 6 main buttons (Settings moved to header)
+        # Create 7 main buttons (Settings moved to header)
         self.btn_well_master = self.create_main_button("📋 Well Master List", "#0066b3")
         self.btn_prodview = self.create_main_button("❄️ Prodview/Snowflake Daily Production Retrieve", "#0066b3")
         self.btn_allocations = self.create_main_button("📊 Production Accounting Allocations (PA)", "#0066b3")
         self.btn_ratios = self.create_main_button("📈 Public Sales Data and Ratios", "#0066b3")
         self.btn_survey = self.create_main_button("📐 Survey Data Import", "#0066b3")
+        self.btn_type_curves = self.create_main_button("📊 Type Curves Import", "#0066b3")
         self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
         
         # Add buttons to layout
@@ -135,6 +137,7 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_allocations)
         buttons_layout.addWidget(self.btn_ratios)
         buttons_layout.addWidget(self.btn_survey)
+        buttons_layout.addWidget(self.btn_type_curves)
         buttons_layout.addWidget(self.btn_exports)
         
         # Connect buttons to click handlers
@@ -143,6 +146,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_allocations.clicked.connect(lambda: self.select_operation("PA Allocations"))
         self.btn_ratios.clicked.connect(lambda: self.select_operation("Sales Ratios Update"))
         self.btn_survey.clicked.connect(lambda: self.select_operation("Survey Import"))
+        self.btn_type_curves.clicked.connect(lambda: self.select_operation("Type Curves Import"))
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
         
         layout.addLayout(buttons_layout)
@@ -237,6 +241,8 @@ class ProductionUpdateGUI(QMainWindow):
             self.open_well_master()
         elif operation_name == "Survey Import":
             self.open_survey_import()
+        elif operation_name == "Type Curves Import":
+            self.open_type_curves_import()
         elif operation_name == "Exports/Reports":
             self.open_exports()
 
@@ -309,6 +315,24 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_survey.setChecked(False)
+    
+    def open_type_curves_import(self):
+        """Open the type curves import dialog"""
+        self.log("Opening Type Curves Import dialog...")
+        
+        # Load settings
+        config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
+        else:
+            config['PATHS'] = {}
+        
+        dialog = TypeCurvesImportDialog(config['PATHS'], self)
+        dialog.exec_()
+        
+        # Clear selection
+        self.btn_type_curves.setChecked(False)
         
     
     def open_settings(self):
@@ -340,6 +364,8 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_prodview.setEnabled(enabled)
         self.btn_allocations.setEnabled(enabled)
         self.btn_ratios.setEnabled(enabled)
+        self.btn_survey.setEnabled(enabled)
+        self.btn_type_curves.setEnabled(enabled)
         self.btn_exports.setEnabled(enabled)
     
     def log(self, message):
@@ -509,6 +535,29 @@ class SettingsDialog(QDialog):
         survey_layout.addWidget(survey_browse)
         paths_layout.addLayout(survey_layout)
         
+        # Type curves file path
+        type_curves_layout = QHBoxLayout()
+        type_curves_layout.addWidget(QLabel("Type Curves File:"))
+        self.type_curves_input = QLineEdit()
+        self.type_curves_input.setPlaceholderText("Path to Type Curves Excel file...")
+        type_curves_layout.addWidget(self.type_curves_input)
+        type_curves_browse = QPushButton("Browse")
+        type_curves_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #0066b3;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #2c7fc9;
+            }
+        """)
+        type_curves_browse.clicked.connect(self.browse_type_curves)
+        type_curves_layout.addWidget(type_curves_browse)
+        paths_layout.addLayout(type_curves_layout)
+        
         layout.addWidget(paths_group)
         
         # Buttons
@@ -587,6 +636,17 @@ class SettingsDialog(QDialog):
         if filename:
             self.survey_input.setText(filename)
     
+    def browse_type_curves(self):
+        """Browse for Type Curves Excel file"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select Type Curves Excel File", 
+            self.type_curves_input.text() or "",
+            "Excel files (*.xlsx *.xls);;All Files (*)"
+        )
+        if filename:
+            self.type_curves_input.setText(filename)
+    
     def load_settings(self):
         """Load settings from file"""
         config = configparser.ConfigParser()
@@ -603,6 +663,7 @@ class SettingsDialog(QDialog):
             self.valnav_input.setText(config.get('PATHS', 'valnav_template', fallback=''))
             self.accumap_input.setText(config.get('PATHS', 'accumap_template', fallback=''))
             self.survey_input.setText(config.get('PATHS', 'survey_file', fallback=''))
+            self.type_curves_input.setText(config.get('PATHS', 'type_curves_file', fallback=''))
         else:
             # Set defaults
             self.server_input.setText('CALVMSQL02')
@@ -620,7 +681,8 @@ class SettingsDialog(QDialog):
         config['PATHS'] = {
             'valnav_template': self.valnav_input.text(),
             'accumap_template': self.accumap_input.text(),
-            'survey_file': self.survey_input.text()
+            'survey_file': self.survey_input.text(),
+            'type_curves_file': self.type_curves_input.text()
         }
         
         settings_file = get_settings_path()

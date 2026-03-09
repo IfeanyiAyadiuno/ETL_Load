@@ -296,9 +296,13 @@ def allocation_factors_loader():
         months = []
         data_start_row = 5  # Excel row 6
         
-        # Define the cutoff date - end of AUGUST 2025
-        cutoff_date = datetime(2025, 8, 31)
+        # Define the cutoff date - end of specified month/year
+        if cutoff_month == 12:
+            cutoff_date = datetime(cutoff_year + 1, 1, 1) - timedelta(days=1)
+        else:
+            cutoff_date = datetime(cutoff_year, cutoff_month + 1, 1) - timedelta(days=1)
         print(f"Cutoff date: {cutoff_date.strftime('%B %d, %Y')}")
+        print(f"⚠️  NOTE: Only data up to {cutoff_date.strftime('%B %Y')} will be loaded")
         
         months_loaded = 0
         months_skipped = 0
@@ -332,9 +336,10 @@ def allocation_factors_loader():
                 if months_skipped <= 5:
                     print(f"  Skipping {month_date.strftime('%B %Y')} - after cutoff")
         
-        print(f"\nLoaded {months_loaded} months (up to August 2025)")
+        cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+        print(f"\nLoaded {months_loaded} months (up to {cutoff_month_name})")
         if months_skipped > 0:
-            print(f"Skipped {months_skipped} months (after August 2025)")
+            print(f"Skipped {months_skipped} months (after {cutoff_month_name})")
         
         # Prepare for data insertion
         print("\nProcessing and inserting data...")
@@ -386,7 +391,7 @@ def allocation_factors_loader():
                 month_year = month_date.year
                 month_month = month_date.month
                 
-                if month_year > 2025 or (month_year == 2025 and month_month > 8):
+                if month_year > cutoff_year or (month_year == cutoff_year and month_month > cutoff_month):
                     continue
                 
                 try:
@@ -522,8 +527,9 @@ def allocation_factors_loader():
         print(f"   Wells without mapping: {len(unmapped_wells)}")
         print(f"   Wells with CDA data (at least one month): {wells_with_cda_data}")
         print(f"   Wells without any CDA data: {wells_without_cda_data}")
-        print(f"   Months loaded: {len(months)} (up to August 2025)")
-        print(f"   Months skipped: {months_skipped} (after August 2025)")
+        cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+        print(f"   Months loaded: {len(months)} (up to {cutoff_month_name})")
+        print(f"   Months skipped: {months_skipped} (after {cutoff_month_name})")
         print(f"   Previous records deleted: {existing_count:,}")
         print(f"   New records inserted: {total_inserted:,}")
         print(f"   Errors: {errors}")
@@ -539,8 +545,9 @@ def allocation_factors_loader():
                 print(f"  ... and {len(unmapped_wells) - 20} more")
         
         if months_skipped > 0:
-            print(f"\nNOTE: {months_skipped} months after August 2025 were NOT loaded.")
-            print("      Use the monthly update script for months after August 2025.")
+            cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+            print(f"\nNOTE: {months_skipped} months after {cutoff_month_name} were NOT loaded.")
+            print(f"      Use the monthly update script for months after {cutoff_month_name}.")
         
         if errors > 0:
             print(f"\nWarning: {errors} errors occurred")
@@ -734,10 +741,15 @@ def allocation_factors_loader():
     - Gathered_to_S2_Gas, Gathered_to_Sales, Gathered_to_Sales_Condensate (calculated ratios)
     """
     
+    # Configurable cutoff date - update this when needed
+    cutoff_year = 2025
+    cutoff_month = 12  # December
+    cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+    
     print("\n" + "="*70)
     print("ALLOCATION FACTORS LOADER - SQL SERVER VERSION")
     print("="*70)
-    print("(UNTIL DECEMBER 2025)")
+    print(f"(UNTIL {cutoff_month_name})")
     
     # File paths
     excel_path = r"I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\Book1.xlsx"
@@ -885,9 +897,13 @@ def allocation_factors_loader():
         months = []
         data_start_row = 5  # Excel row 6
         
-        # Define the cutoff date - end of DECEMBER 2025
-        cutoff_date = datetime(2025, 12, 31)
+        # Define the cutoff date - end of specified month/year
+        if cutoff_month == 12:
+            cutoff_date = datetime(cutoff_year + 1, 1, 1) - timedelta(days=1)
+        else:
+            cutoff_date = datetime(cutoff_year, cutoff_month + 1, 1) - timedelta(days=1)
         print(f"Cutoff date: {cutoff_date.strftime('%B %d, %Y')}")
+        print(f"⚠️  NOTE: Only data up to {cutoff_date.strftime('%B %Y')} will be loaded")
         
         months_loaded = 0
         months_skipped = 0
@@ -921,9 +937,10 @@ def allocation_factors_loader():
                 if months_skipped <= 5:
                     print(f"  Skipping {month_date.strftime('%B %Y')} - after cutoff")
         
-        print(f"\nLoaded {months_loaded} months (up to December 2025)")
+        cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+        print(f"\nLoaded {months_loaded} months (up to {cutoff_month_name})")
         if months_skipped > 0:
-            print(f"Skipped {months_skipped} months (after December 2025)")
+            print(f"Skipped {months_skipped} months (after {cutoff_month_name})")
         
         # Prepare for data insertion
         print("\nProcessing and inserting data...")
@@ -975,7 +992,7 @@ def allocation_factors_loader():
                 month_year = month_date.year
                 month_month = month_date.month
                 
-                if month_year > 2025 or (month_year == 2025 and month_month > 12):
+                if month_year > cutoff_year or (month_year == cutoff_year and month_month > cutoff_month):
                     continue
                 
                 try:
@@ -1104,8 +1121,9 @@ def allocation_factors_loader():
         print(f"   Wells without mapping: {len(unmapped_wells)}")
         print(f"   Wells with CDA data (at least one month): {wells_with_cda_data}")
         print(f"   Wells without any CDA data: {wells_without_cda_data}")
-        print(f"   Months loaded: {len(months)} (up to December 2025)")
-        print(f"   Months skipped: {months_skipped} (after December 2025)")
+        cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+        print(f"   Months loaded: {len(months)} (up to {cutoff_month_name})")
+        print(f"   Months skipped: {months_skipped} (after {cutoff_month_name})")
         print(f"   Previous records deleted: {existing_count:,}")
         print(f"   New records inserted: {total_inserted:,}")
         print(f"   Errors: {errors}")
@@ -1122,8 +1140,9 @@ def allocation_factors_loader():
                 print(f"  ... and {len(unmapped_wells) - 20} more")
         
         if months_skipped > 0:
-            print(f"\nNOTE: {months_skipped} months after December 2025 were NOT loaded.")
-            print("      Use the monthly update script for months after December 2025.")
+            cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
+            print(f"\nNOTE: {months_skipped} months after {cutoff_month_name} were NOT loaded.")
+            print(f"      Use the monthly update script for months after {cutoff_month_name}.")
         
         if errors > 0:
             print(f"\nWarning: {errors} errors occurred")
