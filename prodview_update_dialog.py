@@ -472,8 +472,14 @@ class ProdviewUpdateDialog(QDialog):
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
+        # For full rebuild, show an indeterminate/busy progress bar since work is done
+        # inside the external script; for quick update, use 0–100 tracked progress.
+        update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
+        if update_mode == "full_rebuild":
+            self.progress_bar.setRange(0, 0)  # Busy indicator
+        else:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
         self.results_text.clear()
         self.status_label.setText("Initializing...")
 
@@ -504,10 +510,15 @@ class ProdviewUpdateDialog(QDialog):
 
     def update_progress(self, value):
         """Update progress bar"""
-        self.progress_bar.setValue(value)
+        # Only apply numeric progress updates when the bar is in determinate mode
+        if self.progress_bar.maximum() > 0:
+            self.progress_bar.setValue(value)
 
     def update_finished(self, summary):
         """Handle update completion"""
+        # Ensure progress bar is back in determinate mode and completed
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
@@ -543,6 +554,9 @@ class ProdviewUpdateDialog(QDialog):
 
     def update_error(self, error_msg):
         """Handle update error"""
+        # Reset progress bar to determinate mode on error
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)

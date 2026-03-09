@@ -233,6 +233,8 @@ def filter_to_first_production(df):
         df_filtered = pd.concat(filtered_dfs, ignore_index=True)
         rows_removed = original_count - len(df_filtered)
         print(f"Filtered to first production: {wells_with_data} wells, {len(df_filtered):,} rows ({rows_removed:,} removed)")
+        # Progress update for long runs
+        print(f"  First-production filtering complete for {total_wells} wells")
         return df_filtered
     else:
         print("No wells with production data found!")
@@ -271,8 +273,11 @@ def calculate_sequences(df):
                 seq_uprt.append(counter - 1 if counter > 1 else 1)
         
         df.loc[well_indices, 'Day Seq UPRT'] = seq_uprt
+        
+        # Lightweight progress every 50 wells
+        if well_idx % 50 == 0 or well_idx == total_wells:
+            print(f"  Sequences calculated for {well_idx}/{total_wells} wells")
     
-    print(f"Calculated sequences for {total_wells} wells")
     return df
 
 def calculate_cumulatives(df):
@@ -342,6 +347,10 @@ def calculate_monthly_averages(df):
                 if len(month_values) > 0:
                     monthly_avg = month_values.mean()
                     df.loc[month_indices, avg_col] = monthly_avg
+        
+        # Lightweight progress every 50 wells
+        if well_idx % 50 == 0 or well_idx == total_wells:
+            print(f"  Monthly averages calculated for {well_idx}/{total_wells} wells")
     
     # Drop the temporary YearMonth column
     df = df.drop(columns=['YearMonth'])
@@ -449,7 +458,9 @@ def insert_pce_production(df):
     with get_sql_conn() as conn:
         cursor = conn.cursor()
         
-        for i in range(0, len(rows_to_insert), batch_size):
+        total_rows = len(rows_to_insert)
+        
+        for i in range(0, total_rows, batch_size):
             batch = rows_to_insert[i:i + batch_size]
             
             for j, row in enumerate(batch):
@@ -464,6 +475,10 @@ def insert_pce_production(df):
             
             # Commit once per batch instead of once per row for much better performance
             conn.commit()
+            
+            # Lightweight progress every 50,000 rows
+            if (i + len(batch)) % 50000 == 0 or (i + len(batch)) == total_rows:
+                print(f"  Insert progress: {i + len(batch):,}/{total_rows:,} rows")
     
     print(f"Inserted {total_inserted:,} rows into PCE_Production")
     if duplicate_skipped > 0:
