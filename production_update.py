@@ -29,10 +29,17 @@ def clear_pce_production():
     """Clear all data from PCE_Production table"""
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        # Delete all rows
         cursor.execute("DELETE FROM PCE_Production")
         deleted = cursor.rowcount
+        # Reset identity/ID column so new rows start from 1 again (if table has an IDENTITY)
+        try:
+            cursor.execute("DBCC CHECKIDENT('PCE_Production', RESEED, 0)")
+        except Exception:
+            # If the table has no IDENTITY or permissions are limited, ignore the error
+            pass
         conn.commit()
-        print(f"Cleared PCE_Production: {deleted:,} records deleted")
+        print(f"Cleared PCE_Production: {deleted:,} records deleted (identity reseeded where applicable)")
         return deleted
 
 def fetch_cda_data():
@@ -448,13 +455,15 @@ def insert_pce_production(df):
             for j, row in enumerate(batch):
                 try:
                     cursor.execute(insert_sql, row)
-                    conn.commit()
                     total_inserted += 1
                 except Exception as row_e:
                     if "Violation of UNIQUE KEY" in str(row_e):
                         duplicate_skipped += 1
                     else:
                         print(f"Error inserting row {i+j}: {row_e}")
+            
+            # Commit once per batch instead of once per row for much better performance
+            conn.commit()
     
     print(f"Inserted {total_inserted:,} rows into PCE_Production")
     if duplicate_skipped > 0:
