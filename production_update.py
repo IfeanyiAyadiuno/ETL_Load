@@ -314,6 +314,7 @@ def calculate_monthly_averages(df):
     """
     Calculate monthly averages for each well with progress tracking
     """
+    print("\nCalculating monthly averages...")
     # Create year-month column for grouping
     df['YearMonth'] = pd.to_datetime(df['Date']).dt.to_period('M')
     
