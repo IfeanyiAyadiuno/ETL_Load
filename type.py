@@ -215,16 +215,3 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
         import traceback
         log(traceback.format_exc())
         return False
-
-def main():
-    excel_path = input("Enter path to type curves Excel file: ").strip()
-    
-    if not os.path.exists(excel_path):
-        print(f"File not found: {excel_path}")
-        return
-    
-    import_typecurves(excel_path)
-    input("\nPress Enter to exit...")
-
-if __name__ == "__main__":
-    main()

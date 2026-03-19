@@ -311,7 +311,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         
         # Prepare insert SQL
         insert_sql = """
-        INSERT INTO Surveys (
+        INSERT INTO PCE_Surveys (
             [UWI], [Well Name],
             [Subsea Elevation],
             [Surface Location Latitude (NAD83)], [Surface Location Longitude (NAD83)],

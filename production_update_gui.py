@@ -130,6 +130,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_survey = self.create_main_button("📐 Survey Data Import", "#0066b3")
         self.btn_type_curves = self.create_main_button("📊 Type Curves Import", "#0066b3")
         self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
+        self.btn_whitson = self.create_main_button("Whitson+ Mass Upload", "#0066b3")
         
         # Add buttons to layout
         buttons_layout.addWidget(self.btn_well_master)
@@ -139,6 +140,7 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_survey)
         buttons_layout.addWidget(self.btn_type_curves)
         buttons_layout.addWidget(self.btn_exports)
+        buttons_layout.addWidget(self.btn_whitson)
         
         # Connect buttons to click handlers
         self.btn_well_master.clicked.connect(lambda: self.select_operation("Well Master List"))
@@ -148,6 +150,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_survey.clicked.connect(lambda: self.select_operation("Survey Import"))
         self.btn_type_curves.clicked.connect(lambda: self.select_operation("Type Curves Import"))
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
+        self.btn_whitson.clicked.connect(lambda: self.select_operation("Whitson Mass Upload"))
         
         layout.addLayout(buttons_layout)
         
@@ -245,6 +248,8 @@ class ProductionUpdateGUI(QMainWindow):
             self.open_type_curves_import()
         elif operation_name == "Exports/Reports":
             self.open_exports()
+        elif operation_name == "Whitson Mass Upload":
+            self.open_whitson_mass_upload()
 
     def open_well_master(self):
         """Open the well master list dialog"""
@@ -356,6 +361,12 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_exports.setChecked(False)
+
+    def open_whitson_mass_upload(self):
+        """Open the Whitson+ Mass Upload dialog"""
+        self.log("Opening Whitson+ Mass Upload...")
+        QMessageBox.information(self, "Whitson+ Mass Upload", "This feature is not yet implemented.")
+        self.btn_whitson.setChecked(False)
     
     def set_buttons_enabled(self, enabled):
         """Enable or disable all operation buttons"""
@@ -367,6 +378,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_survey.setEnabled(enabled)
         self.btn_type_curves.setEnabled(enabled)
         self.btn_exports.setEnabled(enabled)
+        self.btn_whitson.setEnabled(enabled)
     
     def log(self, message):
         """Add message to log window with timestamp"""
