@@ -18,6 +18,7 @@ from prodview_update_dialog import ProdviewUpdateDialog
 from well_master_gui import WellMasterDialog
 from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
+from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 
 def get_settings_path():
     """Get absolute path to settings.ini file (next to the script)"""
@@ -365,7 +366,17 @@ class ProductionUpdateGUI(QMainWindow):
     def open_whitson_mass_upload(self):
         """Open the Whitson+ Mass Upload dialog"""
         self.log("Opening Whitson+ Mass Upload...")
-        QMessageBox.information(self, "Whitson+ Mass Upload", "This feature is not yet implemented.")
+
+        config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
+        else:
+            config['PATHS'] = {}
+
+        dialog = WhitsonMassUploadDialog(config['PATHS'], self)
+        dialog.exec_()
+
         self.btn_whitson.setChecked(False)
     
     def set_buttons_enabled(self, enabled):
@@ -570,6 +581,29 @@ class SettingsDialog(QDialog):
         type_curves_layout.addWidget(type_curves_browse)
         paths_layout.addLayout(type_curves_layout)
         
+        # Whitson+ file path
+        whitson_layout = QHBoxLayout()
+        whitson_layout.addWidget(QLabel("Whitson+ File:"))
+        self.whitson_input = QLineEdit()
+        self.whitson_input.setPlaceholderText("Path to Whitson+ Excel file...")
+        whitson_layout.addWidget(self.whitson_input)
+        whitson_browse = QPushButton("Browse")
+        whitson_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #0066b3;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #2c7fc9;
+            }
+        """)
+        whitson_browse.clicked.connect(self.browse_whitson)
+        whitson_layout.addWidget(whitson_browse)
+        paths_layout.addLayout(whitson_layout)
+        
         layout.addWidget(paths_group)
         
         # Buttons
@@ -659,6 +693,17 @@ class SettingsDialog(QDialog):
         if filename:
             self.type_curves_input.setText(filename)
     
+    def browse_whitson(self):
+        """Browse for Whitson+ Excel file"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select Whitson+ Excel File", 
+            self.whitson_input.text() or "",
+            "Excel files (*.xlsx *.xls);;All Files (*)"
+        )
+        if filename:
+            self.whitson_input.setText(filename)
+    
     def load_settings(self):
         """Load settings from file"""
         config = configparser.ConfigParser()
@@ -676,6 +721,7 @@ class SettingsDialog(QDialog):
             self.accumap_input.setText(config.get('PATHS', 'accumap_template', fallback=''))
             self.survey_input.setText(config.get('PATHS', 'survey_file', fallback=''))
             self.type_curves_input.setText(config.get('PATHS', 'type_curves_file', fallback=''))
+            self.whitson_input.setText(config.get('PATHS', 'whitson_file', fallback=''))
         else:
             # Set defaults
             self.server_input.setText('CALVMSQL02')
@@ -694,7 +740,8 @@ class SettingsDialog(QDialog):
             'valnav_template': self.valnav_input.text(),
             'accumap_template': self.accumap_input.text(),
             'survey_file': self.survey_input.text(),
-            'type_curves_file': self.type_curves_input.text()
+            'type_curves_file': self.type_curves_input.text(),
+            'whitson_file': self.whitson_input.text()
         }
         
         settings_file = get_settings_path()
