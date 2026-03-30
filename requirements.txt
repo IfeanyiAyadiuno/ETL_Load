@@ -1,0 +1,10 @@
+# Production Update System - Python dependencies
+# Install: pip install -r requirements.txt
+
+PyQt5>=5.15.0
+pandas>=2.0.0
+numpy>=1.24.0
+pyodbc>=4.0.35
+python-dotenv>=1.0.0
+openpyxl>=3.1.0
+snowflake-connector-python>=3.6.0

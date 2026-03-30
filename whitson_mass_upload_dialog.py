@@ -1,5 +1,4 @@
 # whitson_mass_upload_dialog.py
-
 import os
 import pandas as pd
 from PyQt5.QtWidgets import (
