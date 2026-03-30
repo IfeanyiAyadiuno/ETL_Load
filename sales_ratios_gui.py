@@ -118,8 +118,9 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                     WHERE ProdDate BETWEEN ? AND ?
                 """, month_start_date, month_end_date)
                 month_cda_records = cursor.fetchone()[0]
+                wells_in_month = len(alloc_rows)
                 
-                for well_name, wh_to_s2, wh_to_sales, wh_to_sales_cond, sales_gas in alloc_rows:
+                for well_idx, (well_name, wh_to_s2, wh_to_sales, wh_to_sales_cond, sales_gas) in enumerate(alloc_rows, start=1):
                     try:
                         # Convert to float with defaults
                         wh_to_s2_val = float(wh_to_s2) if wh_to_s2 is not None else 1.0
@@ -177,6 +178,13 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                         
                         month_wells_updated += 1
                         
+                        # Emit progress every 10 wells (and on the final well)
+                        if progress_callback and wells_in_month > 0:
+                            if (well_idx % 10 == 0) or (well_idx == wells_in_month):
+                                fraction_month = well_idx / wells_in_month
+                                progress_percent = int(((month_idx + fraction_month) / total_months) * 100)
+                                progress(progress_percent)
+
                     except Exception as e:
                         log(f"      Error updating well '{well_name}': {e}")
                 
@@ -207,10 +215,6 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 total_production_records += max(0, production_updated)
 
                 log(f"Updated {month_wells_updated} wells in CDA, {production_updated:,} records in Production")
-                
-                # Update progress
-                progress_percent = int((month_idx + 1) / total_months * 100)
-                progress(progress_percent)
             
             total_time = time.time() - total_start
             
