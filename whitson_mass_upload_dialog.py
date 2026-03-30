@@ -337,10 +337,10 @@ class WhitsonMassUploadDialog(QDialog):
     def validate_inputs(self):
         """Enable/disable run button based on inputs"""
         excel_path = self.get_excel_path()
-        has_file = excel_path and os.path.exists(excel_path)
-        has_sheet = self.sheet_combo.count() > 0 and self.sheet_combo.currentText()
-        self.load_sheets_btn.setEnabled(has_file)
-        self.run_btn.setEnabled(has_file and has_sheet)
+        has_file = bool(excel_path and os.path.exists(excel_path))
+        has_sheet = bool(self.sheet_combo.count() > 0 and self.sheet_combo.currentText())
+        self.load_sheets_btn.setEnabled(bool(has_file))
+        self.run_btn.setEnabled(bool(has_file) and bool(has_sheet))
 
     def run_upload(self):
         """Run the Whitson+ upload"""

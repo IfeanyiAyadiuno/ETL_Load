@@ -314,19 +314,12 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         INSERT INTO PCE_Surveys (
             [UWI], [Well Name],
             [Subsea Elevation],
-            [Surface Location Latitude (NAD83)], [Surface Location Longitude (NAD83)],
-            [Surface Location Zone (NAD83)], [Surface Location Easting (NAD83)],
-            [Surface Location Northing (NAD83)],
-            [Bottom Location Latitude (NAD83)], [Bottom Location Longitude (NAD83)],
-            [Bottom Location Zone (NAD83)], [Bottom Location Easting (NAD83)],
-            [Bottom Location Northing (NAD83)],
-            [Total Station Number], [Station Number],
             [Inclination], [Azimuth Angle],
             [Measured Depth], [True Vertical Depth],
             [Offset in EW], [Offset in NS],
             [East], [North],
             [PAD], [SourceFile]
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         # Prepare rows for insertion
@@ -336,18 +329,6 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 row.get('UWI'),
                 row.get('Well Name Cleaned'),  # Use the cleaned name
                 row.get('Subsea Elevation'),
-                row.get('Surface Location Latitude (NAD83)'),
-                row.get('Surface Location Longitude (NAD83)'),
-                row.get('Surface Location Zone (NAD83)'),
-                row.get('Surface Location Easting (NAD83)'),
-                row.get('Surface Location Northing (NAD83)'),
-                row.get('Bottom Location Latitude (NAD83)'),
-                row.get('Bottom Location Longitude (NAD83)'),
-                row.get('Bottom Location Zone (NAD83)'),
-                row.get('Bottom Location Easting (NAD83)'),
-                row.get('Bottom Location Northing (NAD83)'),
-                row.get('Total Station Number'),
-                row.get('Station Number'),
                 row.get('Inclination'),
                 row.get('Azimuth Angle'),
                 row.get('Measured Depth'),
