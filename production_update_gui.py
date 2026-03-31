@@ -33,7 +33,7 @@ class ProductionUpdateGUI(QMainWindow):
     def initUI(self):
         """Initialize the user interface"""
         self.setWindowTitle("Pacific Canbriam Energy - Production Update System")
-        self.setGeometry(100, 100, 850, 750)
+        self.setGeometry(100, 100, 920, 780)
         
         # Set window icon (if you have one)
         # self.setWindowIcon(QIcon('icon.png'))
@@ -49,89 +49,134 @@ class ProductionUpdateGUI(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #f5f7fa; }")
+        scroll.setStyleSheet("""
+            QScrollArea { background-color: transparent; border: none; }
+            QScrollArea > QWidget > QWidget { background-color: transparent; }
+        """)
         
         # Create scroll content widget
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: #f5f7fa;")
+        scroll_content.setStyleSheet("background-color: #f1f5f9;")
         layout = QVBoxLayout(scroll_content)
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(18)
+        layout.setContentsMargins(24, 24, 28, 24)
         
-        # Header with Settings button
-        header_layout = QHBoxLayout()
+        # Header card (title + subtitle + settings)
+        header_card = QFrame()
+        header_card.setObjectName("headerCard")
+        header_card.setStyleSheet("""
+            QFrame#headerCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+            }
+        """)
+        header_card_layout = QVBoxLayout(header_card)
+        header_card_layout.setContentsMargins(20, 18, 20, 18)
+        header_card_layout.setSpacing(6)
         
-        # Company Header (centered)
+        header_row = QHBoxLayout()
+        title_block = QVBoxLayout()
+        title_block.setSpacing(4)
+        
         company_header = QLabel("Pacific Canbriam Energy LTD")
-        company_header.setAlignment(Qt.AlignCenter)
+        company_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         company_header.setStyleSheet("""
             QLabel {
-                color: #1a4d3e;
-                font-size: 28px;
-                font-weight: bold;
-                padding: 15px;
-                background-color: #ffffff;
-                border: 2px solid #1a4d3e;
-                border-radius: 8px;
-                margin-bottom: 5px;
+                color: #0f172a;
+                font-size: 22px;
+                font-weight: 700;
+                letter-spacing: -0.3px;
+                background: transparent;
+                border: none;
+                padding: 0px;
             }
         """)
         
-        # Settings button (top-right)
-        self.btn_settings = QPushButton("⚙️ Settings")
+        sub_header = QLabel("Production Update System")
+        sub_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        sub_header.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 13px;
+                font-weight: normal;
+                padding: 0px;
+                background: transparent;
+                border: none;
+            }
+        """)
+        title_block.addWidget(company_header)
+        title_block.addWidget(sub_header)
+        header_row.addLayout(title_block, 1)
+        
+        self.btn_settings = QPushButton("Settings")
         self.btn_settings.setStyleSheet("""
             QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 8px 16px;
-                min-width: 100px;
-                min-height: 35px;
+                background-color: #f8fafc;
+                color: #334155;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 10px 18px;
+                min-height: 40px;
             }
             QPushButton:hover {
-                background-color: #8a929c;
+                background-color: #f1f5f9;
+                border-color: #94a3b8;
+                color: #0f172a;
             }
             QPushButton:pressed {
-                background-color: #545b62;
+                background-color: #e2e8f0;
             }
         """)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
+        header_row.addWidget(self.btn_settings, 0, Qt.AlignTop)
         
-        # Add to header layout
-        header_layout.addWidget(company_header, 1)  # Stretch to fill space
-        header_layout.addWidget(self.btn_settings, 0)  # Fixed size on right
-        layout.addLayout(header_layout)
+        header_card_layout.addLayout(header_row)
+        layout.addWidget(header_card)
         
-        # Sub-header
-        sub_header = QLabel("Production Update System")
-        sub_header.setAlignment(Qt.AlignCenter)
-        sub_header.setStyleSheet("""
-            QLabel {
-                color: #0066b3;
-                font-size: 18px;
-                font-weight: normal;
-                padding: 5px;
-                margin-bottom: 10px;
+        # Operations panel
+        ops_card = QFrame()
+        ops_card.setObjectName("opsCard")
+        ops_card.setStyleSheet("""
+            QFrame#opsCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
             }
         """)
-        layout.addWidget(sub_header)
+        ops_outer = QVBoxLayout(ops_card)
+        ops_outer.setContentsMargins(20, 16, 20, 18)
+        ops_outer.setSpacing(12)
         
-        # Buttons grid
+        ops_title = QLabel("Operations")
+        ops_title.setStyleSheet("""
+            QLabel {
+                color: #0f172a;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                padding: 0px 0px 4px 0px;
+                background: transparent;
+                border: none;
+            }
+        """)
+        ops_outer.addWidget(ops_title)
+        
         buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(10)
+        buttons_layout.setSpacing(8)
         
         # Create 7 main buttons (Settings moved to header)
-        self.btn_well_master = self.create_main_button("📋 Well Master List", "#0066b3")
-        self.btn_prodview = self.create_main_button("❄️ Prodview/Snowflake Daily Production Retrieve", "#0066b3")
-        self.btn_allocations = self.create_main_button("📊 Production Accounting Allocations (PA)", "#0066b3")
-        self.btn_ratios = self.create_main_button("📈 Public Sales Data and Ratios", "#0066b3")
-        self.btn_survey = self.create_main_button("📐 Survey Data Import", "#0066b3")
-        self.btn_type_curves = self.create_main_button("📊 Type Curves Import", "#0066b3")
-        self.btn_exports = self.create_main_button("📁 Exports / Reports", "#0066b3")
-        self.btn_whitson = self.create_main_button("Whitson+ Mass Upload", "#0066b3")
+        self.btn_well_master = self.create_main_button("Well Master List", "#1e40af")
+        self.btn_prodview = self.create_main_button("Prodview / Snowflake — Daily Production Retrieve", "#1e40af")
+        self.btn_allocations = self.create_main_button("Production Accounting Allocations (PA)", "#1e40af")
+        self.btn_ratios = self.create_main_button("Public Sales Data and Ratios", "#1e40af")
+        self.btn_survey = self.create_main_button("Survey Data Import", "#1e40af")
+        self.btn_type_curves = self.create_main_button("Type Curves Import", "#1e40af")
+        self.btn_exports = self.create_main_button("Exports / Reports", "#1e40af")
+        self.btn_whitson = self.create_main_button("Whitson+ Mass Upload", "#1e40af")
         
         # Add buttons to layout
         buttons_layout.addWidget(self.btn_well_master)
@@ -153,39 +198,68 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
         self.btn_whitson.clicked.connect(lambda: self.select_operation("Whitson Mass Upload"))
         
-        layout.addLayout(buttons_layout)
+        ops_outer.addLayout(buttons_layout)
+        layout.addWidget(ops_card)
         
-        # Add separator
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #d1d5db; max-height: 1px;")
-        layout.addWidget(separator)
+        # Log panel
+        log_card = QFrame()
+        log_card.setObjectName("logCard")
+        log_card.setStyleSheet("""
+            QFrame#logCard {
+                background-color: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+            }
+        """)
+        log_card_layout = QVBoxLayout(log_card)
+        log_card_layout.setContentsMargins(20, 16, 20, 16)
+        log_card_layout.setSpacing(10)
         
-        # Log area
-        log_label = QLabel("📋 Operation Log")
-        log_label.setStyleSheet("color: #1a4d3e; font-weight: bold; font-size: 14px; margin-top: 10px;")
-        layout.addWidget(log_label)
+        log_label = QLabel("Operation log")
+        log_label.setStyleSheet("""
+            QLabel {
+                color: #0f172a;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+                padding: 0px;
+                background: transparent;
+                border: none;
+            }
+        """)
+        log_card_layout.addWidget(log_label)
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMinimumHeight(200)
         self.log_text.setStyleSheet("""
             QTextEdit {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                padding: 5px;
+                background-color: #f8fafc;
+                color: #1e293b;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                font-family: "Cascadia Mono", "Consolas", "SF Mono", monospace;
+                font-size: 11px;
+                padding: 12px;
+                selection-background-color: #bfdbfe;
             }
         """)
-        layout.addWidget(self.log_text)
+        log_card_layout.addWidget(self.log_text)
         
-        # Status bar
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #64748b; font-style: italic;")
-        layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 12px;
+                font-style: normal;
+                padding: 4px 0 0 0;
+                background: transparent;
+                border: none;
+            }
+        """)
+        log_card_layout.addWidget(self.status_label)
+        layout.addWidget(log_card)
         
         # Add stretch at the bottom
         layout.addStretch()
@@ -204,27 +278,36 @@ class ProductionUpdateGUI(QMainWindow):
     def create_main_button(self, text, color):
         """Create a styled main button"""
         btn = QPushButton(text)
-        btn.setMinimumHeight(40)
+        btn.setMinimumHeight(44)
+        btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {color};
-                color: white;
+                color: #ffffff;
                 border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 8px 15px;
-                text-align: center;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 10px 16px;
+                text-align: left;
+                padding-left: 16px;
             }}
             QPushButton:hover {{
-                background-color: #2c7fc9;
+                background-color: #1d4ed8;
             }}
             QPushButton:pressed {{
-                background-color: #004d8c;
+                background-color: #1e3a8a;
             }}
             QPushButton:checked {{
-                background-color: #1a4d3e;
-                border: 2px solid #ffaa00;
+                background-color: #14532d;
+                border: 2px solid #ca8a04;
+            }}
+            QPushButton:checked:hover {{
+                background-color: #166534;
+            }}
+            QPushButton:disabled {{
+                background-color: #cbd5e1;
+                color: #64748b;
             }}
         """)
         btn.setCheckable(True)
@@ -404,10 +487,10 @@ class ProductionUpdateGUI(QMainWindow):
         """Apply additional styles to the main window"""
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f5f7fa;
+                background-color: #f1f5f9;
             }
-            QLabel {
-                color: #1e293b;
+            QWidget {
+                font-family: "Segoe UI", "SF Pro Text", system-ui, sans-serif;
             }
         """)
 
