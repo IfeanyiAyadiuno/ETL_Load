@@ -1251,25 +1251,28 @@ class WellMasterDialog(QDialog):
         tbl.setRowCount(len(tester_wells))
         tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        tbl.setColumnWidth(2, 180)
+        tbl.verticalHeader().setDefaultSectionSize(36)
+        tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
 
         for r, well in enumerate(tester_wells):
             name_item = QTableWidgetItem(well['well_name'])
             name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             name_item.setBackground(QColor("#f0f0f0"))
-            name_item.setTextAlignment(Qt.AlignCenter)
+            name_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 0, name_item)
 
             pres_item = QTableWidgetItem(well['pressures_idrec'])
             pres_item.setFlags(pres_item.flags() & ~Qt.ItemIsEditable)
             pres_item.setBackground(QColor("#f0f0f0"))
-            pres_item.setTextAlignment(Qt.AlignCenter)
+            pres_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 1, pres_item)
 
             gas_item = QTableWidgetItem("")
             gas_item.setFlags(gas_item.flags() | Qt.ItemIsEditable)
-            gas_item.setTextAlignment(Qt.AlignCenter)
+            gas_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 2, gas_item)
 
         layout.addWidget(tbl)
