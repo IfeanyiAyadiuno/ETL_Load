@@ -1237,14 +1237,9 @@ class WellMasterDialog(QDialog):
         desc_lbl = QLabel(
             f"The following {len(tester_wells)} well(s) only appear as Tester records in "
             "Snowflake and do not yet have a Daily meter.\n"
-<<<<<<< HEAD
-            "Enter the correct GasIDREC for each well from ProdView before adding them to PCE_WM.\n"
-            "Click 'Skip Tester Wells' to ignore these wells"
-=======
             "All wells are selected by default. Uncheck any you do not want to add. "
             "A GasIDREC is required for each selected well and cannot be entered for unselected rows.\n"
             "Click  Skip Tester Wells  to import only the Daily-resolved wells."
->>>>>>> 4a443982e9b1c857aea588e5e08ec63f8c6a7669
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("color: #64748b; font-size: 13px;")
@@ -1280,9 +1275,10 @@ class WellMasterDialog(QDialog):
             tbl.setCellWidget(r, 0, chk_wrapper)
             checkboxes.append(chk)
 
-            # --- well name (editable so user can correct before confirming) ---
+            # --- well name (read-only) ---
             name_item = QTableWidgetItem(well['well_name'])
-            name_item.setFlags(name_item.flags() | Qt.ItemIsEditable)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            name_item.setBackground(QColor("#f0f0f0"))
             name_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 1, name_item)
 
@@ -1349,9 +1345,8 @@ class WellMasterDialog(QDialog):
             filled = []
             for r, well in enumerate(tester_wells):
                 if checkboxes[r].isChecked():
-                    raw_name = tbl.item(r, 1).text().strip()
                     filled.append({
-                        'well_name':       raw_name,
+                        'well_name':       well['well_name'],
                         'gas_idrec':       gas_items[r].text().strip(),
                         'pressures_idrec': well['pressures_idrec'],
                     })
