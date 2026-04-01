@@ -1035,18 +1035,18 @@ class WellMasterDialog(QDialog):
         row = item.row()
         col = item.column()
 
-        if col in [4, 5, 8, 11]:
+        if col in [4, 5, 8, 15]:
             if row < len(self.row_widgets):
                 well_name = self.staged_wells[row].get('well_name', '')
 
                 layer = self.staged_table.item(row, 5).text() if self.staged_table.item(row, 5) else ""
                 tech = self.staged_table.item(row, 8).text() if self.staged_table.item(row, 8) else ""
-                orient = self.staged_table.item(row, 11).text() if self.staged_table.item(row, 11) else ""
+                orient = self.staged_table.item(row, 15).text() if self.staged_table.item(row, 15) else ""
 
                 composite = WellMasterDB.compose_name(well_name, layer, tech, orient)
-                if composite and self.staged_table.item(row, 12):
+                if composite and self.staged_table.item(row, 16):
                     self.staged_table.blockSignals(True)
-                    self.staged_table.item(row, 12).setText(composite)
+                    self.staged_table.item(row, 16).setText(composite)
                     self.staged_table.blockSignals(False)
 
     def on_tab_changed(self, index):
