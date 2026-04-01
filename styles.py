@@ -196,6 +196,30 @@ def btn_style(bg: str, large: bool = False) -> str:
     """
 
 
+def btn_toolbar(bg: str) -> str:
+    """Compact button for use inside toolbars – smaller padding and min-width."""
+    hover   = _darken(bg, 0.84)
+    pressed = _darken(bg, 0.70)
+    return f"""
+        QPushButton {{
+            background-color: {bg};
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 0px;
+        }}
+        QPushButton:hover   {{ background-color: {hover};   }}
+        QPushButton:pressed {{ background-color: {pressed}; }}
+        QPushButton:disabled {{
+            background-color: {_DISABLED_BG};
+            color: {_DISABLED_TX};
+        }}
+    """
+
+
 def btn_brand(large: bool = False) -> str:
     """Brand-green primary action button."""
     return btn_style(_BRAND, large)
