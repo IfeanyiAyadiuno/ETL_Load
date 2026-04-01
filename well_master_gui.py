@@ -1237,8 +1237,14 @@ class WellMasterDialog(QDialog):
         desc_lbl = QLabel(
             f"The following {len(tester_wells)} well(s) only appear as Tester records in "
             "Snowflake and do not yet have a Daily meter.\n"
+<<<<<<< HEAD
             "Enter the correct GasIDREC for each well from ProdView before adding them to PCE_WM.\n"
             "Click 'Skip Tester Wells' to ignore these wells"
+=======
+            "All wells are selected by default. Uncheck any you do not want to add. "
+            "A GasIDREC is required for each selected well and cannot be entered for unselected rows.\n"
+            "Click  Skip Tester Wells  to import only the Daily-resolved wells."
+>>>>>>> 4a443982e9b1c857aea588e5e08ec63f8c6a7669
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("color: #64748b; font-size: 13px;")
@@ -1246,34 +1252,54 @@ class WellMasterDialog(QDialog):
 
         tbl = QTableWidget()
         tbl.setStyleSheet(table_style())
-        tbl.setColumnCount(3)
-        tbl.setHorizontalHeaderLabels(["Well Name", "PressuresIDREC", "GasIDREC"])
+        tbl.setColumnCount(4)
+        tbl.setHorizontalHeaderLabels(["", "Well Name", "PressuresIDREC", "GasIDREC"])
         tbl.setRowCount(len(tester_wells))
-        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        tbl.setColumnWidth(2, 180)
+        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        tbl.setColumnWidth(0, 38)
+        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        tbl.setColumnWidth(3, 180)
         tbl.verticalHeader().setDefaultSectionSize(36)
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
 
+        checkboxes = []
+        gas_items  = []
+
         for r, well in enumerate(tester_wells):
+            # --- checkbox column ---
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk_wrapper = QWidget()
+            chk_layout  = QHBoxLayout(chk_wrapper)
+            chk_layout.addWidget(chk)
+            chk_layout.setAlignment(Qt.AlignCenter)
+            chk_layout.setContentsMargins(0, 0, 0, 0)
+            tbl.setCellWidget(r, 0, chk_wrapper)
+            checkboxes.append(chk)
+
+            # --- well name (read-only) ---
             name_item = QTableWidgetItem(well['well_name'])
             name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             name_item.setBackground(QColor("#f0f0f0"))
             name_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-            tbl.setItem(r, 0, name_item)
+            tbl.setItem(r, 1, name_item)
 
+            # --- PressuresIDREC (read-only) ---
             pres_item = QTableWidgetItem(well['pressures_idrec'])
             pres_item.setFlags(pres_item.flags() & ~Qt.ItemIsEditable)
             pres_item.setBackground(QColor("#f0f0f0"))
             pres_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-            tbl.setItem(r, 1, pres_item)
+            tbl.setItem(r, 2, pres_item)
 
+            # --- GasIDREC (editable because row starts checked) ---
             gas_item = QTableWidgetItem("")
             gas_item.setFlags(gas_item.flags() | Qt.ItemIsEditable)
             gas_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-            tbl.setItem(r, 2, gas_item)
+            tbl.setItem(r, 3, gas_item)
+            gas_items.append(gas_item)
 
         layout.addWidget(tbl)
 
@@ -1281,7 +1307,7 @@ class WellMasterDialog(QDialog):
         btn_row.addStretch()
 
         skip_btn    = QPushButton("Skip Tester Wells")
-        confirm_btn = QPushButton("Confirm && Add All")
+        confirm_btn = QPushButton("Confirm && Add Selected")
 
         skip_btn.setStyleSheet(btn_neutral())
         confirm_btn.setStyleSheet(btn_brand())
@@ -1291,23 +1317,44 @@ class WellMasterDialog(QDialog):
         btn_row.addWidget(confirm_btn)
         layout.addLayout(btn_row)
 
+        # ── helpers (defined after all widgets exist so closures resolve correctly) ──
+
         def _validate():
-            all_filled = all(
-                tbl.item(r, 2) and tbl.item(r, 2).text().strip()
-                for r in range(tbl.rowCount())
+            any_checked = any(chk.isChecked() for chk in checkboxes)
+            all_filled  = all(
+                gas_items[r].text().strip()
+                for r in range(len(checkboxes))
+                if checkboxes[r].isChecked()
             )
-            confirm_btn.setEnabled(all_filled)
+            confirm_btn.setEnabled(any_checked and all_filled)
+
+        def _update_row(r, checked):
+            item = gas_items[r]
+            if checked:
+                item.setFlags(item.flags() | Qt.ItemIsEditable)
+                item.setBackground(QColor("#ffffff"))
+            else:
+                tbl.blockSignals(True)
+                item.setText("")
+                tbl.blockSignals(False)
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                item.setBackground(QColor("#f0f0f0"))
+            _validate()
+
+        for r, chk in enumerate(checkboxes):
+            chk.stateChanged.connect(lambda state, row=r: _update_row(row, state == Qt.Checked))
 
         tbl.itemChanged.connect(lambda _item: _validate())
 
         def _on_confirm():
             filled = []
             for r, well in enumerate(tester_wells):
-                filled.append({
-                    'well_name':       well['well_name'],
-                    'gas_idrec':       tbl.item(r, 2).text().strip(),
-                    'pressures_idrec': well['pressures_idrec'],
-                })
+                if checkboxes[r].isChecked():
+                    filled.append({
+                        'well_name':       well['well_name'],
+                        'gas_idrec':       gas_items[r].text().strip(),
+                        'pressures_idrec': well['pressures_idrec'],
+                    })
             dlg.accept()
             self.show_import_preview(daily_wells + filled)
 
