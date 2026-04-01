@@ -17,6 +17,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+from styles import (
+    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
+    btn_brand, btn_primary, btn_neutral, btn_danger, progress_bar_style,
+    terminal_log_style, file_path_label_style,
+)
 
 
 class WhitsonUploadWorker(QThread):
@@ -92,9 +97,9 @@ class WhitsonMassUploadDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(600)
+        self.setStyleSheet(DIALOG_BASE)
         self.initUI()
         self.validate_inputs()
-        # Auto-load sheets if file is configured and exists
         if self.get_excel_path() and os.path.exists(self.get_excel_path()):
             self.load_sheets()
 
@@ -114,14 +119,7 @@ class WhitsonMassUploadDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         title = QLabel("Whitson+ Mass Upload")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         # File path (from Settings)
@@ -132,35 +130,12 @@ class WhitsonMassUploadDialog(QDialog):
         self.file_label = QLabel()
         whitson_path = self.settings_section.get('whitson_file', 'Not configured in Settings')
         self.file_label.setText(whitson_path or 'Not configured in Settings')
-        self.file_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 1px solid #d1d5db;
-                border-radius: 3px;
-                padding: 8px;
-                font-family: Consolas, monospace;
-            }
-        """)
+        self.file_label.setStyleSheet(file_path_label_style())
         self.file_label.setWordWrap(True)
         file_layout.addWidget(self.file_label, 1)
 
         self.load_sheets_btn = QPushButton("Load Sheets")
-        self.load_sheets_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0066b3;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2c7fc9;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
+        self.load_sheets_btn.setStyleSheet(btn_primary())
         self.load_sheets_btn.clicked.connect(self.load_sheets)
         file_layout.addWidget(self.load_sheets_btn)
         file_group.layout().addLayout(file_layout)
@@ -173,14 +148,7 @@ class WhitsonMassUploadDialog(QDialog):
 
         self.sheet_combo = QComboBox()
         self.sheet_combo.setMinimumWidth(280)
-        self.sheet_combo.setStyleSheet("""
-            QComboBox {
-                padding: 6px;
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                min-height: 24px;
-            }
-        """)
+        self.sheet_combo.setStyleSheet("")
         self.sheet_combo.currentIndexChanged.connect(self.validate_inputs)
         sheet_layout.addWidget(self.sheet_combo, 1)
         sheet_group.layout().addLayout(sheet_layout)
@@ -189,19 +157,8 @@ class WhitsonMassUploadDialog(QDialog):
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-                margin-top: 5px;
-            }
-            QProgressBar::chunk {
-                background-color: #0066b3;
-                border-radius: 3px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(progress_bar_style())
+        self.progress_bar.setFixedHeight(10)
         layout.addWidget(self.progress_bar)
 
         # Log output
@@ -209,17 +166,7 @@ class WhitsonMassUploadDialog(QDialog):
         log_layout = QVBoxLayout()
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                border: 1px solid #3c3c3c;
-                border-radius: 4px;
-                padding: 5px;
-            }
-        """)
+        self.log_output.setStyleSheet(terminal_log_style())
         self.log_output.setMinimumHeight(250)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
@@ -230,43 +177,12 @@ class WhitsonMassUploadDialog(QDialog):
         button_layout.addStretch()
 
         self.run_btn = QPushButton("Post Data")
-        self.run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px 20px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
+        self.run_btn.setStyleSheet(btn_brand())
         self.run_btn.clicked.connect(self.run_upload)
         button_layout.addWidget(self.run_btn)
 
         self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px 20px;
-                min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #5a6268;
-            }
-        """)
+        self.close_btn.setStyleSheet(btn_neutral())
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
@@ -276,29 +192,15 @@ class WhitsonMassUploadDialog(QDialog):
         main_layout.addWidget(scroll)
 
     def create_group(self, title):
-        """Create a styled group box"""
+        """Create a styled card group."""
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-            }
-        """)
+        group.setStyleSheet(card_style())
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 14px;
-                font-weight: bold;
-                padding-bottom: 5px;
-            }
-        """)
+        title_label.setStyleSheet(section_title_style())
         layout.addWidget(title_label)
         return group
 

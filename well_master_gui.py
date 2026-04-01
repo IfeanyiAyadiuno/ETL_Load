@@ -9,6 +9,11 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QStyledItemDelegate
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
+from styles import (
+    DIALOG_BASE, card_style, dialog_title_style, section_title_style,
+    tab_widget_style, table_style, btn_style, btn_neutral, btn_primary,
+    btn_success, btn_brand, search_input_style, progress_bar_style,
+)
 
 
 class WellMasterDB:
@@ -306,6 +311,7 @@ class WellMasterDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(1300)
         self.setMinimumHeight(850)
+        self.setStyleSheet(DIALOG_BASE)
 
         # Data
         self.all_wells = []            # All well records
@@ -378,42 +384,12 @@ class WellMasterDialog(QDialog):
 
         # Header
         header = QLabel("📋 Well Master List")
-        header.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 20px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        header.setStyleSheet(dialog_title_style())
         main_layout.addWidget(header)
 
         # Tabs
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                background-color: white;
-            }
-            QTabBar::tab {
-                background-color: #f8f9fa;
-                border: 1px solid #d1d5db;
-                border-bottom: none;
-                border-top-left-radius: 5px;
-                border-top-right-radius: 5px;
-                padding: 8px 16px;
-                margin-right: 2px;
-                font-weight: bold;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                border-bottom: 2px solid #1a4d3e;
-            }
-            QTabBar::tab:hover {
-                background-color: #e6f0fa;
-            }
-        """)
+        self.tabs.setStyleSheet(tab_widget_style())
 
         self.tab_current = QWidget()
         self.tab_add = QWidget()
@@ -430,21 +406,7 @@ class WellMasterDialog(QDialog):
 
         # Close button
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 100px;
-            }
-            QPushButton:hover {
-                background-color: #8a929c;
-            }
-        """)
+        close_btn.setStyleSheet(btn_neutral())
         close_btn.clicked.connect(self.close)
 
         btn_layout = QHBoxLayout()
@@ -465,30 +427,22 @@ class WellMasterDialog(QDialog):
         search_label = QLabel("🔍 Search:")
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Type to filter wells...")
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                padding: 6px;
-                font-size: 12px;
-                min-width: 250px;
-            }
-        """)
+        self.search_input.setStyleSheet(search_input_style())
+        self.search_input.setMinimumWidth(250)
         self.search_input.textChanged.connect(self.filter_wells)
 
         clear_search = QPushButton("×")
         clear_search.setFixedSize(24, 24)
         clear_search.setStyleSheet("""
             QPushButton {
-                background-color: #f8f9fa;
-                border: 1px solid #d1d5db;
+                background-color: #e2e8f0;
+                border: 1px solid #cbd5e1;
                 border-radius: 12px;
                 font-size: 14px;
                 font-weight: bold;
+                color: #475569;
             }
-            QPushButton:hover {
-                background-color: #e6f0fa;
-            }
+            QPushButton:hover { background-color: #cbd5e1; }
         """)
         clear_search.clicked.connect(lambda: self.search_input.clear())
 
@@ -502,19 +456,19 @@ class WellMasterDialog(QDialog):
 
         # Action buttons
         self.save_btn = QPushButton("💾 Save Selected")
-        self.save_btn.setStyleSheet(self.button_style("#1a4d3e"))
+        self.save_btn.setStyleSheet(btn_brand())
         self.save_btn.clicked.connect(self.save_selected)
 
         self.export_btn = QPushButton("📤 Export")
-        self.export_btn.setStyleSheet(self.button_style("#0066b3"))
+        self.export_btn.setStyleSheet(btn_success())
         self.export_btn.clicked.connect(self.export_data)
 
         self.refresh_btn = QPushButton("🔄 Refresh")
-        self.refresh_btn.setStyleSheet(self.button_style("#6c757d"))
+        self.refresh_btn.setStyleSheet(btn_neutral())
         self.refresh_btn.clicked.connect(self.load_data)
 
         self.import_btn = QPushButton("🔄 Import New Wells")
-        self.import_btn.setStyleSheet(self.button_style("#1a4d3e"))
+        self.import_btn.setStyleSheet(btn_brand())
         self.import_btn.clicked.connect(self.import_new_wells)
 
         toolbar.addWidget(self.save_btn)
@@ -526,7 +480,7 @@ class WellMasterDialog(QDialog):
 
         # Status
         self.status_label = QLabel("Loading wells...")
-        self.status_label.setStyleSheet("color: #64748b; font-style: italic; padding: 5px;")
+        self.status_label.setStyleSheet("color: #64748b; font-style: italic; padding: 5px; font-size: 12px;")
         layout.addWidget(self.status_label)
 
         # Table
@@ -534,24 +488,7 @@ class WellMasterDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSortingEnabled(True)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                background-color: white;
-                font-size: 11px;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QHeaderView::section {
-                background-color: #f8f9fa;
-                padding: 8px 4px;
-                border: 1px solid #d1d5db;
-                font-weight: bold;
-                font-size: 11px;
-            }
-        """)
+        self.table.setStyleSheet(table_style())
 
         self.make_current_table_editable()
         self.table.setColumnCount(len(self.headers))
@@ -571,30 +508,13 @@ class WellMasterDialog(QDialog):
         layout.setContentsMargins(15, 15, 15, 15)
 
         self.staged_info = QLabel("No wells staged for completion")
-        self.staged_info.setStyleSheet("color: #1a4d3e; font-weight: bold; padding: 5px;")
+        self.staged_info.setStyleSheet("color: #1a4d3e; font-weight: bold; padding: 5px; font-size: 13px;")
         layout.addWidget(self.staged_info)
 
         self.staged_table = QTableWidget()
         self.staged_table.setAlternatingRowColors(True)
         self.staged_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.staged_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                background-color: white;
-                font-size: 11px;
-            }
-            QTableWidget::item {
-                padding: 4px;
-            }
-            QHeaderView::section {
-                background-color: #f8f9fa;
-                padding: 8px 4px;
-                border: 1px solid #d1d5db;
-                font-weight: bold;
-                font-size: 11px;
-            }
-        """)
+        self.staged_table.setStyleSheet(table_style())
 
         self.staged_table.itemChanged.connect(self.on_staged_item_changed)
 
@@ -609,11 +529,11 @@ class WellMasterDialog(QDialog):
         btn_layout = QHBoxLayout()
 
         self.update_btn = QPushButton("🚀 Update Selected")
-        self.update_btn.setStyleSheet(self.button_style("#1a4d3e", large=True))
+        self.update_btn.setStyleSheet(btn_brand(large=True))
         self.update_btn.clicked.connect(self.update_staged)
 
         self.remove_btn = QPushButton("❌ Remove from Staging")
-        self.remove_btn.setStyleSheet(self.button_style("#6c757d"))
+        self.remove_btn.setStyleSheet(btn_neutral())
         self.remove_btn.clicked.connect(self.remove_from_staging)
 
         btn_layout.addWidget(self.update_btn)
@@ -816,51 +736,8 @@ class WellMasterDialog(QDialog):
         self.status_label.setText(f"Saved {updated} well(s)")
 
     def button_style(self, color, large=False):
-        """Return button stylesheet"""
-        base = f"""
-            QPushButton {{
-                background-color: {color};
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 11px;
-                font-weight: bold;
-                min-width: 90px;
-            }}
-            QPushButton:hover {{
-                background-color: {self.lighten_color(color)};
-            }}
-            QPushButton:pressed {{
-                background-color: {self.darken_color(color)};
-            }}
-            QPushButton:disabled {{
-                background-color: #a0a0a0;
-            }}
-        """
-        if large:
-            base = base.replace("padding: 6px 12px;", "padding: 8px 16px; font-size: 12px;")
-        return base
-
-    def lighten_color(self, color):
-        """Lighten a hex color"""
-        if color == "#1a4d3e":
-            return "#2a6b57"
-        elif color == "#0066b3":
-            return "#2c7fc9"
-        elif color == "#6c757d":
-            return "#8a929c"
-        return color
-
-    def darken_color(self, color):
-        """Darken a hex color"""
-        if color == "#1a4d3e":
-            return "#0d3d2e"
-        elif color == "#0066b3":
-            return "#004d8c"
-        elif color == "#6c757d":
-            return "#545b62"
-        return color
+        """Return button stylesheet (delegates to styles module)."""
+        return btn_style(color, large)
 
     def load_data(self):
         """Load well data from database"""
@@ -938,6 +815,7 @@ class WellMasterDialog(QDialog):
 
             for col, value in enumerate(data, start=1):
                 item = QTableWidgetItem(str(value) if value else "")
+                item.setTextAlignment(Qt.AlignCenter)
 
                 if col in [1, 2, 3]:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -1300,18 +1178,20 @@ class WellMasterDialog(QDialog):
         layout = QVBoxLayout(preview_dialog)
 
         info = QLabel(f"Found {len(new_wells)} new wells to add:")
-        info.setStyleSheet("font-weight: bold; color: #1a4d3e;")
+        info.setStyleSheet("font-weight: bold; color: #1a4d3e; font-size: 13px;")
         layout.addWidget(info)
 
         table = QTableWidget()
+        table.setStyleSheet(table_style())
         table.setColumnCount(3)
         table.setHorizontalHeaderLabels(["Well Name", "GasIDREC", "PressuresIDREC"])
         table.setRowCount(min(10, len(new_wells)))
 
         for row, well in enumerate(new_wells[:10]):
-            table.setItem(row, 0, QTableWidgetItem(well['well_name']))
-            table.setItem(row, 1, QTableWidgetItem(well['gas_idrec']))
-            table.setItem(row, 2, QTableWidgetItem(well['pressures_idrec']))
+            for col, val in enumerate([well['well_name'], well['gas_idrec'], well['pressures_idrec']]):
+                it = QTableWidgetItem(val)
+                it.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row, col, it)
 
         table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(table)
@@ -1328,37 +1208,13 @@ class WellMasterDialog(QDialog):
         btn_layout = QHBoxLayout()
 
         add_btn = QPushButton("Add Wells")
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-        """)
+        add_btn.setStyleSheet(btn_brand())
         add_btn.clicked.connect(
             lambda: self.do_import_wells(preview_dialog, new_wells, confirm_cb)
         )
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8a929c;
-            }
-        """)
+        cancel_btn.setStyleSheet(btn_neutral())
         cancel_btn.clicked.connect(preview_dialog.reject)
 
         btn_layout.addWidget(add_btn)
@@ -1391,16 +1247,19 @@ class WellMasterDialog(QDialog):
             item = QTableWidgetItem(well.get('well_name', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
+            item.setTextAlignment(Qt.AlignCenter)
             self.staged_table.setItem(row, 1, item)
 
             item = QTableWidgetItem(well.get('gas_idrec', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
+            item.setTextAlignment(Qt.AlignCenter)
             self.staged_table.setItem(row, 2, item)
 
             item = QTableWidgetItem(well.get('pressures_idrec', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
+            item.setTextAlignment(Qt.AlignCenter)
             self.staged_table.setItem(row, 3, item)
 
             text_fields = [
@@ -1417,6 +1276,7 @@ class WellMasterDialog(QDialog):
             for col, field in text_fields:
                 item = QTableWidgetItem("")
                 item.setFlags(item.flags() | Qt.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignCenter)
                 self.staged_table.setItem(row, col, item)
                 row_widgets['entries'][field] = item
 
@@ -1435,12 +1295,14 @@ class WellMasterDialog(QDialog):
 
                 item = QTableWidgetItem("")
                 item.setFlags(item.flags() | Qt.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignCenter)
                 self.staged_table.setItem(row, col, item)
                 row_widgets['dropdowns'][field] = item
 
             comp_item = QTableWidgetItem("")
             comp_item.setFlags(comp_item.flags() & ~Qt.ItemIsEditable)
             comp_item.setBackground(QColor("#f0f0f0"))
+            comp_item.setTextAlignment(Qt.AlignCenter)
             self.staged_table.setItem(row, 16, comp_item)
             row_widgets['composite'] = comp_item
 

@@ -20,6 +20,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+from styles import (
+    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
+    btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    info_panel_style,
+)
 
 
 class ProdviewUpdateDialog(QDialog):
@@ -30,6 +35,7 @@ class ProdviewUpdateDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
         self.worker = None
+        self.setStyleSheet(DIALOG_BASE)
         self.initUI()
 
     def initUI(self):
@@ -55,16 +61,8 @@ class ProdviewUpdateDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Title
         title = QLabel("❄️ Prodview/Snowflake Daily Production Retrieve")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         # Month Range Selection
@@ -97,12 +95,6 @@ class ProdviewUpdateDialog(QDialog):
 
         self.mode_full_rebuild = QRadioButton("Full Rebuild Mode")
         self.mode_full_rebuild.setChecked(True)
-        self.mode_full_rebuild.setStyleSheet("""
-            QRadioButton {
-                font-size: 12pt;
-                padding: 5px;
-            }
-        """)
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
@@ -110,23 +102,10 @@ class ProdviewUpdateDialog(QDialog):
             "  • Clears and rebuilds entire PCE_Production table\n"
             "  • Takes 30-40 minutes (full rebuild)"
         )
-        full_rebuild_desc.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 10pt;
-                padding-left: 25px;
-                padding-bottom: 5px;
-            }
-        """)
+        full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton("Quick Update Mode")
-        self.mode_quick_update.setStyleSheet("""
-            QRadioButton {
-                font-size: 12pt;
-                padding: 5px;
-            }
-        """)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
@@ -136,14 +115,7 @@ class ProdviewUpdateDialog(QDialog):
             "  • Recalculates sequences for affected wells only\n"
             "  • Updates cumulatives incrementally"
         )
-        quick_update_desc.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 10pt;
-                padding-left: 25px;
-                padding-bottom: 5px;
-            }
-        """)
+        quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
 
         self.mode_full_rebuild.toggled.connect(self.update_info_text)
@@ -161,16 +133,7 @@ class ProdviewUpdateDialog(QDialog):
             "  • Update PCE_CDA\n"
             "  • Update PCE_Production"
         )
-        self.info_text.setStyleSheet("""
-            QLabel {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-                font-family: Consolas, monospace;
-                font-size: 11pt;
-            }
-        """)
+        self.info_text.setStyleSheet(info_panel_style())
         info_layout.addWidget(self.info_text)
         info_group.layout().addLayout(info_layout)
         layout.addWidget(info_group)
@@ -181,26 +144,15 @@ class ProdviewUpdateDialog(QDialog):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                text-align: center;
-                height: 25px;
-                font-size: 11pt;
-            }
-            QProgressBar::chunk {
-                background-color: #0066b3;
-                border-radius: 4px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(progress_bar_style())
+        self.progress_bar.setFixedHeight(10)
         progress_layout.addWidget(self.progress_bar)
         progress_group.layout().addLayout(progress_layout)
         layout.addWidget(progress_group)
 
         # Status Label
         self.status_label = QLabel("Ready to start")
-        self.status_label.setStyleSheet("color: #1a4d3e; font-style: italic; padding: 5px;")
+        self.status_label.setStyleSheet("color: #64748b; font-style: italic; padding: 5px; font-size: 12px;")
         layout.addWidget(self.status_label)
 
         # Results Area
@@ -208,16 +160,7 @@ class ProdviewUpdateDialog(QDialog):
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setMinimumHeight(180)
-        self.results_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                padding: 8px;
-            }
-        """)
+        self.results_text.setStyleSheet(results_area_style())
         results_group.layout().addWidget(self.results_text)
         layout.addWidget(results_group)
 
@@ -226,49 +169,12 @@ class ProdviewUpdateDialog(QDialog):
         button_layout.setSpacing(10)
 
         self.run_btn = QPushButton("▶️ Run Update")
-        self.run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-            QPushButton:pressed {
-                background-color: #0d3d2e;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
+        self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self.run_update)
         button_layout.addWidget(self.run_btn)
 
         self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #8a929c;
-            }
-            QPushButton:pressed {
-                background-color: #545b62;
-            }
-        """)
+        self.close_btn.setStyleSheet(btn_neutral(large=True))
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
@@ -363,33 +269,16 @@ class ProdviewUpdateDialog(QDialog):
             )
 
     def create_group(self, title):
-        """Create a styled group frame with title"""
+        """Create a styled card group."""
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-                margin-top: 5px;
-            }
-        """)
-
+        group.setStyleSheet(card_style())
         group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(14, 12, 14, 12)
         group_layout.setSpacing(8)
-
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-weight: bold;
-                font-size: 14px;
-                padding: 0px;
-            }
-        """)
+        title_label.setStyleSheet(section_title_style())
         group_layout.addWidget(title_label)
-
         return group
 
     def populate_months(self, combo_box, months_back=24):

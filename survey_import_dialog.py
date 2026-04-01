@@ -20,6 +20,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from survey_import import import_surveys
+from styles import (
+    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
+    btn_brand, btn_neutral, btn_danger, progress_bar_style,
+    terminal_log_style, file_path_label_style,
+)
 
 
 class SurveyImportWorker(QThread):
@@ -77,6 +82,7 @@ class SurveyImportDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
+        self.setStyleSheet(DIALOG_BASE)
         self.initUI()
         self.validate_inputs()
     
@@ -98,16 +104,8 @@ class SurveyImportDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
         
-        # Title
         title = QLabel("📐 Survey Data Import")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
         
         # Excel File Group
@@ -118,15 +116,7 @@ class SurveyImportDialog(QDialog):
         self.file_label = QLabel()
         survey_path = self.settings_section.get('survey_file', 'Not configured in Settings')
         self.file_label.setText(survey_path)
-        self.file_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 1px solid #d1d5db;
-                border-radius: 3px;
-                padding: 8px;
-                font-family: Consolas, monospace;
-            }
-        """)
+        self.file_label.setStyleSheet(file_path_label_style())
         self.file_label.setWordWrap(True)
         file_layout.addWidget(self.file_label, 1)
         file_group.layout().addLayout(file_layout)
@@ -155,19 +145,8 @@ class SurveyImportDialog(QDialog):
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-                margin-top: 5px;
-            }
-            QProgressBar::chunk {
-                background-color: #0066b3;
-                border-radius: 3px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(progress_bar_style())
+        self.progress_bar.setFixedHeight(10)
         layout.addWidget(self.progress_bar)
         
         # Log Output
@@ -176,17 +155,7 @@ class SurveyImportDialog(QDialog):
         
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                border: 1px solid #3c3c3c;
-                border-radius: 4px;
-                padding: 5px;
-            }
-        """)
+        self.log_output.setStyleSheet(terminal_log_style())
         self.log_output.setMinimumHeight(300)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
@@ -197,43 +166,12 @@ class SurveyImportDialog(QDialog):
         button_layout.addStretch()
         
         self.run_btn = QPushButton("▶ Run Import")
-        self.run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px 20px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-            QPushButton:disabled {
-                background-color: #6c757d;
-            }
-        """)
+        self.run_btn.setStyleSheet(btn_brand())
         self.run_btn.clicked.connect(self.run_import)
         button_layout.addWidget(self.run_btn)
-        
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #dc3545;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 10px 20px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #c82333;
-            }
-        """)
+
+        self.cancel_btn = QPushButton("Close")
+        self.cancel_btn.setStyleSheet(btn_neutral())
         self.cancel_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.cancel_btn)
         
@@ -244,32 +182,16 @@ class SurveyImportDialog(QDialog):
         main_layout.addWidget(scroll)
     
     def create_group(self, title):
-        """Create a styled group box"""
+        """Create a styled card group."""
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-            }
-        """)
+        group.setStyleSheet(card_style())
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-        
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 14px;
-                font-weight: bold;
-                padding-bottom: 5px;
-            }
-        """)
+        title_label.setStyleSheet(section_title_style())
         layout.addWidget(title_label)
-        
         return group
     
     def validate_inputs(self):
@@ -323,6 +245,7 @@ class SurveyImportDialog(QDialog):
         self.mode_append.setEnabled(False)
         self.mode_overwrite.setEnabled(False)
         self.cancel_btn.setText("Cancel")
+        self.cancel_btn.setStyleSheet(btn_danger())
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -347,12 +270,12 @@ class SurveyImportDialog(QDialog):
         """Handle import completion"""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
-        
-        # Re-enable controls
+
         self.run_btn.setEnabled(True)
         self.mode_append.setEnabled(True)
         self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")
+        self.cancel_btn.setStyleSheet(btn_neutral())
         
         # Show summary
         self.log("")
@@ -379,12 +302,12 @@ class SurveyImportDialog(QDialog):
         """Handle import error"""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        
-        # Re-enable controls
+
         self.run_btn.setEnabled(True)
         self.mode_append.setEnabled(True)
         self.mode_overwrite.setEnabled(True)
         self.cancel_btn.setText("Close")
+        self.cancel_btn.setStyleSheet(btn_neutral())
         
         self.log("")
         self.log("=" * 60)

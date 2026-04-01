@@ -20,6 +20,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+from styles import (
+    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
+    btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    file_path_label_style,
+)
 
 
 class MonthlyLoaderDialog(QDialog):
@@ -31,6 +36,7 @@ class MonthlyLoaderDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
+        self.setStyleSheet(DIALOG_BASE)
         self.initUI()
         self.validate_inputs()
 
@@ -52,16 +58,8 @@ class MonthlyLoaderDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Title
         title = QLabel("📊 Production Accounting Allocations (PA)")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         # Month Selection Group
@@ -85,15 +83,7 @@ class MonthlyLoaderDialog(QDialog):
         self.valnav_label = QLabel()
         valnav_path = self.settings_section.get('valnav_template', 'Not configured in Settings')
         self.valnav_label.setText(valnav_path)
-        self.valnav_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 1px solid #d1d5db;
-                border-radius: 3px;
-                padding: 8px;
-                font-family: Consolas, monospace;
-            }
-        """)
+        self.valnav_label.setStyleSheet(file_path_label_style())
         self.valnav_label.setWordWrap(True)
         valnav_layout.addWidget(self.valnav_label, 1)
         valnav_group.layout().addLayout(valnav_layout)
@@ -107,15 +97,7 @@ class MonthlyLoaderDialog(QDialog):
         self.accumap_label = QLabel()
         accumap_path = self.settings_section.get('accumap_template', 'Not configured in Settings')
         self.accumap_label.setText(accumap_path)
-        self.accumap_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 1px solid #d1d5db;
-                border-radius: 3px;
-                padding: 8px;
-                font-family: Consolas, monospace;
-            }
-        """)
+        self.accumap_label.setStyleSheet(file_path_label_style())
         self.accumap_label.setWordWrap(True)
         accumap_layout.addWidget(self.accumap_label, 1)
         accumap_group.layout().addLayout(accumap_layout)
@@ -138,19 +120,8 @@ class MonthlyLoaderDialog(QDialog):
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-                margin-top: 5px;
-            }
-            QProgressBar::chunk {
-                background-color: #0066b3;
-                border-radius: 4px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(progress_bar_style())
+        self.progress_bar.setFixedHeight(10)
         layout.addWidget(self.progress_bar)
 
         # Results Area
@@ -158,16 +129,7 @@ class MonthlyLoaderDialog(QDialog):
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setMinimumHeight(200)
-        self.results_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                padding: 8px;
-            }
-        """)
+        self.results_text.setStyleSheet(results_area_style())
         results_group.layout().addWidget(self.results_text)
         layout.addWidget(results_group)
 
@@ -176,49 +138,12 @@ class MonthlyLoaderDialog(QDialog):
         button_layout.setSpacing(10)
 
         self.run_btn = QPushButton("▶️ Run Monthly Loader")
-        self.run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 180px;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-            QPushButton:pressed {
-                background-color: #0d3d2e;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
+        self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self.run_loader)
         button_layout.addWidget(self.run_btn)
 
         self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 180px;
-            }
-            QPushButton:hover {
-                background-color: #8a929c;
-            }
-            QPushButton:pressed {
-                background-color: #545b62;
-            }
-        """)
+        self.close_btn.setStyleSheet(btn_neutral(large=True))
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
@@ -295,35 +220,16 @@ class MonthlyLoaderDialog(QDialog):
         event.accept()
 
     def create_group(self, title):
-        """Create a styled group frame with title"""
+        """Create a styled card group."""
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-                margin-top: 5px;
-            }
-        """)
-
-        # Create layout for the group
+        group.setStyleSheet(card_style())
         group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(14, 12, 14, 12)
         group_layout.setSpacing(8)
-
-        # Add title
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-weight: bold;
-                font-size: 14px;
-                padding: 0px;
-            }
-        """)
+        title_label.setStyleSheet(section_title_style())
         group_layout.addWidget(title_label)
-
         return group
 
     def populate_months(self):
