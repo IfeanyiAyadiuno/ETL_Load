@@ -1237,8 +1237,8 @@ class WellMasterDialog(QDialog):
         desc_lbl = QLabel(
             f"The following {len(tester_wells)} well(s) only appear as Tester records in "
             "Snowflake and do not yet have a Daily meter.\n"
-            "Enter the GasIDREC for each well before adding them to PCE_WM.\n"
-            "Click  Skip Tester Wells  to import only the Daily-resolved wells."
+            "Enter the correct GasIDREC for each well from ProdView before adding them to PCE_WM.\n"
+            "Click 'Skip Tester Wells' to ignore these wells"
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("color: #64748b; font-size: 13px;")
