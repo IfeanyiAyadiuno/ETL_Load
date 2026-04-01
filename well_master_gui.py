@@ -473,6 +473,10 @@ class WellMasterDialog(QDialog):
         self.save_btn.setStyleSheet(btn_brand())
         self.save_btn.clicked.connect(self.save_selected)
 
+        self.stage_btn = QPushButton("➕ Stage Selected")
+        self.stage_btn.setStyleSheet(btn_primary())
+        self.stage_btn.clicked.connect(self.stage_selected_wells)
+
         self.export_btn = QPushButton("📤 Export")
         self.export_btn.setStyleSheet(btn_success())
         self.export_btn.clicked.connect(self.export_data)
@@ -485,11 +489,12 @@ class WellMasterDialog(QDialog):
         self.import_btn.setStyleSheet(btn_brand())
         self.import_btn.clicked.connect(self.import_new_wells)
 
-        self.remove_well_btn = QPushButton("🗑 Remove Well")
+        self.remove_well_btn = QPushButton("🗑 Remove Selected")
         self.remove_well_btn.setStyleSheet(btn_danger())
         self.remove_well_btn.clicked.connect(self.remove_selected_well)
 
         toolbar.addWidget(self.save_btn)
+        toolbar.addWidget(self.stage_btn)
         toolbar.addWidget(self.export_btn)
         toolbar.addWidget(self.refresh_btn)
         toolbar.addWidget(self.import_btn)
@@ -895,10 +900,9 @@ class WellMasterDialog(QDialog):
 
         if is_checked and well in self.pending_wells:
             if well not in self.staged_wells:
-                self.staged_wells.append(well)
-                self.update_staged_table()
-                self.tabs.setCurrentIndex(1)
-                self.status_label.setText(f"Staged {len(self.staged_wells)} well(s) for completion")
+                self.status_label.setText(
+                    f"{well.get('well_name', 'Well')} selected — click  Stage Selected  to add to completion queue"
+                )
 
     def filter_wells(self):
         """Filter wells based on search text"""
@@ -1232,35 +1236,81 @@ class WellMasterDialog(QDialog):
             QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{str(e)}")
             self.status_label.setText("Import failed")
 
+    def stage_selected_wells(self):
+        """Stage all checked pending wells into the Add New Wells tab."""
+        checked_rows = [r for r in range(self.table.rowCount()) if self.is_row_checked(r)]
+        if not checked_rows:
+            QMessageBox.information(self, "No Selection", "Check the well(s) you want to stage first.")
+            return
+
+        staged_count = 0
+        skipped_complete = 0
+        for r in checked_rows:
+            if r >= len(self.filtered_wells):
+                continue
+            well = self.filtered_wells[r]
+            if well not in self.pending_wells:
+                skipped_complete += 1
+                continue
+            if well not in self.staged_wells:
+                self.staged_wells.append(well)
+                staged_count += 1
+
+        if staged_count == 0:
+            msg = "None of the checked wells are pending — only pending wells (highlighted yellow) can be staged."
+            if skipped_complete:
+                msg += f"\n\n{skipped_complete} complete well(s) were skipped."
+            QMessageBox.information(self, "Nothing to Stage", msg)
+            return
+
+        self.update_staged_table()
+        note = f" ({skipped_complete} complete well(s) skipped)" if skipped_complete else ""
+        self.status_label.setText(
+            f"Staged {staged_count} well(s) for completion{note} — switch to the Add New Wells tab to continue"
+        )
+
     def remove_selected_well(self):
-        """Delete the currently selected well from PCE_WM after confirmation."""
-        selected = self.table.selectedItems()
-        if not selected:
-            QMessageBox.information(self, "No Selection", "Please select a well row to remove.")
+        """Delete all checked wells from PCE_WM after a single confirmation."""
+        checked_rows = [r for r in range(self.table.rowCount()) if self.is_row_checked(r)]
+        if not checked_rows:
+            QMessageBox.information(self, "No Selection", "Check the well(s) you want to remove first.")
             return
 
-        row = self.table.currentRow()
-        well_name_item = self.table.item(row, 1)
-        if not well_name_item:
-            return
-        well_name = well_name_item.text().strip()
+        names = []
+        for r in checked_rows:
+            item = self.table.item(r, 1)
+            if item:
+                names.append(item.text().strip())
 
+        names_list = "\n".join(f"  • {n}" for n in names)
         reply = QMessageBox.warning(
             self,
             "Confirm Delete",
-            f"Are you sure you want to permanently remove:\n\n  {well_name}\n\nfrom PCE_WM?\n\nThis cannot be undone.",
+            f"Permanently remove {len(names)} well(s) from PCE_WM?\n\n{names_list}\n\nThis cannot be undone.",
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
         if reply != QMessageBox.Yes:
             return
 
-        ok, err = WellMasterDB.delete_well(well_name)
-        if ok:
-            self.status_label.setText(f"Removed: {well_name}")
-            self.load_data()
+        errors = []
+        removed = 0
+        for name in names:
+            ok, err = WellMasterDB.delete_well(name)
+            if ok:
+                removed += 1
+            else:
+                errors.append(f"{name}: {err}")
+
+        if errors:
+            QMessageBox.critical(
+                self, "Delete Errors",
+                f"Removed {removed} well(s). The following failed:\n\n" + "\n".join(errors)
+            )
         else:
-            QMessageBox.critical(self, "Delete Failed", f"Could not remove well:\n{err}")
+            self.status_label.setText(f"Removed {removed} well(s)")
+
+        self.load_data()
 
     def show_gas_id_prompt(self, tester_wells, daily_wells):
         """Prompt the user to enter GasIDREC for Tester-only new wells.
