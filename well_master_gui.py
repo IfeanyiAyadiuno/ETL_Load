@@ -279,6 +279,7 @@ class ComboBoxDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         combo = QComboBox(parent)
         combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
         combo.addItems(self.options)
         return combo
 
