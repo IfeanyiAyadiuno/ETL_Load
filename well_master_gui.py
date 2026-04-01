@@ -1009,7 +1009,7 @@ class WellMasterDialog(QDialog):
             QMessageBox.critical(self, "Export Failed", f"Error exporting data:\n{str(e)}")
 
     def import_new_wells(self):
-        """Import new wells from Snowflake query"""
+        """Import new wells from Snowflake (Daily + Tester query)."""
         reply = QMessageBox.question(
             self,
             "Import New Wells",
@@ -1039,17 +1039,23 @@ class WellMasterDialog(QDialog):
                 normalized = normalized.upper()
                 return normalized
 
+            # --- NEW QUERY: pulls both Daily and Tester rows ---
             query = """
-            SELECT DISTINCT 
-                u.NAME AS Unit_Name,
-                c.IDREC AS PressuresIDREC,
-                me.IDRECPARENT AS GasIDREC
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnit AS u 
-            INNER JOIN PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitComp AS c ON c.IDRECPARENT = u.IDREC
-            INNER JOIN PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrifice AS mo ON mo.IDRECPARENT = u.IDREC
-            INNER JOIN PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry AS me ON me.IDRECPARENT = mo.IDREC
-            WHERE mo.NAME LIKE '%Daily%'
-                AND (me.DELETED = 0 OR me.DELETED IS NULL)
+            SELECT DISTINCT
+                u.NAME         AS Unit_Name,
+                c.IDREC        AS PressuresIDREC,
+                me.IDRECPARENT AS GasIDREC,
+                mo.name        AS MeterName
+            FROM ((unitsmetric.pvunit AS u
+                INNER JOIN unitsmetric.pvunitcomp AS c
+                    ON c.IDRECPARENT = u.IDREC)
+                INNER JOIN unitsmetric.pvunitmeterorifice AS mo
+                    ON mo.IDRECPARENT = u.IDREC)
+                INNER JOIN unitsmetric.pvunitmeterorificeentry AS me
+                    ON me.IDRECPARENT = mo.IDREC
+            WHERE (mo.NAME LIKE '%Daily%' OR mo.Name LIKE '%Tester%')
+              AND (me.DELETED = 0 OR me.DELETED IS NULL)
+              AND mo.name IS NOT NULL
             ORDER BY u.NAME, c.IDREC;
             """
 
@@ -1058,53 +1064,92 @@ class WellMasterDialog(QDialog):
             sf.close()
 
             if df.empty:
-                QMessageBox.information(self, "No New Wells", "No new wells found in Snowflake.")
+                QMessageBox.information(self, "No New Wells", "No wells found in Snowflake.")
                 self.status_label.setText("Import complete - no new wells")
                 return
 
+            # Normalise column names (Snowflake returns uppercase)
+            df.columns = [c.upper() for c in df.columns]
+
+            # --- BUILD LOOKUP SETS from existing PCE_WM wells ---
             existing_names = set()
-            existing_gas = set()
-            existing_pres = set()
+            existing_gas   = set()
+            existing_pres  = set()
 
             for well in self.all_wells:
-                norm_name = normalize_well_name(well.get('well_name', ''))
-                if norm_name:
-                    existing_names.add(norm_name)
-                gas = well.get('gas_idrec', '')
-                if gas:
-                    existing_gas.add(gas)
-                pres = well.get('pressures_idrec', '')
-                if pres:
-                    existing_pres.add(pres)
+                norm = normalize_well_name(well.get('well_name', ''))
+                if norm:
+                    existing_names.add(norm)
+                if well.get('gas_idrec'):
+                    existing_gas.add(str(well['gas_idrec']))
+                if well.get('pressures_idrec'):
+                    existing_pres.add(str(well['pressures_idrec']))
 
-            new_wells = []
-            for _, row in df.iterrows():
-                well_name = str(row.get('UNIT_NAME', '')).strip()
-                gas_id = str(row.get('GASIDREC', '')).strip()
-                pres_id = str(row.get('PRESSURESIDREC', '')).strip()
+            # --- RESOLVE DAILY vs TESTER-ONLY ---
+            daily_rows      = []
+            tester_only_rows = []
+
+            for unit_name, group in df.groupby('UNIT_NAME'):
+                has_daily = group['METERNAME'].str.contains('daily', case=False, na=False).any()
+
+                if has_daily:
+                    # Keep the first Daily row; discard any Tester rows
+                    daily_group = group[
+                        group['METERNAME'].str.contains('daily', case=False, na=False)
+                    ]
+                    daily_rows.append(daily_group.iloc[0])
+                else:
+                    # All rows are Tester — new well, needs GasIDREC from user
+                    tester_only_rows.append(group.iloc[0])
+
+            # --- DEDUP DAILY WELLS against existing PCE_WM ---
+            new_daily_wells = []
+            for row in daily_rows:
+                well_name = str(row['UNIT_NAME']).strip()
+                gas_id    = str(row['GASIDREC']).strip()
+                pres_id   = str(row['PRESSURESIDREC']).strip()
 
                 if not well_name or not gas_id or not pres_id:
                     continue
 
-                norm_name = normalize_well_name(well_name)
-
-                if (norm_name in existing_names or
-                    gas_id in existing_gas or
-                    pres_id in existing_pres):
+                norm = normalize_well_name(well_name)
+                if norm in existing_names or gas_id in existing_gas or pres_id in existing_pres:
                     continue
 
-                new_wells.append({
-                    'well_name': well_name,
-                    'gas_idrec': gas_id,
-                    'pressures_idrec': pres_id
+                new_daily_wells.append({
+                    'well_name':       well_name,
+                    'gas_idrec':       gas_id,
+                    'pressures_idrec': pres_id,
                 })
 
-            if not new_wells:
+            # --- DEDUP TESTER-ONLY WELLS by name + PressuresIDREC ---
+            new_tester_wells = []
+            for row in tester_only_rows:
+                well_name = str(row['UNIT_NAME']).strip()
+                pres_id   = str(row['PRESSURESIDREC']).strip()
+
+                if not well_name or not pres_id:
+                    continue
+
+                norm = normalize_well_name(well_name)
+                if norm in existing_names or pres_id in existing_pres:
+                    continue
+
+                new_tester_wells.append({
+                    'well_name':       well_name,
+                    'pressures_idrec': pres_id,
+                })
+
+            if not new_daily_wells and not new_tester_wells:
                 QMessageBox.information(self, "No New Wells", "No new wells to import.")
                 self.status_label.setText("Import complete - no new wells")
                 return
 
-            self.show_import_preview(new_wells)
+            # Tester-only wells need the user to supply GasIDREC before preview
+            if new_tester_wells:
+                self.show_gas_id_prompt(new_tester_wells, new_daily_wells)
+            else:
+                self.show_import_preview(new_daily_wells)
 
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", f"Error importing wells:\n{str(e)}")
@@ -1167,6 +1212,117 @@ class WellMasterDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{str(e)}")
             self.status_label.setText("Import failed")
+
+    def show_gas_id_prompt(self, tester_wells, daily_wells):
+        """Prompt the user to enter GasIDREC for Tester-only new wells.
+
+        tester_wells – list of dicts with 'well_name' and 'pressures_idrec'.
+        daily_wells  – already-resolved daily wells to merge in after confirmation.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("New Wells – GasIDREC Required")
+        dlg.setModal(True)
+        dlg.setMinimumWidth(720)
+        dlg.setMinimumHeight(440)
+        dlg.setStyleSheet(DIALOG_BASE)
+
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(14)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        title_lbl = QLabel("New Wells Detected (Tester Only)")
+        title_lbl.setStyleSheet(dialog_title_style())
+        layout.addWidget(title_lbl)
+
+        desc_lbl = QLabel(
+            f"The following {len(tester_wells)} well(s) only appear as Tester records in "
+            "Snowflake and do not yet have a Daily meter.\n"
+            "Enter the GasIDREC for each well before adding them to PCE_WM.\n"
+            "Click  Skip Tester Wells  to import only the Daily-resolved wells."
+        )
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet("color: #64748b; font-size: 13px;")
+        layout.addWidget(desc_lbl)
+
+        tbl = QTableWidget()
+        tbl.setStyleSheet(table_style())
+        tbl.setColumnCount(3)
+        tbl.setHorizontalHeaderLabels(["Well Name", "PressuresIDREC", "GasIDREC"])
+        tbl.setRowCount(len(tester_wells))
+        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        tbl.setAlternatingRowColors(True)
+
+        for r, well in enumerate(tester_wells):
+            name_item = QTableWidgetItem(well['well_name'])
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            name_item.setBackground(QColor("#f0f0f0"))
+            name_item.setTextAlignment(Qt.AlignCenter)
+            tbl.setItem(r, 0, name_item)
+
+            pres_item = QTableWidgetItem(well['pressures_idrec'])
+            pres_item.setFlags(pres_item.flags() & ~Qt.ItemIsEditable)
+            pres_item.setBackground(QColor("#f0f0f0"))
+            pres_item.setTextAlignment(Qt.AlignCenter)
+            tbl.setItem(r, 1, pres_item)
+
+            gas_item = QTableWidgetItem("")
+            gas_item.setFlags(gas_item.flags() | Qt.ItemIsEditable)
+            gas_item.setTextAlignment(Qt.AlignCenter)
+            tbl.setItem(r, 2, gas_item)
+
+        layout.addWidget(tbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        skip_btn    = QPushButton("Skip Tester Wells")
+        confirm_btn = QPushButton("Confirm && Add All")
+
+        skip_btn.setStyleSheet(btn_neutral())
+        confirm_btn.setStyleSheet(btn_brand())
+        confirm_btn.setEnabled(False)
+
+        btn_row.addWidget(skip_btn)
+        btn_row.addWidget(confirm_btn)
+        layout.addLayout(btn_row)
+
+        def _validate():
+            all_filled = all(
+                tbl.item(r, 2) and tbl.item(r, 2).text().strip()
+                for r in range(tbl.rowCount())
+            )
+            confirm_btn.setEnabled(all_filled)
+
+        tbl.itemChanged.connect(lambda _item: _validate())
+
+        def _on_confirm():
+            filled = []
+            for r, well in enumerate(tester_wells):
+                filled.append({
+                    'well_name':       well['well_name'],
+                    'gas_idrec':       tbl.item(r, 2).text().strip(),
+                    'pressures_idrec': well['pressures_idrec'],
+                })
+            dlg.accept()
+            self.show_import_preview(daily_wells + filled)
+
+        def _on_skip():
+            dlg.accept()
+            if daily_wells:
+                self.show_import_preview(daily_wells)
+            else:
+                QMessageBox.information(
+                    self, "No Wells to Add",
+                    "No Daily-resolved wells were found either.\nNothing to import."
+                )
+                self.status_label.setText("Import complete - no new wells")
+
+        confirm_btn.clicked.connect(_on_confirm)
+        skip_btn.clicked.connect(_on_skip)
+
+        dlg.exec_()
 
     def show_import_preview(self, new_wells):
         """Show preview of new wells and confirm import"""
