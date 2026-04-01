@@ -1280,10 +1280,9 @@ class WellMasterDialog(QDialog):
             tbl.setCellWidget(r, 0, chk_wrapper)
             checkboxes.append(chk)
 
-            # --- well name (read-only) ---
+            # --- well name (editable so user can correct before confirming) ---
             name_item = QTableWidgetItem(well['well_name'])
-            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
-            name_item.setBackground(QColor("#f0f0f0"))
+            name_item.setFlags(name_item.flags() | Qt.ItemIsEditable)
             name_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 1, name_item)
 
@@ -1350,8 +1349,9 @@ class WellMasterDialog(QDialog):
             filled = []
             for r, well in enumerate(tester_wells):
                 if checkboxes[r].isChecked():
+                    raw_name = tbl.item(r, 1).text().strip()
                     filled.append({
-                        'well_name':       well['well_name'],
+                        'well_name':       raw_name,
                         'gas_idrec':       gas_items[r].text().strip(),
                         'pressures_idrec': well['pressures_idrec'],
                     })
