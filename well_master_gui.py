@@ -434,15 +434,15 @@ class WellMasterDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Toolbar
-        toolbar = QHBoxLayout()
+        # ── Row 1: search + data/view actions ──
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
 
-        # Search
         search_label = QLabel("🔍 Search:")
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Type to filter wells...")
         self.search_input.setStyleSheet(search_input_style())
-        self.search_input.setMinimumWidth(250)
+        self.search_input.setMinimumWidth(220)
         self.search_input.textChanged.connect(self.filter_wells)
 
         clear_search = QPushButton("×")
@@ -460,15 +460,30 @@ class WellMasterDialog(QDialog):
         """)
         clear_search.clicked.connect(lambda: self.search_input.clear())
 
-        search_layout = QHBoxLayout()
-        search_layout.addWidget(search_label)
-        search_layout.addWidget(self.search_input)
-        search_layout.addWidget(clear_search)
+        self.refresh_btn = QPushButton("🔄 Refresh")
+        self.refresh_btn.setStyleSheet(btn_neutral())
+        self.refresh_btn.clicked.connect(self.load_data)
 
-        toolbar.addLayout(search_layout)
-        toolbar.addStretch()
+        self.export_btn = QPushButton("📤 Export")
+        self.export_btn.setStyleSheet(btn_success())
+        self.export_btn.clicked.connect(self.export_data)
 
-        # Action buttons
+        self.import_btn = QPushButton("⬇ Import New Wells")
+        self.import_btn.setStyleSheet(btn_brand())
+        self.import_btn.clicked.connect(self.import_new_wells)
+
+        top_bar.addWidget(search_label)
+        top_bar.addWidget(self.search_input)
+        top_bar.addWidget(clear_search)
+        top_bar.addStretch()
+        top_bar.addWidget(self.refresh_btn)
+        top_bar.addWidget(self.export_btn)
+        top_bar.addWidget(self.import_btn)
+
+        # ── Row 2: selection-based actions ──
+        action_bar = QHBoxLayout()
+        action_bar.setSpacing(8)
+
         self.save_btn = QPushButton("💾 Save Selected")
         self.save_btn.setStyleSheet(btn_brand())
         self.save_btn.clicked.connect(self.save_selected)
@@ -477,30 +492,17 @@ class WellMasterDialog(QDialog):
         self.stage_btn.setStyleSheet(btn_primary())
         self.stage_btn.clicked.connect(self.stage_selected_wells)
 
-        self.export_btn = QPushButton("📤 Export")
-        self.export_btn.setStyleSheet(btn_success())
-        self.export_btn.clicked.connect(self.export_data)
-
-        self.refresh_btn = QPushButton("🔄 Refresh")
-        self.refresh_btn.setStyleSheet(btn_neutral())
-        self.refresh_btn.clicked.connect(self.load_data)
-
-        self.import_btn = QPushButton("🔄 Import New Wells")
-        self.import_btn.setStyleSheet(btn_brand())
-        self.import_btn.clicked.connect(self.import_new_wells)
-
         self.remove_well_btn = QPushButton("🗑 Remove Selected")
         self.remove_well_btn.setStyleSheet(btn_danger())
         self.remove_well_btn.clicked.connect(self.remove_selected_well)
 
-        toolbar.addWidget(self.save_btn)
-        toolbar.addWidget(self.stage_btn)
-        toolbar.addWidget(self.export_btn)
-        toolbar.addWidget(self.refresh_btn)
-        toolbar.addWidget(self.import_btn)
-        toolbar.addWidget(self.remove_well_btn)
+        action_bar.addWidget(self.save_btn)
+        action_bar.addWidget(self.stage_btn)
+        action_bar.addStretch()
+        action_bar.addWidget(self.remove_well_btn)
 
-        layout.addLayout(toolbar)
+        layout.addLayout(top_bar)
+        layout.addLayout(action_bar)
 
         # Status
         self.status_label = QLabel("Loading wells...")
