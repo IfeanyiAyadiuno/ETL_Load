@@ -278,7 +278,8 @@ class ComboBoxDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         combo = QComboBox(parent)
-        combo.setEditable(False)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
         combo.addItems(self.options)
         return combo
 
@@ -288,6 +289,8 @@ class ComboBoxDelegate(QStyledItemDelegate):
             idx = editor.findText(value)
             if idx >= 0:
                 editor.setCurrentIndex(idx)
+            else:
+                editor.setEditText(value)
 
     def setModelData(self, editor, model, index):
         model.setData(index, editor.currentText(), Qt.EditRole)
