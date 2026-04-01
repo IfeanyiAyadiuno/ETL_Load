@@ -67,3 +67,4 @@ Duration: 929.8 seconds
 
 pyinstaller --name "ProductionUpdate" --windowed --onefile --hidden-import PyQt5.sip --hidden-import pyodbc --hidden-import pandas --hidden-import numpy --hidden-import snowflake.connector production_update_gui.py
 
+

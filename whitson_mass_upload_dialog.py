@@ -229,7 +229,7 @@ class WhitsonMassUploadDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.run_btn = QPushButton("Run Upload")
+        self.run_btn = QPushButton("Post Data")
         self.run_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1a4d3e;
