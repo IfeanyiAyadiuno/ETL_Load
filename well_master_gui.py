@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import QApplication
 from styles import (
     DIALOG_BASE, card_style, dialog_title_style, section_title_style,
     tab_widget_style, table_style, btn_style, btn_neutral, btn_primary,
-    btn_success, btn_brand, search_input_style, progress_bar_style,
+    btn_success, btn_brand, btn_danger, search_input_style, progress_bar_style,
 )
 
 
@@ -169,6 +169,20 @@ class WellMasterDB:
         if not (w and l and t and o):
             return None
         return f"{w} - {l} - {t} - {o}"
+
+    @staticmethod
+    def delete_well(well_name):
+        """Permanently delete a well from PCE_WM by Well Name."""
+        from db_connection import get_sql_conn
+        try:
+            conn = get_sql_conn()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM PCE_WM WHERE [Well Name] = ?", well_name)
+            conn.commit()
+            conn.close()
+            return True, None
+        except Exception as e:
+            return False, str(e)
 
     @staticmethod
     def save_well_updates(updates):
@@ -471,10 +485,15 @@ class WellMasterDialog(QDialog):
         self.import_btn.setStyleSheet(btn_brand())
         self.import_btn.clicked.connect(self.import_new_wells)
 
+        self.remove_well_btn = QPushButton("🗑 Remove Well")
+        self.remove_well_btn.setStyleSheet(btn_danger())
+        self.remove_well_btn.clicked.connect(self.remove_selected_well)
+
         toolbar.addWidget(self.save_btn)
         toolbar.addWidget(self.export_btn)
         toolbar.addWidget(self.refresh_btn)
         toolbar.addWidget(self.import_btn)
+        toolbar.addWidget(self.remove_well_btn)
 
         layout.addLayout(toolbar)
 
@@ -1213,6 +1232,36 @@ class WellMasterDialog(QDialog):
             QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{str(e)}")
             self.status_label.setText("Import failed")
 
+    def remove_selected_well(self):
+        """Delete the currently selected well from PCE_WM after confirmation."""
+        selected = self.table.selectedItems()
+        if not selected:
+            QMessageBox.information(self, "No Selection", "Please select a well row to remove.")
+            return
+
+        row = self.table.currentRow()
+        well_name_item = self.table.item(row, 1)
+        if not well_name_item:
+            return
+        well_name = well_name_item.text().strip()
+
+        reply = QMessageBox.warning(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to permanently remove:\n\n  {well_name}\n\nfrom PCE_WM?\n\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        ok, err = WellMasterDB.delete_well(well_name)
+        if ok:
+            self.status_label.setText(f"Removed: {well_name}")
+            self.load_data()
+        else:
+            QMessageBox.critical(self, "Delete Failed", f"Could not remove well:\n{err}")
+
     def show_gas_id_prompt(self, tester_wells, daily_wells):
         """Prompt the user to enter GasIDREC for Tester-only new wells.
 
@@ -1237,9 +1286,8 @@ class WellMasterDialog(QDialog):
         desc_lbl = QLabel(
             f"The following {len(tester_wells)} well(s) only appear as Tester records in "
             "Snowflake and do not yet have a Daily meter.\n"
-            "All wells are selected by default. Uncheck any you do not want to add. "
-            "A GasIDREC is required for each selected well and cannot be entered for unselected rows.\n"
-            "Click  Skip Tester Wells  to import only the Daily-resolved wells."
+            "Enter the correct GasIDREC for each well from ProdView before adding them to PCE_WM.\n"
+            "Click 'Skip Tester Wells' to ignore these wells"
         )
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("color: #64748b; font-size: 13px;")
@@ -1275,10 +1323,9 @@ class WellMasterDialog(QDialog):
             tbl.setCellWidget(r, 0, chk_wrapper)
             checkboxes.append(chk)
 
-            # --- well name (read-only) ---
+            # --- well name (editable so user can correct before confirming) ---
             name_item = QTableWidgetItem(well['well_name'])
-            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
-            name_item.setBackground(QColor("#f0f0f0"))
+            name_item.setFlags(name_item.flags() | Qt.ItemIsEditable)
             name_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             tbl.setItem(r, 1, name_item)
 
@@ -1345,8 +1392,9 @@ class WellMasterDialog(QDialog):
             filled = []
             for r, well in enumerate(tester_wells):
                 if checkboxes[r].isChecked():
+                    raw_name = tbl.item(r, 1).text().strip()
                     filled.append({
-                        'well_name':       well['well_name'],
+                        'well_name':       raw_name,
                         'gas_idrec':       gas_items[r].text().strip(),
                         'pressures_idrec': well['pressures_idrec'],
                     })
