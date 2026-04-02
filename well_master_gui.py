@@ -311,6 +311,9 @@ class ComboBoxDelegate(QStyledItemDelegate):
                 editor.setCurrentIndex(idx)
             else:
                 editor.setEditText(value)
+        # Reset cursor to the start so long values display from the left
+        if editor.lineEdit():
+            editor.lineEdit().setCursorPosition(0)
 
     def setModelData(self, editor, model, index):
         model.setData(index, editor.currentText(), Qt.EditRole)
@@ -548,6 +551,8 @@ class WellMasterDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet(table_style())
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setVisible(False)
 
         self.make_current_table_editable()
         self.table.setColumnCount(len(self.headers))
@@ -575,6 +580,7 @@ class WellMasterDialog(QDialog):
         self.staged_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.staged_table.setStyleSheet(table_style())
         self.staged_table.verticalHeader().setDefaultSectionSize(34)
+        self.staged_table.verticalHeader().setVisible(False)
 
         self.staged_table.itemChanged.connect(self.on_staged_item_changed)
 
@@ -583,6 +589,8 @@ class WellMasterDialog(QDialog):
 
         for i, width in enumerate(self.col_widths):
             self.staged_table.setColumnWidth(i, width)
+
+        self.staged_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 
         layout.addWidget(self.staged_table)
 
@@ -875,7 +883,7 @@ class WellMasterDialog(QDialog):
 
             for col, value in enumerate(data, start=1):
                 item = QTableWidgetItem(str(value) if value else "")
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
 
                 if col in [1, 2, 3]:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -1521,11 +1529,13 @@ class WellMasterDialog(QDialog):
         table.setColumnCount(3)
         table.setHorizontalHeaderLabels(["Well Name", "GasIDREC", "PressuresIDREC"])
         table.setRowCount(min(10, len(new_wells)))
+        table.verticalHeader().setDefaultSectionSize(34)
+        table.verticalHeader().setVisible(False)
 
         for row, well in enumerate(new_wells[:10]):
             for col, val in enumerate([well['well_name'], well['gas_idrec'], well['pressures_idrec']]):
                 it = QTableWidgetItem(val)
-                it.setTextAlignment(Qt.AlignCenter)
+                it.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
                 table.setItem(row, col, it)
 
         table.horizontalHeader().setStretchLastSection(True)
@@ -1566,6 +1576,20 @@ class WellMasterDialog(QDialog):
         for col in range(self.staged_table.columnCount()):
             self.staged_table.setItemDelegateForColumn(col, None)
 
+        # Assign delegates once per column (not once per row)
+        _dropdown_col_options = [
+            (4,  self.dropdown_options.get('Formation Producer', [])),
+            (5,  self.dropdown_options.get('Layer Producer', [])),
+            (6,  self.dropdown_options.get('Fault Block', [])),
+            (8,  self.dropdown_options.get('Completions Technology', [])),
+            (15, self.dropdown_options.get('Orient', [])),
+        ]
+        for col, options in _dropdown_col_options:
+            if options:
+                self.staged_table.setItemDelegateForColumn(
+                    col, ComboBoxDelegate(self.staged_table, options)
+                )
+
         for row, well in enumerate(self.staged_wells):
             row_widgets = {'checkbox': None, 'entries': {}, 'dropdowns': {}}
 
@@ -1582,19 +1606,19 @@ class WellMasterDialog(QDialog):
             item = QTableWidgetItem(well.get('well_name', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self.staged_table.setItem(row, 1, item)
 
             item = QTableWidgetItem(well.get('gas_idrec', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self.staged_table.setItem(row, 2, item)
 
             item = QTableWidgetItem(well.get('pressures_idrec', ''))
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             item.setBackground(QColor("#f0f0f0"))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self.staged_table.setItem(row, 3, item)
 
             text_fields = [
@@ -1611,7 +1635,7 @@ class WellMasterDialog(QDialog):
             for col, field in text_fields:
                 item = QTableWidgetItem("")
                 item.setFlags(item.flags() | Qt.ItemIsEditable)
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
                 self.staged_table.setItem(row, col, item)
                 row_widgets['entries'][field] = item
 
@@ -1624,20 +1648,16 @@ class WellMasterDialog(QDialog):
             ]
 
             for col, field, options in dropdown_fields:
-                if options:
-                    delegate = ComboBoxDelegate(self.staged_table, options)
-                    self.staged_table.setItemDelegateForColumn(col, delegate)
-
                 item = QTableWidgetItem("")
                 item.setFlags(item.flags() | Qt.ItemIsEditable)
-                item.setTextAlignment(Qt.AlignCenter)
+                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
                 self.staged_table.setItem(row, col, item)
                 row_widgets['dropdowns'][field] = item
 
             comp_item = QTableWidgetItem("")
             comp_item.setFlags(comp_item.flags() & ~Qt.ItemIsEditable)
             comp_item.setBackground(QColor("#f0f0f0"))
-            comp_item.setTextAlignment(Qt.AlignCenter)
+            comp_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
             self.staged_table.setItem(row, 16, comp_item)
             row_widgets['composite'] = comp_item
 
