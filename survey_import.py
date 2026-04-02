@@ -86,30 +86,18 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         log("\n🔄 Mapping columns to database schema...")
         
         column_mapping = {
-            'Well name': 'Well Name',
+            'Well name':              'Well Name',
             'Well Unique Identifier': 'UWI',
-            'Subsea Elevation': 'Subsea Elevation',
-            'Surface Location Latitude (NAD83)': 'Surface Location Latitude (NAD83)',
-            'Surface Location Longitude (NAD83)': 'Surface Location Longitude (NAD83)',
-            'Surface Location Zone (NAD83)': 'Surface Location Zone (NAD83)',
-            'Surface Location Easting (NAD83)': 'Surface Location Easting (NAD83)',
-            'Surface Location Northing (NAD83)': 'Surface Location Northing (NAD83)',
-            'Bottom Location Latitude (NAD83)': 'Bottom Location Latitude (NAD83)',
-            'Bottom Location Longitude (NAD83)': 'Bottom Location Longitude (NAD83)',
-            'Bottom Location Zone (NAD83)': 'Bottom Location Zone (NAD83)',
-            'Bottom Location Easting (NAD83)': 'Bottom Location Easting (NAD83)',
-            'Bottom Location Northing (NAD83)': 'Bottom Location Northing (NAD83)',
-            'Total Station Number': 'Total Station Number',
-            'Station Number': 'Station Number',
-            'Inclination': 'Inclination',
-            'Azimuth Angle': 'Azimuth Angle',
-            'Measured Depth': 'Measured Depth',
-            'True Vertical Depth': 'True Vertical Depth',
-            'Offset in EW': 'Offset in EW',
-            'Offset in NS': 'Offset in NS',
-            'East': 'East',
-            'North': 'North',
-            'PAD': 'PAD'
+            'Subsea Elevation':       'Subsea Elevation',
+            'Inclination':            'Inclination',
+            'Azimuth Angle':          'Azimuth Angle',
+            'Measured Depth':         'Measured Depth',
+            'True Vertical Depth':    'True Vertical Depth',
+            'Offset in EW':           'Offset in EW',
+            'Offset in NS':           'Offset in NS',
+            'East':                   'East',
+            'North':                  'North',
+            'PAD':                    'PAD',
         }
         
         df.rename(columns=column_mapping, inplace=True)
@@ -255,32 +243,31 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 # Assuming UWI + Station Number is the unique key combination
                 placeholders = ','.join(['?' for _ in uwis_to_check])
                 existing_query = f"""
-                    SELECT [UWI], [Station Number]
-                    FROM Surveys
+                    SELECT [UWI], [Measured Depth]
+                    FROM PCE_Surveys
                     WHERE [UWI] IN ({placeholders})
                 """
                 cursor.execute(existing_query, uwis_to_check)
                 existing_records = cursor.fetchall()
                 
-                # Create a set of (UWI, Station Number) tuples for fast lookup
+                # Create a set of (UWI, Measured Depth) tuples for fast lookup
                 existing_set = set()
                 for record in existing_records:
                     uwi = record[0]
-                    station = record[1]
-                    # Handle None values
+                    depth = record[1]
                     uwi_str = str(uwi).strip() if uwi is not None else None
-                    station_val = station if station is not None else None
-                    existing_set.add((uwi_str, station_val))
+                    depth_val = float(depth) if depth is not None else None
+                    existing_set.add((uwi_str, depth_val))
                 
                 log(f"   Found {len(existing_set)} existing records in database")
                 
                 # Filter matched_df to only include records that don't exist
                 def record_exists(row):
                     uwi = row.get('UWI')
-                    station = row.get('Station Number')
+                    depth = row.get('Measured Depth')
                     uwi_str = str(uwi).strip() if pd.notna(uwi) and uwi is not None else None
-                    station_val = station if pd.notna(station) and station is not None else None
-                    return (uwi_str, station_val) in existing_set
+                    depth_val = float(depth) if pd.notna(depth) and depth is not None else None
+                    return (uwi_str, depth_val) in existing_set
                 
                 # Filter out existing records
                 before_count = len(matched_df)
