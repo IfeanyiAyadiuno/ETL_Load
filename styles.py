@@ -89,17 +89,13 @@ DIALOG_BASE = f"""
         background-color: {_CARD};
         border: 1px solid {_BORDER_INPUT};
         border-radius: 6px;
-        padding: 6px 10px;
+        padding: 6px 28px 6px 10px;
         font-size: 13px;
         color: {_TEXT};
         min-height: 20px;
     }}
     QComboBox:focus {{
         border-color: {_PRIMARY};
-    }}
-    QComboBox::drop-down {{
-        border: none;
-        width: 24px;
     }}
     QRadioButton {{
         font-size: 13px;
@@ -379,7 +375,7 @@ def table_style() -> str:
             text-transform: uppercase;
         }}
         QTableWidget::item {{
-            padding: 4px 6px;
+            padding: 6px 6px;
         }}
         QTableWidget::item:selected {{
             background-color: #dbeafe;

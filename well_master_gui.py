@@ -574,6 +574,7 @@ class WellMasterDialog(QDialog):
         self.staged_table.setAlternatingRowColors(True)
         self.staged_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.staged_table.setStyleSheet(table_style())
+        self.staged_table.verticalHeader().setDefaultSectionSize(34)
 
         self.staged_table.itemChanged.connect(self.on_staged_item_changed)
 
