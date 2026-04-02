@@ -289,6 +289,17 @@ class WellMasterDB:
                 conn.close()
 
 
+class PlainTextDelegate(QStyledItemDelegate):
+    """Table-level delegate for plain text cells.
+    Resets the editor cursor to position 0 after Qt sets the data so that
+    long values always show from the left instead of being clipped."""
+
+    def setEditorData(self, editor, index):
+        super().setEditorData(editor, index)
+        if hasattr(editor, 'home'):
+            QTimer.singleShot(0, lambda: editor.home(False))
+
+
 class ComboBoxDelegate(QStyledItemDelegate):
     """Delegate for combo box cells in the staged table"""
 
@@ -311,7 +322,6 @@ class ComboBoxDelegate(QStyledItemDelegate):
                 editor.setCurrentIndex(idx)
             else:
                 editor.setEditText(value)
-        # Defer cursor reset so Qt's own post-render scroll doesn't override it
         if editor.lineEdit():
             QTimer.singleShot(0, lambda: editor.lineEdit().home(False))
 
@@ -554,6 +564,7 @@ class WellMasterDialog(QDialog):
         self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.verticalHeader().setVisible(False)
 
+        self.table.setItemDelegate(PlainTextDelegate(self.table))
         self.make_current_table_editable()
         self.table.setColumnCount(len(self.headers))
         self.table.setHorizontalHeaderLabels(self.headers)
@@ -581,6 +592,7 @@ class WellMasterDialog(QDialog):
         self.staged_table.setStyleSheet(table_style())
         self.staged_table.verticalHeader().setDefaultSectionSize(34)
         self.staged_table.verticalHeader().setVisible(False)
+        self.staged_table.setItemDelegate(PlainTextDelegate(self.staged_table))
 
         self.staged_table.itemChanged.connect(self.on_staged_item_changed)
 
