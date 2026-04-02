@@ -22,7 +22,9 @@ def get_well_name_mapping(db_path):
     
     try:
         conn = pyodbc.connect(conn_str)
-        query = "SELECT [Well Name], [Well Name_AF] FROM PCE_WM WHERE [Well Name_AF] IS NOT NULL"
+        query = ("SELECT [Well Name], [Well Name_AF] FROM PCE_WM "
+                 "WHERE [Well Name_AF] IS NOT NULL "
+                 "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')")
         df_mapping = pd.read_sql(query, conn)
         conn.close()
         
@@ -606,7 +608,9 @@ def get_well_name_mapping():
     
     try:
         conn = get_sql_conn()
-        query = "SELECT [Well Name], [Well Name_AF] FROM PCE_WM WHERE [Well Name_AF] IS NOT NULL"
+        query = ("SELECT [Well Name], [Well Name_AF] FROM PCE_WM "
+                 "WHERE [Well Name_AF] IS NOT NULL "
+                 "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')")
         df_mapping = pd.read_sql(query, conn)
         conn.close()
         

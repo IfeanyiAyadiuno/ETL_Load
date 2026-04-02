@@ -204,6 +204,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                     INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
                     INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
                     WHERE c.ProdDate BETWEEN ? AND ?
+                      AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
                 """, month_start_date, month_end_date)
 
                 production_updated = cursor.rowcount

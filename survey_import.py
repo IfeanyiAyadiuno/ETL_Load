@@ -174,6 +174,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             SELECT DISTINCT [Base Composite Name] 
             FROM PCE_WM 
             WHERE [Base Composite Name] IS NOT NULL
+              AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
         """, conn)
         
         # Clean the database names too

@@ -334,11 +334,12 @@ def tab_widget_style() -> str:
             border-bottom: none;
             border-top-left-radius: 7px;
             border-top-right-radius: 7px;
-            padding: 9px 18px;
+            padding: 9px 20px;
             margin-right: 2px;
             font-size: 13px;
             font-weight: bold;
             color: {_TEXT_MUTED};
+            min-width: 140px;
         }}
         QTabBar::tab:selected {{
             background-color: {_CARD};

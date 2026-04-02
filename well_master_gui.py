@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QStyledItemDelegate
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
@@ -311,9 +311,9 @@ class ComboBoxDelegate(QStyledItemDelegate):
                 editor.setCurrentIndex(idx)
             else:
                 editor.setEditText(value)
-        # Reset cursor to the start so long values display from the left
+        # Defer cursor reset so Qt's own post-render scroll doesn't override it
         if editor.lineEdit():
-            editor.lineEdit().setCursorPosition(0)
+            QTimer.singleShot(0, lambda: editor.lineEdit().home(False))
 
     def setModelData(self, editor, model, index):
         model.setData(index, editor.currentText(), Qt.EditRole)
