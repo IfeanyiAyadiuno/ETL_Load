@@ -1,497 +1,477 @@
 import time
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 
 import log_format as lf
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
 
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+_SF_QUERIES = {
+    "ecf": (
+        "GASIDREC",
+        """
+        SELECT
+            IDRECPARENT AS GasIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            EFFLUENTFACTOR AS ECF_Ratio
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "gaswh": (
+        "GASIDREC",
+        """
+        SELECT
+            IDRECPARENT AS GasIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            VOLENTERGAS AS GasWH_Production,
+            DURONOR AS OnProdHours
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "cgr": (
+        "PRESSURESIDREC",
+        """
+        SELECT
+            IDRECCOMP AS PressuresIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            CASE
+                WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
+                ELSE (RATEHCLIQ / RATEGAS)
+            END AS CGR_Ratio
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "wgr": (
+        "PRESSURESIDREC",
+        """
+        SELECT
+            IDRECPARENT AS PressuresIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            WGR AS WGR_Ratio
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "pressures": (
+        "PRESSURESIDREC",
+        """
+        SELECT
+            IDRECPARENT AS PressuresIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            PRESTUB AS TubingPressure,
+            PRESCAS AS CasingPressure,
+            SZCHOKE AS ChokeSize
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "alloc": (
+        "PRESSURESIDREC",
+        """
+        SELECT
+            IDRECCOMP AS PressuresIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            VOLPRODGATHGAS AS Gathered_Gas_Production,
+            VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
+            VOLNEWPRODALLOCNGL AS NGL_Production
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+    "water": (
+        "PRESSURESIDREC",
+        """
+        SELECT
+            IDRECCOMP AS PressuresIDREC,
+            CAST(DTTM AS DATE) AS ProdDate,
+            VOLWATER AS AllocatedWater_Rate
+        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
+        WHERE DTTM >= %s AND DTTM <= %s
+        """,
+    ),
+}
+
+
+def _pull_all_snowflake_data(sf, start_date, end_date, log):
+    """Pull all 7 Snowflake datasets in one shot for the full date range."""
+    params = (str(start_date), str(end_date))
+    results = {}
+    for name, (_id_col, sql) in _SF_QUERIES.items():
+        df = sf.query(sql, params)
+        results[name] = df
+        log(lf.detail(f"  {name}: {lf.num(len(df))} rows"))
+    return results
+
+
+def _fetch_well_mapping(cursor):
+    """Fetch well mapping from PCE_WM (exclude exception wells)."""
+    cursor.execute("""
+        SELECT
+            GasIDREC,
+            PressuresIDREC,
+            [Well Name],
+            [Formation Producer],
+            [Layer Producer],
+            [Fault Block],
+            [Pad Name],
+            [Lateral Length],
+            [Orient]
+        FROM PCE_WM
+        WHERE GasIDREC IS NOT NULL
+          AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
+    """)
+    cols = [
+        'GasIDREC', 'PressuresIDREC', 'Well Name',
+        'Formation Producer', 'Layer Producer', 'Fault Block',
+        'Pad Name', 'Lateral Length', 'Orient',
+    ]
+    rows = cursor.fetchall()
+    return pd.DataFrame.from_records(rows, columns=cols)
+
+
+def _build_spine(mapping_df, date_range):
+    """Build the wells x dates cross-join spine using vectorized operations."""
+    dates_df = pd.DataFrame({'ProdDate': date_range})
+    mapping_df = mapping_df.copy()
+    mapping_df['_key'] = 1
+    dates_df['_key'] = 1
+    spine = mapping_df.merge(dates_df, on='_key').drop(columns='_key')
+    return spine
+
+
+def _prepare_sf_df(df, id_col, date_col, value_cols):
+    """Clean and deduplicate a Snowflake result set."""
+    if df.empty:
+        return pd.DataFrame()
+
+    column_map = {col.upper(): col for col in df.columns}
+
+    result = pd.DataFrame()
+    src_id = column_map.get(id_col.upper(), id_col)
+    result['_join_key'] = df[src_id].astype(str).str.strip()
+
+    src_date = column_map.get(date_col.upper(), date_col)
+    result['ProdDate'] = pd.to_datetime(df[src_date]).dt.date
+
+    for vc in value_cols:
+        src = column_map.get(vc.upper(), vc)
+        if src in df.columns:
+            result[vc] = pd.to_numeric(df[src], errors='coerce')
+        else:
+            result[vc] = np.nan
+
+    result = (
+        result
+        .sort_values(['_join_key', 'ProdDate'])
+        .groupby(['_join_key', 'ProdDate'], as_index=False)
+        .last()
+    )
+    return result
+
+
+def _merge_sf_data(spine_df, sf_data):
+    """Merge all 7 Snowflake datasets onto the spine."""
+    result = spine_df.copy()
+
+    merge_specs = [
+        ('ecf',       'GasIDREC',       ['ECF_Ratio']),
+        ('gaswh',     'GasIDREC',       ['GasWH_Production', 'OnProdHours']),
+        ('cgr',       'PressuresIDREC', ['CGR_Ratio']),
+        ('wgr',       'PressuresIDREC', ['WGR_Ratio']),
+        ('pressures', 'PressuresIDREC', ['TubingPressure', 'CasingPressure', 'ChokeSize']),
+        ('alloc',     'PressuresIDREC', ['Gathered_Gas_Production', 'Gathered_Condensate_Production', 'NGL_Production']),
+        ('water',     'PressuresIDREC', ['AllocatedWater_Rate']),
+    ]
+
+    for name, join_col, value_cols in merge_specs:
+        raw = sf_data.get(name, pd.DataFrame())
+        id_key = _SF_QUERIES[name][0]
+        processed = _prepare_sf_df(raw, id_key, 'PRODDATE', value_cols)
+
+        if processed.empty:
+            for vc in value_cols:
+                result[vc] = np.nan
+        else:
+            processed = processed.rename(columns={'_join_key': join_col})
+            result = result.merge(
+                processed,
+                on=[join_col, 'ProdDate'],
+                how='left',
+            )
+
+    return result
+
+
+def _apply_gaswh_replacement(result_df):
+    """Vectorized GasWH replacement: use Gathered when GasWH is missing/tiny."""
+    if 'GasWH_Production' not in result_df.columns or 'Gathered_Gas_Production' not in result_df.columns:
+        return result_df, 0
+
+    gas = result_df['GasWH_Production']
+    gathered = result_df['Gathered_Gas_Production']
+    has_gathered = gathered.notna()
+
+    replace_mask = has_gathered & (
+        gas.isna() | (gas == 0) | ((gas > 0) & (gas <= 2))
+    )
+
+    result_df.loc[replace_mask, 'GasWH_Production'] = gathered[replace_mask]
+    result_df['Condensate_WH_Production'] = (
+        result_df['GasWH_Production'] * result_df['CGR_Ratio']
+    )
+    return result_df, int(replace_mask.sum())
+
+
+def _nan_to_none(val):
+    """Convert NaN/NaT to None for DB insertion; keep everything else."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return None
+    return val
+
+
+def _df_to_insert_rows(df, columns):
+    """Convert DataFrame columns to list-of-tuples with NaN→None, vectorized."""
+    sub = df[columns].copy()
+    sub = sub.where(sub.notna(), None)
+    return [tuple(_nan_to_none(v) for v in row) for row in sub.itertuples(index=False, name=None)]
+
+
+_CDA_INSERT_SQL = """
+INSERT INTO PCE_CDA (
+    [GasIDREC], [PressuresIDREC], [Well Name], [ProdDate],
+    [GasWH_Production], [Condensate_WH_Production],
+    [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
+    [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
+    [Gathered_Gas_Production], [Gathered_Condensate_Production],
+    [NGL_Production], [AllocatedWater_Rate],
+    [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
+    [Lateral Length], [Orient]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_CDA_COLUMNS = [
+    'GasIDREC', 'PressuresIDREC', 'Well Name', 'ProdDate',
+    'GasWH_Production', 'Condensate_WH_Production',
+    'WGR_Ratio', 'CGR_Ratio', 'ECF_Ratio',
+    'OnProdHours', 'TubingPressure', 'CasingPressure', 'ChokeSize',
+    'Gathered_Gas_Production', 'Gathered_Condensate_Production',
+    'NGL_Production', 'AllocatedWater_Rate',
+    'Formation Producer', 'Layer Producer', 'Fault Block', 'Pad Name',
+    'Lateral Length', 'Orient',
+]
+
+_PROD_INSERT_SQL = """
+INSERT INTO PCE_Production (
+    [Date], [Days Seq], [Day Seq UPRT], [Well Name],
+    [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
+    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
+    [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
+    [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+    [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
+    [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
+    [Choke Size], [Gas WH Cumulative Production (10³m³)],
+    [Gas S2 Cumulative Production (10³m³)],
+    [Gas Sales Cumulative Production (10³m³)],
+    [Condensate Sales Cumulative Production (m³)],
+    [Condensate WH Cumulative Production (m³)],
+    [Gas Gathered Cumulative (e³m³)],
+    [Condensate Gathered Cumulative (m³)],
+    [Formation Producer], [Layer Producer], [Fault Block],
+    [Pad Name], [Lateral Length], [Orientation],
+    [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
+    [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
+    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_PROD_COLUMNS = [
+    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name',
+    'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
+    'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
+    'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
+    'Gathered Condensate (m³/d)', 'Sales CGR (m³/e³m³)',
+    'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
+    'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
+    'Choke Size', 'Gas WH Cumulative Production (10³m³)',
+    'Gas S2 Cumulative Production (10³m³)',
+    'Gas Sales Cumulative Production (10³m³)',
+    'Condensate Sales Cumulative Production (m³)',
+    'Condensate WH Cumulative Production (m³)',
+    'Gas Gathered Cumulative (e³m³)',
+    'Condensate Gathered Cumulative (m³)',
+    'Formation Producer', 'Layer Producer', 'Fault Block',
+    'Pad Name', 'Lateral Length', 'Orientation',
+    'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
+    'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
+    'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+]
+
+
+def _month_boundaries(dt):
+    """Return (first_day, last_day) as date objects for the month of *dt*."""
+    first = dt.replace(day=1)
+    if first.month == 12:
+        last = datetime(first.year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last = datetime(first.year, first.month + 1, 1) - timedelta(days=1)
+    return first.date(), last.date()
+
+
+def _generate_months(start_dt, end_dt):
+    """Yield datetime objects for each month in the range."""
+    current = start_dt
+    while current <= end_dt:
+        yield current
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+
+# ---------------------------------------------------------------------------
+# run_prodview_update  (Full Rebuild of CDA for selected range)
+# ---------------------------------------------------------------------------
+
 def run_prodview_update(start_month, end_month, progress_callback=None, log_callback=None):
     """
-    Update production data from Snowflake for a range of months
-    
-    Args:
-        start_month: Start month in format "MMM YYYY" (e.g., "Jan 2024")
-        end_month: End month in format "MMM YYYY" (e.g., "Feb 2026")
-        progress_callback: Function to call with progress percentage (0-100)
-        log_callback: Function to call with log messages
-    
+    Update production data from Snowflake for a range of months.
+
     Returns:
         dict: Summary statistics
     """
-    
+
     def log(message):
         if log_callback:
             log_callback(message)
         else:
             print(message)
-    
+
     def progress(value):
         if progress_callback:
             progress_callback(value)
-    
+
     log(lf.header(
         "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
         Range=f"{start_month} to {end_month}",
     ))
-    
+
     total_start = time.time()
-    
+
     try:
-        # Parse months
         start_date = datetime.strptime(start_month, "%b %Y")
         end_date = datetime.strptime(end_month, "%b %Y")
-        
-        # Ensure start is before end
+
         if start_date > end_date:
             error_msg = "Start month must be before end month"
             log(lf.error(error_msg))
             return {"error": error_msg}
-        
-        # Connect to SQL Server
+
+        # SQL Server connection
         log(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
         log(lf.success("Database connected"))
-        
-        # Get well mapping from PCE_WM (exclude exception wells)
+
+        # Well mapping
         log(lf.step("Fetching well mapping from PCE_WM..."))
-        cursor.execute("""
-            SELECT 
-                GasIDREC,
-                PressuresIDREC,
-                [Well Name],
-                [Formation Producer],
-                [Layer Producer],
-                [Fault Block],
-                [Pad Name],
-                [Lateral Length],
-                [Orient]
-            FROM PCE_WM
-            WHERE GasIDREC IS NOT NULL
-              AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
-        """)
-        
-        mapping_rows = cursor.fetchall()
-        mapping = []
-        for row in mapping_rows:
-            mapping.append({
-                'gas_idrec': row[0],
-                'pressures_idrec': row[1],
-                'well_name': row[2],
-                'formation': row[3],
-                'layer': row[4],
-                'fault_block': row[5],
-                'pad_name': row[6],
-                'lateral_length': row[7],
-                'orient': row[8]
-            })
-        log(lf.detail(f"Loaded {lf.num(len(mapping))} wells"))
-        
-        # Generate list of months to process
-        current = start_date
-        months_to_process = []
-        while current <= end_date:
-            months_to_process.append(current)
-            if current.month == 12:
-                current = current.replace(year=current.year + 1, month=1)
-            else:
-                current = current.replace(month=current.month + 1)
-        
-        total_months = len(months_to_process)
+        mapping_df = _fetch_well_mapping(cursor)
+        log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
+
+        months = list(_generate_months(start_date, end_date))
+        total_months = len(months)
         log(lf.detail(f"Found {lf.num(total_months)} months to process"))
-        
+
         if total_months == 0:
-            return {
-                'months_processed': 0,
-                'wells_updated': 0,
-                'cda_records': 0,
-                'production_records': 0,
-                'duration': 0
-            }
-        
-        # Initialize counters
-        months_processed = 0
+            return {'months_processed': 0, 'wells_updated': 0,
+                    'cda_records': 0, 'production_records': 0, 'duration': 0}
+
+        # ---- Single Snowflake pull for entire range ----
+        overall_start = start_date.date()
+        _, overall_end = _month_boundaries(end_date)
+
+        log(lf.step(f"Pulling all Snowflake data ({overall_start} to {overall_end})..."))
+        sf = SnowflakeConnector()
+        try:
+            sf_data = _pull_all_snowflake_data(sf, overall_start, overall_end, log)
+        finally:
+            sf.close()
+
         total_cda_records = 0
         total_production_records = 0
-        
-        # Process each month
-        for month_idx, month_date in enumerate(months_to_process):
-            month_start = month_date.replace(day=1)
-            month_name = month_start.strftime('%B %Y')
-            
-            # Calculate month end
-            if month_start.month == 12:
-                month_end = datetime(month_start.year + 1, 1, 1) - timedelta(days=1)
-            else:
-                month_end = datetime(month_start.year, month_start.month + 1, 1) - timedelta(days=1)
-            
-            month_start_date = month_start.date()
-            month_end_date = month_end.date()
-            days_in_month = (month_end_date - month_start_date).days + 1
-            
+
+        for month_idx, month_dt in enumerate(months):
+            month_start, month_end = _month_boundaries(month_dt)
+            month_name = month_dt.strftime('%B %Y')
+            date_range = pd.date_range(start=month_start, end=month_end, freq='D').date
+
             log(lf.step(f"Processing {month_name} ({month_idx + 1}/{total_months})"))
-            
-            # Pull data from Snowflake
-            
-            sf = SnowflakeConnector()
-            
-            # Pull ECF data
-            ecf_query = f"""
-            SELECT
-                IDRECPARENT AS GasIDREC,
-                CAST (DTTM AS DATE) AS ProdDate,
-                EFFLUENTFACTOR AS ECF_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            ecf_df = sf.query(ecf_query)
-            
-            # Pull GasWH data
-            gaswh_query = f"""
-            SELECT
-                IDRECPARENT AS GasIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLENTERGAS AS GasWH_Production,
-                DURONOR AS OnProdHours
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            gaswh_df = sf.query(gaswh_query)
-            
-            # Pull CGR data
-            cgr_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                CASE
-                    WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
-                    ELSE (RATEHCLIQ / RATEGAS)
-                END AS CGR_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            cgr_df = sf.query(cgr_query)
-            
-            # Pull WGR data
-            wgr_query = f"""
-            SELECT
-                IDRECPARENT AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                WGR AS WGR_Ratio
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            wgr_df = sf.query(wgr_query)
-            
-            # Pull Pressures data
-            pressures_query = f"""
-            SELECT
-                IDRECPARENT AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                PRESTUB AS TubingPressure,
-                PRESCAS AS CasingPressure,
-                SZCHOKE AS ChokeSize
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            pressures_df = sf.query(pressures_query)
-            
-            # Pull Allocations data
-            alloc_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLPRODGATHGAS AS Gathered_Gas_Production,
-                VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
-                VOLNEWPRODALLOCNGL AS NGL_Production
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            alloc_df = sf.query(alloc_query)
-            
-            # Pull Allocated Water data
-            water_query = f"""
-            SELECT
-                IDRECCOMP AS PressuresIDREC,
-                CAST(DTTM AS DATE) AS ProdDate,
-                VOLWATER AS AllocatedWater_Rate
-            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
-            WHERE DTTM >= '{month_start_date}'
-              AND DTTM <= '{month_end_date}'
-            """
-            water_df = sf.query(water_query)
-            
-            sf.close()
-            
-            total_rows = len(ecf_df) + len(gaswh_df) + len(cgr_df) + len(wgr_df) + len(pressures_df) + len(alloc_df) + len(water_df)
-            log(lf.detail(f"Retrieved {lf.num(total_rows)} rows from Snowflake"))
-            
+
+            # Slice Snowflake data for this month
+            month_sf = {}
+            for name, full_df in sf_data.items():
+                if full_df.empty:
+                    month_sf[name] = full_df
+                    continue
+                col_map = {c.upper(): c for c in full_df.columns}
+                date_col = col_map.get('PRODDATE', 'ProdDate')
+                dates = pd.to_datetime(full_df[date_col]).dt.date
+                month_sf[name] = full_df[(dates >= month_start) & (dates <= month_end)]
+
             # Delete existing data for this month
-            cursor.execute("""
-                DELETE FROM PCE_CDA 
-                WHERE ProdDate BETWEEN ? AND ?
-            """, month_start_date, month_end_date)
+            cursor.execute(
+                "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
+                month_start, month_end,
+            )
             deleted_cda = cursor.rowcount
-            
-            cursor.execute("""
-                DELETE FROM PCE_Production 
-                WHERE [Date] BETWEEN ? AND ?
-            """, month_start_date, month_end_date)
+            cursor.execute(
+                "DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
+                month_start, month_end,
+            )
             deleted_prod = cursor.rowcount
-            
             conn.commit()
-            
             if deleted_cda > 0 or deleted_prod > 0:
                 log(lf.detail(
                     f"Cleared {lf.num(deleted_cda)} CDA and "
                     f"{lf.num(deleted_prod)} Production records"
                 ))
-            
-            # Build daily data spine
 
-            # Create date spine for each well
-            all_rows = []
-            date_range = pd.date_range(start=month_start_date, end=month_end_date, freq='D').date
+            # Build spine (vectorized cross-join)
+            spine_df = _build_spine(mapping_df, date_range)
 
-            for well in mapping:
-                for date in date_range:
-                    all_rows.append({
-                        'GasIDREC': well['gas_idrec'],
-                        'PressuresIDREC': well['pressures_idrec'],
-                        'Well Name': well['well_name'],
-                        'ProdDate': date,
-                        'Formation Producer': well['formation'],
-                        'Layer Producer': well['layer'],
-                        'Fault Block': well['fault_block'],
-                        'Pad Name': well['pad_name'],
-                        'Lateral Length': well['lateral_length'],
-                        'Orient': well['orient']
-                    })
+            # Merge all Snowflake data
+            result_df = _merge_sf_data(spine_df, month_sf)
 
-            spine_df = pd.DataFrame(all_rows)
+            # Condensate WH initial calc
+            result_df['Condensate_WH_Production'] = (
+                result_df['GasWH_Production'] * result_df['CGR_Ratio']
+            )
 
-            # Process and merge data sources
-            result_df = spine_df.copy()
+            # Vectorized GasWH replacement
+            result_df, _repl = _apply_gaswh_replacement(result_df)
 
-            # Helper function to clean and prepare dataframes
-            def prepare_df(df, id_col, date_col, value_cols):
-                if df.empty:
-                    return pd.DataFrame()
-                
-                # Handle Snowflake column naming (they come back as uppercase)
-                df_clean = df.copy()
-                column_map = {col.upper(): col for col in df_clean.columns}
-                
-                # Map to standard names
-                result = pd.DataFrame()
-                result['GasIDREC'] = df_clean[column_map.get(id_col.upper(), id_col)].astype(str).str.strip()
-                result['ProdDate'] = pd.to_datetime(df_clean[column_map.get(date_col.upper(), date_col)]).dt.date
-                
-                for val_col in value_cols:
-                    source_col = column_map.get(val_col.upper(), val_col)
-                    if source_col in df_clean.columns:
-                        result[val_col] = pd.to_numeric(df_clean[source_col], errors='coerce')
-                    else:
-                        result[val_col] = None
-                
-                # Remove duplicates (keep last)
-                result = result.sort_values(['GasIDREC', 'ProdDate'])
-                result = result.groupby(['GasIDREC', 'ProdDate'], as_index=False).last()
-                
-                return result
-
-            # Process ECF
-            if not ecf_df.empty:
-                ecf_processed = prepare_df(ecf_df, 'GASIDREC', 'PRODDATE', ['ECF_Ratio'])
-                if not ecf_processed.empty:
-                    result_df = result_df.merge(ecf_processed, on=['GasIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['ECF_Ratio'] = None
-            else:
-                result_df['ECF_Ratio'] = None
-
-            # Process GasWH
-            if not gaswh_df.empty:
-                gaswh_processed = prepare_df(gaswh_df, 'GASIDREC', 'PRODDATE', ['GasWH_Production', 'OnProdHours'])
-                if not gaswh_processed.empty:
-                    result_df = result_df.merge(gaswh_processed, on=['GasIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['GasWH_Production'] = None
-                    result_df['OnProdHours'] = None
-            else:
-                result_df['GasWH_Production'] = None
-                result_df['OnProdHours'] = None
-
-            # Process CGR (uses PressuresIDREC)
-            if not cgr_df.empty:
-                cgr_processed = prepare_df(cgr_df, 'PRESSURESIDREC', 'PRODDATE', ['CGR_Ratio'])
-                if not cgr_processed.empty:
-                    cgr_processed = cgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(cgr_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['CGR_Ratio'] = None
-            else:
-                result_df['CGR_Ratio'] = None
-
-            # Process WGR (uses PressuresIDREC)
-            if not wgr_df.empty:
-                wgr_processed = prepare_df(wgr_df, 'PRESSURESIDREC', 'PRODDATE', ['WGR_Ratio'])
-                if not wgr_processed.empty:
-                    wgr_processed = wgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(wgr_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['WGR_Ratio'] = None
-            else:
-                result_df['WGR_Ratio'] = None
-
-            # Process Pressures (uses PressuresIDREC)
-            if not pressures_df.empty:
-                pressures_processed = prepare_df(pressures_df, 'PRESSURESIDREC', 'PRODDATE', 
-                                                ['TubingPressure', 'CasingPressure', 'ChokeSize'])
-                if not pressures_processed.empty:
-                    pressures_processed = pressures_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(pressures_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['TubingPressure'] = None
-                    result_df['CasingPressure'] = None
-                    result_df['ChokeSize'] = None
-            else:
-                result_df['TubingPressure'] = None
-                result_df['CasingPressure'] = None
-                result_df['ChokeSize'] = None
-
-            # Process Allocations (uses PressuresIDREC)
-            if not alloc_df.empty:
-                alloc_processed = prepare_df(alloc_df, 'PRESSURESIDREC', 'PRODDATE', 
-                                            ['Gathered_Gas_Production', 'Gathered_Condensate_Production', 'NGL_Production'])
-                if not alloc_processed.empty:
-                    alloc_processed = alloc_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(alloc_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['Gathered_Gas_Production'] = None
-                    result_df['Gathered_Condensate_Production'] = None
-                    result_df['NGL_Production'] = None
-            else:
-                result_df['Gathered_Gas_Production'] = None
-                result_df['Gathered_Condensate_Production'] = None
-                result_df['NGL_Production'] = None
-
-            # Process Allocated Water (uses PressuresIDREC)
-            if not water_df.empty:
-                water_processed = prepare_df(water_df, 'PRESSURESIDREC', 'PRODDATE', ['AllocatedWater_Rate'])
-                if not water_processed.empty:
-                    water_processed = water_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(water_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['AllocatedWater_Rate'] = None
-            else:
-                result_df['AllocatedWater_Rate'] = None
-
-            # Calculate Condensate_WH_Production (initial calculation)
-            result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-
-            # Apply Gas WH replacement logic (VBA compatibility)
-            if 'GasWH_Production' in result_df.columns and 'Gathered_Gas_Production' in result_df.columns:
-                gas_wh_original = result_df['GasWH_Production'].copy()
-                gathered_gas = result_df['Gathered_Gas_Production'].copy()
-                replacement_count = 0
-                
-                for idx in result_df.index:
-                    gas_val = gas_wh_original[idx]
-                    gathered_val = gathered_gas[idx] if pd.notna(gathered_gas[idx]) else None
-                    
-                    if gathered_val is None or pd.isna(gathered_val):
-                        continue
-                    
-                    if pd.notna(gas_val) and gas_val <= 2 and gas_val > 0:
-                        result_df.at[idx, 'GasWH_Production'] = gathered_val
-                        replacement_count += 1
-                    elif pd.isna(gas_val) or gas_val == 0:
-                        result_df.at[idx, 'GasWH_Production'] = gathered_val
-                        replacement_count += 1
-                
-                result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-            
-            # Insert into PCE_CDA
-
-            insert_sql = """
-            INSERT INTO PCE_CDA (
-                [GasIDREC], [PressuresIDREC], [Well Name], [ProdDate],
-                [GasWH_Production], [Condensate_WH_Production],
-                [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
-                [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
-                [Gathered_Gas_Production], [Gathered_Condensate_Production],
-                [NGL_Production], [AllocatedWater_Rate],
-                [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
-                [Lateral Length], [Orient]
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-
+            # Insert into PCE_CDA (vectorized tuple construction + executemany)
+            rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
+            batch_size = 5000
             rows_inserted = 0
-            batch_size = 1000
-            rows_batch = []
-
-            for _, row in result_df.iterrows():
-                rows_batch.append((
-                    row.get('GasIDREC'),
-                    row.get('PressuresIDREC'),
-                    row.get('Well Name'),
-                    row.get('ProdDate'),
-                    None if pd.isna(row.get('GasWH_Production')) else float(row.get('GasWH_Production')),
-                    None if pd.isna(row.get('Condensate_WH_Production')) else float(row.get('Condensate_WH_Production')),
-                    None if pd.isna(row.get('WGR_Ratio')) else float(row.get('WGR_Ratio')),
-                    None if pd.isna(row.get('CGR_Ratio')) else float(row.get('CGR_Ratio')),
-                    None if pd.isna(row.get('ECF_Ratio')) else float(row.get('ECF_Ratio')),
-                    None if pd.isna(row.get('OnProdHours')) else float(row.get('OnProdHours')),
-                    None if pd.isna(row.get('TubingPressure')) else float(row.get('TubingPressure')),
-                    None if pd.isna(row.get('CasingPressure')) else float(row.get('CasingPressure')),
-                    None if pd.isna(row.get('ChokeSize')) else float(row.get('ChokeSize')),
-                    None if pd.isna(row.get('Gathered_Gas_Production')) else float(row.get('Gathered_Gas_Production')),
-                    None if pd.isna(row.get('Gathered_Condensate_Production')) else float(row.get('Gathered_Condensate_Production')),
-                    None if pd.isna(row.get('NGL_Production')) else float(row.get('NGL_Production')),
-                    None if pd.isna(row.get('AllocatedWater_Rate')) else float(row.get('AllocatedWater_Rate')),
-                    row.get('Formation Producer'),
-                    row.get('Layer Producer'),
-                    row.get('Fault Block'),
-                    row.get('Pad Name'),
-                    None if pd.isna(row.get('Lateral Length')) else float(row.get('Lateral Length')),
-                    row.get('Orient')
-                ))
-                
-                if len(rows_batch) >= batch_size:
-                    cursor.executemany(insert_sql, rows_batch)
-                    rows_inserted += len(rows_batch)
-                    rows_batch = []
-                    log(lf.detail(f"Inserted batch of {lf.num(batch_size)} rows..."))
-
-            # Insert remaining rows
-            if rows_batch:
-                cursor.executemany(insert_sql, rows_batch)
-                rows_inserted += len(rows_batch)
-
+            for i in range(0, len(rows), batch_size):
+                batch = rows[i:i + batch_size]
+                cursor.executemany(_CDA_INSERT_SQL, batch)
+                rows_inserted += len(batch)
             conn.commit()
             total_cda_records += rows_inserted
             log(lf.detail(f"Inserted {lf.num(rows_inserted)} records into PCE_CDA"))
 
-            # -----------------------------------------------------------------
-            # STEP 6: Update PCE_Production
-            # -----------------------------------------------------------------
-            log(lf.step("Updating PCE_Production..."))
-
-            # Insert with temporary sequence values
+            # Insert PCE_Production from CDA via server-side SELECT
             cursor.execute("""
                 INSERT INTO PCE_Production (
                     [Date], [Well Name],
@@ -502,15 +482,15 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                     [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
                     [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
                     [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-                    [Choke Size], 
+                    [Choke Size],
                     [Alloc. Water Rate (m³)], [NGL (m³)],
                     [Formation Producer], [Layer Producer], [Fault Block],
                     [Pad Name], [Lateral Length], [Orientation]
                 )
-                SELECT 
+                SELECT
                     c.ProdDate,
                     c.[Well Name],
-                    0, 0,  -- Temporary sequence values
+                    0, 0,
                     c.GasWH_Production,
                     c.Condensate_WH_Production,
                     c.[Gas - S2 Production],
@@ -536,50 +516,39 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                     c.Orient
                 FROM PCE_CDA c
                 WHERE c.ProdDate BETWEEN ? AND ?
-            """, month_start_date, month_end_date)
-
+            """, month_start, month_end)
             prod_inserted = cursor.rowcount
             conn.commit()
             total_production_records += prod_inserted
-            
-            # Update overall progress
-            progress_percent = int((month_idx + 1) / total_months * 100)
-            progress(progress_percent)
-        
-        # Recalculate sequences and cumulatives for affected wells
+
+            progress(int((month_idx + 1) / total_months * 100))
+
+        # Recalculate sequences for affected wells
         cursor.execute("""
             SELECT DISTINCT [Well Name]
             FROM PCE_CDA
             WHERE ProdDate BETWEEN ? AND ?
         """, start_date.date(), end_date.date())
-        
         affected_wells = [row[0] for row in cursor.fetchall()]
         log(lf.step(f"Recalculating sequences for {lf.num(len(affected_wells))} wells..."))
-        
+
         for well_idx, well_name in enumerate(affected_wells):
-            
-            # Get all dates for this well in order
             cursor.execute("""
                 SELECT ProdDate, GasWH_Production
                 FROM PCE_CDA
                 WHERE [Well Name] = ?
                 ORDER BY ProdDate
             """, well_name)
-            
             well_data = cursor.fetchall()
-            
-            # Calculate Days Seq (simple counter)
+
             days_seq = list(range(1, len(well_data) + 1))
-            
-            # Calculate Day Seq UPRT (repeats when production < 1)
+            gas_wh_values = [row[1] or 0 for row in well_data]
+
             day_seq_uprt = []
             counter = 1
             i = 0
-            gas_wh_values = [row[1] or 0 for row in well_data]
-            
             while i < len(gas_wh_values):
                 day_seq_uprt.append(counter)
-                
                 if gas_wh_values[i] >= 1:
                     counter += 1
                     i += 1
@@ -590,40 +559,41 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                         j += 1
                     i = j
                     counter += 1
-            
-            # Update PCE_Production with sequence numbers
-            for idx, (date, _) in enumerate(well_data):
-                cursor.execute("""
-                    UPDATE PCE_Production
-                    SET [Days Seq] = ?,
-                        [Day Seq UPRT] = ?
-                    WHERE [Well Name] = ? AND [Date] = ?
-                """, days_seq[idx], day_seq_uprt[idx], well_name, date)
-            
-            conn.commit()
-        
+
+            update_rows = [
+                (days_seq[idx], day_seq_uprt[idx], well_name, date)
+                for idx, (date, _) in enumerate(well_data)
+            ]
+            cursor.executemany("""
+                UPDATE PCE_Production
+                SET [Days Seq] = ?, [Day Seq UPRT] = ?
+                WHERE [Well Name] = ? AND [Date] = ?
+            """, update_rows)
+
+            if (well_idx + 1) % 20 == 0:
+                conn.commit()
+
+        conn.commit()
         conn.close()
-        
+
         total_time = time.time() - total_start
-        
         summary = {
-            'months_processed': months_processed,
+            'months_processed': total_months,
             'wells_updated': len(affected_wells),
             'cda_records': total_cda_records,
             'production_records': total_production_records,
-            'duration': total_time
+            'duration': total_time,
         }
-        
+
         log(lf.summary("COMPLETE", {
-            "Months processed": months_processed,
+            "Months processed": total_months,
             "Wells updated": len(affected_wells),
             "PCE_CDA records": total_cda_records,
             "PCE_Production records": total_production_records,
             "Duration": lf.elapsed(total_time),
         }))
-        
         return summary
-        
+
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
         log(lf.error(str(e)))
@@ -633,547 +603,184 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         return {"error": error_msg}
 
 
+# ---------------------------------------------------------------------------
+# run_quick_update  (Quick Update for selected range + full recalculation)
+# ---------------------------------------------------------------------------
+
 def run_quick_update(start_month, end_month, progress_callback=None, log_callback=None):
     """
-    Quick update mode: Only processes selected month range
-    Updates PCE_CDA and PCE_Production for those months
-    Recalculates sequences for affected wells only
-    Updates cumulatives incrementally
-    
-    Args:
-        start_month: Start month in format "MMM YYYY" (e.g., "Jan 2024")
-        end_month: End month in format "MMM YYYY" (e.g., "Feb 2026")
-        progress_callback: Function to call with progress percentage (0-100)
-        log_callback: Function to call with log messages
-    
+    Quick update: processes only selected month range for PCE_CDA,
+    then recalculates sequences/cumulatives/averages for affected wells.
+
     Returns:
         dict: Summary statistics
     """
-    
+
     def log(message):
         if log_callback:
             log_callback(message)
         else:
             print(message)
-    
+
     def progress(value):
         if progress_callback:
             progress_callback(value)
-    
+
     log(lf.header(
         "QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
         Range=f"{start_month} to {end_month}",
     ))
-    
+
     total_start = time.time()
-    
+
     try:
-        # Import functions from production_update.py
         from production_update import (
-            calculate_sequences, calculate_cumulatives, 
+            calculate_sequences, calculate_cumulatives,
             calculate_monthly_averages, add_on_production_year,
-            fetch_well_mapping, apply_well_names, filter_to_first_production
+            fetch_well_mapping, apply_well_names, filter_to_first_production,
         )
-        
-        # Parse months
+
         start_date = datetime.strptime(start_month, "%b %Y")
         end_date = datetime.strptime(end_month, "%b %Y")
-        
-        # Ensure start is before end
+
         if start_date > end_date:
             error_msg = "Start month must be before end month"
             log(lf.error(error_msg))
             return {"error": error_msg}
-        
-        # Calculate actual date range (first day of start month to last day of end month)
+
         start_date_first = start_date.replace(day=1)
-        if end_date.month == 12:
-            end_date_last = datetime(end_date.year + 1, 1, 1) - timedelta(days=1)
-        else:
-            end_date_last = datetime(end_date.year, end_date.month + 1, 1) - timedelta(days=1)
-        
+        _, end_date_last_date = _month_boundaries(end_date)
         start_date_first_date = start_date_first.date()
-        end_date_last_date = end_date_last.date()
-        
-        # Connect to SQL Server
+
+        # SQL Server
         log(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
         log(lf.success("Database connected"))
-        
-        # Get well mapping from PCE_WM
+
+        # Well mapping
         log(lf.step("Fetching well mapping from PCE_WM..."))
-        cursor.execute("""
-            SELECT 
-                GasIDREC,
-                PressuresIDREC,
-                [Well Name],
-                [Formation Producer],
-                [Layer Producer],
-                [Fault Block],
-                [Pad Name],
-                [Lateral Length],
-                [Orient]
-            FROM PCE_WM
-            WHERE GasIDREC IS NOT NULL
-              AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
-        """)
-        
-        mapping_rows = cursor.fetchall()
-        mapping = []
-        for row in mapping_rows:
-            mapping.append({
-                'gas_idrec': row[0],
-                'pressures_idrec': row[1],
-                'well_name': row[2],
-                'formation': row[3],
-                'layer': row[4],
-                'fault_block': row[5],
-                'pad_name': row[6],
-                'lateral_length': row[7],
-                'orient': row[8]
-            })
-        log(lf.detail(f"Loaded {lf.num(len(mapping))} wells"))
-        
-        # Generate list of months to process
-        current = start_date_first
-        months_to_process = []
-        while current <= end_date_last:
-            months_to_process.append(current)
-            if current.month == 12:
-                current = current.replace(year=current.year + 1, month=1)
-            else:
-                current = current.replace(month=current.month + 1)
-        
-        total_months = len(months_to_process)
+        mapping_df = _fetch_well_mapping(cursor)
+        log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
+
+        months = list(_generate_months(start_date_first, end_date))
+        total_months = len(months)
         log(lf.detail(f"Found {lf.num(total_months)} months to process"))
-        
+
         if total_months == 0:
-            return {
-                'months_processed': 0,
-                'wells_updated': 0,
-                'cda_records': 0,
-                'production_records': 0,
-                'duration': 0
-            }
-        
-        # Initialize counters
+            return {'months_processed': 0, 'wells_updated': 0,
+                    'cda_records': 0, 'production_records': 0, 'duration': 0}
+
+        # ---- Single Snowflake pull for entire range ----
+        log(lf.step(f"Pulling all Snowflake data ({start_date_first_date} to {end_date_last_date})..."))
+        sf = SnowflakeConnector()
+        try:
+            sf_data = _pull_all_snowflake_data(sf, start_date_first_date, end_date_last_date, log)
+        finally:
+            sf.close()
+
+        total_sf_rows = sum(len(df) for df in sf_data.values())
+        log(lf.success(f"Retrieved {lf.num(total_sf_rows)} total rows from Snowflake"))
+
         months_processed = 0
         total_cda_records = 0
-        
-        # Process each month (same as run_prodview_update for PCE_CDA updates)
-        for month_idx, month_date in enumerate(months_to_process):
-            month_start = month_date.replace(day=1)
-            month_name = month_start.strftime('%B %Y')
-            
-            # Calculate month end
-            if month_start.month == 12:
-                month_end = datetime(month_start.year + 1, 1, 1) - timedelta(days=1)
-            else:
-                month_end = datetime(month_start.year, month_start.month + 1, 1) - timedelta(days=1)
-            
-            month_start_date = month_start.date()
-            month_end_date = month_end.date()
-            
+
+        for month_idx, month_dt in enumerate(months):
+            month_start, month_end = _month_boundaries(month_dt)
+            month_name = month_dt.strftime('%B %Y')
+            date_range = pd.date_range(start=month_start, end=month_end, freq='D').date
+
             log(lf.ruler())
-            log(lf.step(f"Processing {month_name}"))
-            log(lf.detail(f"Range: {month_start_date} to {month_end_date}"))
-            log(lf.detail(f"Month {lf.num(month_idx + 1)} of {lf.num(total_months)}"))
-            
-            # Pull data from Snowflake (same logic as run_prodview_update)
-            log(lf.step("Pulling data from Snowflake..."))
-            
-            # Validate dates are proper date objects
-            if not isinstance(month_start_date, (datetime, type(month_start_date))):
-                raise ValueError(f"Invalid start date: {month_start_date}")
-            if not isinstance(month_end_date, (datetime, type(month_end_date))):
-                raise ValueError(f"Invalid end date: {month_end_date}")
-            
-            # Format dates safely for SQL (YYYY-MM-DD)
-            start_date_str = month_start_date.strftime('%Y-%m-%d')
-            end_date_str = month_end_date.strftime('%Y-%m-%d')
-            
-            sf = SnowflakeConnector()
-            
+            log(lf.step(f"Processing {month_name} ({month_idx + 1}/{total_months})"))
+
+            # Slice Snowflake data for this month
+            month_sf = {}
+            for name, full_df in sf_data.items():
+                if full_df.empty:
+                    month_sf[name] = full_df
+                    continue
+                col_map = {c.upper(): c for c in full_df.columns}
+                date_col = col_map.get('PRODDATE', 'ProdDate')
+                dates = pd.to_datetime(full_df[date_col]).dt.date
+                month_sf[name] = full_df[(dates >= month_start) & (dates <= month_end)]
+
+            # Delete existing data
             try:
-                # Pull all data sources (same queries as run_prodview_update)
-                ecf_query = f"""
-                SELECT
-                    IDRECPARENT AS GasIDREC,
-                    CAST (DTTM AS DATE) AS ProdDate,
-                    EFFLUENTFACTOR AS ECF_Ratio
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                ecf_df = sf.query(ecf_query)
-            
-                gaswh_query = f"""
-                SELECT
-                    IDRECPARENT AS GasIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    VOLENTERGAS AS GasWH_Production,
-                    DURONOR AS OnProdHours
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                gaswh_df = sf.query(gaswh_query)
-                
-                cgr_query = f"""
-                SELECT
-                    IDRECCOMP AS PressuresIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    CASE
-                        WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
-                        ELSE (RATEHCLIQ / RATEGAS)
-                    END AS CGR_Ratio
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                cgr_df = sf.query(cgr_query)
-                
-                wgr_query = f"""
-                SELECT
-                    IDRECPARENT AS PressuresIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    WGR AS WGR_Ratio
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                wgr_df = sf.query(wgr_query)
-                
-                pressures_query = f"""
-                SELECT
-                    IDRECPARENT AS PressuresIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    PRESTUB AS TubingPressure,
-                    PRESCAS AS CasingPressure,
-                    SZCHOKE AS ChokeSize
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                pressures_df = sf.query(pressures_query)
-                
-                alloc_query = f"""
-                SELECT
-                    IDRECCOMP AS PressuresIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    VOLPRODGATHGAS AS Gathered_Gas_Production,
-                    VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
-                    VOLNEWPRODALLOCNGL AS NGL_Production
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                alloc_df = sf.query(alloc_query)
-                
-                water_query = f"""
-                SELECT
-                    IDRECCOMP AS PressuresIDREC,
-                    CAST(DTTM AS DATE) AS ProdDate,
-                    VOLWATER AS AllocatedWater_Rate
-                FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
-                WHERE DTTM >= '{start_date_str}'
-                  AND DTTM <= '{end_date_str}'
-                """
-                water_df = sf.query(water_query)
-            except Exception as e:
-                sf.close()
-                log(lf.error(f"Error pulling data from Snowflake: {e}"))
-                raise
-            finally:
-                sf.close()
-            
-            log(lf.detail(f"ECF: {lf.num(len(ecf_df))} rows"))
-            log(lf.detail(f"GasWH: {lf.num(len(gaswh_df))} rows"))
-            log(lf.detail(f"CGR: {lf.num(len(cgr_df))} rows"))
-            log(lf.detail(f"WGR: {lf.num(len(wgr_df))} rows"))
-            log(lf.detail(f"Pressures: {lf.num(len(pressures_df))} rows"))
-            log(lf.detail(f"Allocations: {lf.num(len(alloc_df))} rows"))
-            log(lf.detail(f"Water: {lf.num(len(water_df))} rows"))
-            
-            # Delete existing data for this month
-            log(lf.step("Clearing existing data for month..."))
-            
-            try:
-                cursor.execute("""
-                    DELETE FROM PCE_CDA 
-                    WHERE ProdDate BETWEEN ? AND ?
-                """, month_start_date, month_end_date)
+                cursor.execute(
+                    "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
+                    month_start, month_end,
+                )
                 deleted_cda = cursor.rowcount
-                log(lf.detail(f"Deleted {lf.num(deleted_cda)} records from PCE_CDA"))
-                
-                cursor.execute("""
-                    DELETE FROM PCE_Production 
-                    WHERE [Date] BETWEEN ? AND ?
-                """, month_start_date, month_end_date)
+                cursor.execute(
+                    "DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
+                    month_start, month_end,
+                )
                 deleted_prod = cursor.rowcount
-                log(lf.detail(f"Deleted {lf.num(deleted_prod)} records from PCE_Production"))
-                
                 conn.commit()
+                log(lf.detail(
+                    f"Cleared {lf.num(deleted_cda)} CDA / {lf.num(deleted_prod)} Production records"
+                ))
             except Exception as e:
                 conn.rollback()
                 log(lf.error(f"Error deleting existing data: {e}"))
                 raise
-            
-            # Build spine and merge data (same as run_prodview_update)
-            log(lf.step("Building daily data spine..."))
-            
-            all_rows = []
-            date_range = pd.date_range(start=month_start_date, end=month_end_date, freq='D').date
-            
-            for well in mapping:
-                for date in date_range:
-                    all_rows.append({
-                        'GasIDREC': well['gas_idrec'],
-                        'PressuresIDREC': well['pressures_idrec'],
-                        'Well Name': well['well_name'],
-                        'ProdDate': date,
-                        'Formation Producer': well['formation'],
-                        'Layer Producer': well['layer'],
-                        'Fault Block': well['fault_block'],
-                        'Pad Name': well['pad_name'],
-                        'Lateral Length': well['lateral_length'],
-                        'Orient': well['orient']
-                    })
-            
-            spine_df = pd.DataFrame(all_rows)
-            log(lf.detail(f"Created spine with {lf.num(len(spine_df))} rows"))
-            
-            # Process and merge each data source (same helper function as run_prodview_update)
-            log(lf.step("Processing and merging data sources..."))
-            
-            result_df = spine_df.copy()
-            
-            def prepare_df(df, id_col, date_col, value_cols):
-                if df.empty:
-                    return pd.DataFrame()
-                
-                df_clean = df.copy()
-                column_map = {col.upper(): col for col in df_clean.columns}
-                
-                result = pd.DataFrame()
-                result['GasIDREC'] = df_clean[column_map.get(id_col.upper(), id_col)].astype(str).str.strip()
-                result['ProdDate'] = pd.to_datetime(df_clean[column_map.get(date_col.upper(), date_col)]).dt.date
-                
-                for val_col in value_cols:
-                    source_col = column_map.get(val_col.upper(), val_col)
-                    if source_col in df_clean.columns:
-                        result[val_col] = pd.to_numeric(df_clean[source_col], errors='coerce')
-                    else:
-                        result[val_col] = None
-                
-                result = result.sort_values(['GasIDREC', 'ProdDate'])
-                result = result.groupby(['GasIDREC', 'ProdDate'], as_index=False).last()
-                
-                return result
-            
-            # Merge all data sources (same as run_prodview_update)
-            log(lf.detail("Merging ECF data..."))
-            if not ecf_df.empty:
-                ecf_processed = prepare_df(ecf_df, 'GASIDREC', 'PRODDATE', ['ECF_Ratio'])
-                if not ecf_processed.empty:
-                    result_df = result_df.merge(ecf_processed, on=['GasIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['ECF_Ratio'] = None
-            else:
-                result_df['ECF_Ratio'] = None
-            log(lf.detail("Merging GasWH data..."))
-            
-            if not gaswh_df.empty:
-                gaswh_processed = prepare_df(gaswh_df, 'GASIDREC', 'PRODDATE', ['GasWH_Production', 'OnProdHours'])
-                if not gaswh_processed.empty:
-                    result_df = result_df.merge(gaswh_processed, on=['GasIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['GasWH_Production'] = None
-                    result_df['OnProdHours'] = None
-            else:
-                result_df['GasWH_Production'] = None
-                result_df['OnProdHours'] = None
-            log(lf.detail("Merging CGR data..."))
-            
-            if not cgr_df.empty:
-                cgr_processed = prepare_df(cgr_df, 'PRESSURESIDREC', 'PRODDATE', ['CGR_Ratio'])
-                if not cgr_processed.empty:
-                    cgr_processed = cgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(cgr_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['CGR_Ratio'] = None
-            else:
-                result_df['CGR_Ratio'] = None
-            log(lf.detail("Merging WGR data..."))
-            
-            if not wgr_df.empty:
-                wgr_processed = prepare_df(wgr_df, 'PRESSURESIDREC', 'PRODDATE', ['WGR_Ratio'])
-                if not wgr_processed.empty:
-                    wgr_processed = wgr_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(wgr_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['WGR_Ratio'] = None
-            else:
-                result_df['WGR_Ratio'] = None
-            log(lf.detail("Merging Pressures data..."))
-            
-            if not pressures_df.empty:
-                pressures_processed = prepare_df(pressures_df, 'PRESSURESIDREC', 'PRODDATE', 
-                                                ['TubingPressure', 'CasingPressure', 'ChokeSize'])
-                if not pressures_processed.empty:
-                    pressures_processed = pressures_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(pressures_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['TubingPressure'] = None
-                    result_df['CasingPressure'] = None
-                    result_df['ChokeSize'] = None
-            else:
-                result_df['TubingPressure'] = None
-                result_df['CasingPressure'] = None
-                result_df['ChokeSize'] = None
-            log(lf.detail("Merging Allocations data..."))
-            
-            if not alloc_df.empty:
-                alloc_processed = prepare_df(alloc_df, 'PRESSURESIDREC', 'PRODDATE', 
-                                            ['Gathered_Gas_Production', 'Gathered_Condensate_Production', 'NGL_Production'])
-                if not alloc_processed.empty:
-                    alloc_processed = alloc_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(alloc_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['Gathered_Gas_Production'] = None
-                    result_df['Gathered_Condensate_Production'] = None
-                    result_df['NGL_Production'] = None
-            else:
-                result_df['Gathered_Gas_Production'] = None
-                result_df['Gathered_Condensate_Production'] = None
-                result_df['NGL_Production'] = None
-            log(lf.detail("Merging Water data..."))
-            
-            if not water_df.empty:
-                water_processed = prepare_df(water_df, 'PRESSURESIDREC', 'PRODDATE', ['AllocatedWater_Rate'])
-                if not water_processed.empty:
-                    water_processed = water_processed.rename(columns={'GasIDREC': 'PressuresIDREC'})
-                    result_df = result_df.merge(water_processed, left_on=['PressuresIDREC', 'ProdDate'], 
-                                                right_on=['PressuresIDREC', 'ProdDate'], how='left')
-                else:
-                    result_df['AllocatedWater_Rate'] = None
-            else:
-                result_df['AllocatedWater_Rate'] = None
-            
-            log(lf.detail("Calculating Condensate WH Production..."))
-            result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-            log(lf.detail(f"Data merge complete. Total rows: {lf.num(len(result_df))}"))
-            
-            # Insert into PCE_CDA
-            log(lf.step("Inserting into PCE_CDA..."))
-            log(lf.detail(f"Preparing {lf.num(len(result_df))} rows for insertion..."))
-            
-            insert_sql = """
-            INSERT INTO PCE_CDA (
-                [GasIDREC], [PressuresIDREC], [Well Name], [ProdDate],
-                [GasWH_Production], [Condensate_WH_Production],
-                [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
-                [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
-                [Gathered_Gas_Production], [Gathered_Condensate_Production],
-                [NGL_Production], [AllocatedWater_Rate],
-                [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
-                [Lateral Length], [Orient]
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            
+
+            # Build spine (vectorized)
+            spine_df = _build_spine(mapping_df, date_range)
+            log(lf.detail(f"Spine: {lf.num(len(spine_df))} rows"))
+
+            # Merge all data sources
+            result_df = _merge_sf_data(spine_df, month_sf)
+
+            # Condensate WH + GasWH replacement (vectorized)
+            result_df['Condensate_WH_Production'] = (
+                result_df['GasWH_Production'] * result_df['CGR_Ratio']
+            )
+            result_df, _repl = _apply_gaswh_replacement(result_df)
+            log(lf.detail(f"Merged result: {lf.num(len(result_df))} rows"))
+
+            # Insert into PCE_CDA (vectorized + executemany)
+            rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
+            batch_size = 5000
             rows_inserted = 0
-            batch_size = 1000
-            rows_batch = []
-            total_rows = len(result_df)
-            
-            for row_idx, row in enumerate(result_df.iterrows()):
-                _, row = row
-                rows_batch.append((
-                    row.get('GasIDREC'),
-                    row.get('PressuresIDREC'),
-                    row.get('Well Name'),
-                    row.get('ProdDate'),
-                    None if pd.isna(row.get('GasWH_Production')) else float(row.get('GasWH_Production')),
-                    None if pd.isna(row.get('Condensate_WH_Production')) else float(row.get('Condensate_WH_Production')),
-                    None if pd.isna(row.get('WGR_Ratio')) else float(row.get('WGR_Ratio')),
-                    None if pd.isna(row.get('CGR_Ratio')) else float(row.get('CGR_Ratio')),
-                    None if pd.isna(row.get('ECF_Ratio')) else float(row.get('ECF_Ratio')),
-                    None if pd.isna(row.get('OnProdHours')) else float(row.get('OnProdHours')),
-                    None if pd.isna(row.get('TubingPressure')) else float(row.get('TubingPressure')),
-                    None if pd.isna(row.get('CasingPressure')) else float(row.get('CasingPressure')),
-                    None if pd.isna(row.get('ChokeSize')) else float(row.get('ChokeSize')),
-                    None if pd.isna(row.get('Gathered_Gas_Production')) else float(row.get('Gathered_Gas_Production')),
-                    None if pd.isna(row.get('Gathered_Condensate_Production')) else float(row.get('Gathered_Condensate_Production')),
-                    None if pd.isna(row.get('NGL_Production')) else float(row.get('NGL_Production')),
-                    None if pd.isna(row.get('AllocatedWater_Rate')) else float(row.get('AllocatedWater_Rate')),
-                    row.get('Formation Producer'),
-                    row.get('Layer Producer'),
-                    row.get('Fault Block'),
-                    row.get('Pad Name'),
-                    None if pd.isna(row.get('Lateral Length')) else float(row.get('Lateral Length')),
-                    row.get('Orient')
-                ))
-                
-                if len(rows_batch) >= batch_size:
-                    cursor.executemany(insert_sql, rows_batch)
-                    rows_inserted += len(rows_batch)
-                    rows_batch = []
-            
-            if rows_batch:
-                cursor.executemany(insert_sql, rows_batch)
-                rows_inserted += len(rows_batch)
-            
+            for i in range(0, len(rows), batch_size):
+                batch = rows[i:i + batch_size]
+                cursor.executemany(_CDA_INSERT_SQL, batch)
+                rows_inserted += len(batch)
+
             try:
                 conn.commit()
                 total_cda_records += rows_inserted
-                log(lf.success(
-                    f"Inserted {lf.num(rows_inserted)} records into PCE_CDA for {month_name}"
-                ))
+                log(lf.success(f"Inserted {lf.num(rows_inserted)} records into PCE_CDA"))
             except Exception as e:
                 conn.rollback()
-                log(lf.error(f"Error committing PCE_CDA data for {month_name}: {e}"))
+                log(lf.error(f"Error committing PCE_CDA for {month_name}: {e}"))
                 raise
-            
+
             months_processed += 1
-            
-            # Update progress (80% for month processing, 20% for well recalculation)
-            month_progress = int((month_idx + 1) / total_months * 80)
-            progress(month_progress)
-            log(lf.success(f"Completed {month_name} ({month_idx + 1}/{total_months})"))
-        
-        # -----------------------------------------------------------------
-        # Get affected wells and recalculate sequences/cumulatives
+            progress(int((month_idx + 1) / total_months * 80))
+
+        # ---------------------------------------------------------------
+        # Recalculate sequences/cumulatives/averages for affected wells
+        # ---------------------------------------------------------------
         cursor.execute("""
             SELECT DISTINCT [Well Name]
             FROM PCE_CDA
             WHERE ProdDate BETWEEN ? AND ?
         """, start_date_first_date, end_date_last_date)
-        
         affected_wells = [row[0] for row in cursor.fetchall()]
-        log(lf.step(
-            f"Recalculating sequences and cumulatives for {lf.num(len(affected_wells))} wells..."
-        ))
-        
-        # Fetch well mapping for name conversion
-        composite_map, fallback_map = fetch_well_mapping()
-        
-        # Process each affected well
         total_wells = len(affected_wells)
-        log(lf.detail(f"Processing {lf.num(total_wells)} wells..."))
-        
+        log(lf.step(f"Recalculating for {lf.num(total_wells)} affected wells..."))
+
+        composite_map, fallback_map = fetch_well_mapping()
+
         for well_idx, well_name in enumerate(affected_wells):
             if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
-                log(lf.detail(f"Processing well {well_idx + 1}/{total_wells}: {well_name}"))
-            
-            # Get ALL historical data for this well from PCE_CDA using pd.read_sql
-            query = """
-                SELECT 
+                log(lf.detail(f"Well {well_idx + 1}/{total_wells}: {well_name}"))
+
+            well_df = pd.read_sql("""
+                SELECT
                     [Well Name] as Source_Well_Name,
                     ProdDate as [Date],
                     [GasWH_Production] as [Gas WH Production (10³m³)],
@@ -1202,166 +809,82 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 FROM PCE_CDA
                 WHERE [Well Name] = ?
                 ORDER BY ProdDate
-            """
-            
-            well_df = pd.read_sql(query, conn, params=(well_name,))
-            
-            if well_df.empty:
-                continue
-            
-            # Apply well name mapping
-            well_df = apply_well_names(well_df, composite_map, fallback_map)
-            
-            if well_df.empty:
-                continue
-            
-            # Filter to first production (if needed)
-            well_df = filter_to_first_production(well_df)
-            
-            if well_df.empty:
-                continue
-            
-            # Calculate sequences
-            well_df = calculate_sequences(well_df)
-            
-            # Calculate cumulatives over full history for this well
-            # (running totals that never reset within the well)
-            well_df = calculate_cumulatives(well_df)
-            
-            # Calculate monthly averages
-            well_df = calculate_monthly_averages(well_df)
-            
-            # Add On Production Year
-            well_df = add_on_production_year(well_df)
-            
-            # Update progress for well processing
-            well_progress = int((well_idx + 1) / total_wells * 20)  # 20% of total progress for well processing
-            progress(80 + well_progress)
-            
-            # For PCE_Production, we want cumulatives that are consistent
-            # over the full life of the well. To guarantee that, we delete
-            # and re‑insert this well's entire history in PCE_Production,
-            # not just the selected date range.
-            well_df_update = well_df.copy()
+            """, conn, params=(well_name,))
 
-            # Delete all existing records for this well
-            well_name_for_prod = well_df_update.iloc[0]['Well Name']
-            cursor.execute("""
-                DELETE FROM PCE_Production
-                WHERE [Well Name] = ?
-            """, well_name_for_prod)
-            
-            # Insert updated records for full history
-            prod_rows_to_insert = len(well_df_update)
-            insert_prod_sql = """
-            INSERT INTO PCE_Production (
-                [Date], [Days Seq], [Day Seq UPRT], [Well Name],
-                [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-                [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-                [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-                [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
-                [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-                [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-                [Choke Size], [Gas WH Cumulative Production (10³m³)],
-                [Gas S2 Cumulative Production (10³m³)],
-                [Gas Sales Cumulative Production (10³m³)],
-                [Condensate Sales Cumulative Production (m³)],
-                [Condensate WH Cumulative Production (m³)],
-                [Gas Gathered Cumulative (e³m³)],
-                [Condensate Gathered Cumulative (m³)],
-                [Formation Producer], [Layer Producer], [Fault Block],
-                [Pad Name], [Lateral Length], [Orientation],
-                [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
-                [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-                [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
-            """
-            
-            for prod_idx, row in enumerate(well_df_update.iterrows()):
-                _, row = row
-                cursor.execute(insert_prod_sql, (
-                    row['Date'],
-                    int(row['Days Seq']),
-                    int(row['Day Seq UPRT']),
-                    row['Well Name'],
-                    None if pd.isna(row['Gas WH Production (10³m³)']) else float(row['Gas WH Production (10³m³)']),
-                    None if pd.isna(row['Condensate WH (m³/d)']) else float(row['Condensate WH (m³/d)']),
-                    None if pd.isna(row['Gas S2 Production (10³m³)']) else float(row['Gas S2 Production (10³m³)']),
-                    None if pd.isna(row['Gas Sales Production (10³m³)']) else float(row['Gas Sales Production (10³m³)']),
-                    None if pd.isna(row['Condensate Sales (m³/d)']) else float(row['Condensate Sales (m³/d)']),
-                    None if pd.isna(row['Gathered Gas (e³m³/d)']) else float(row['Gathered Gas (e³m³/d)']),
-                    None if pd.isna(row['Gathered Condensate (m³/d)']) else float(row['Gathered Condensate (m³/d)']),
-                    None if pd.isna(row['Sales CGR (m³/e³m³)']) else float(row['Sales CGR (m³/e³m³)']),
-                    None if pd.isna(row['CGR (m³/e³m³)']) else float(row['CGR (m³/e³m³)']),
-                    None if pd.isna(row['WGR (m³/e³m³)']) else float(row['WGR (m³/e³m³)']),
-                    None if pd.isna(row['ECF']) else float(row['ECF']),
-                    None if pd.isna(row['Hours On']) else float(row['Hours On']),
-                    None if pd.isna(row['Tubing Pressure (kPa)']) else float(row['Tubing Pressure (kPa)']),
-                    None if pd.isna(row['Casing Pressure (kPa)']) else float(row['Casing Pressure (kPa)']),
-                    None if pd.isna(row['Choke Size']) else float(row['Choke Size']),
-                    None if pd.isna(row['Gas WH Cumulative Production (10³m³)']) else float(row['Gas WH Cumulative Production (10³m³)']),
-                    None if pd.isna(row['Gas S2 Cumulative Production (10³m³)']) else float(row['Gas S2 Cumulative Production (10³m³)']),
-                    None if pd.isna(row['Gas Sales Cumulative Production (10³m³)']) else float(row['Gas Sales Cumulative Production (10³m³)']),
-                    None if pd.isna(row['Condensate Sales Cumulative Production (m³)']) else float(row['Condensate Sales Cumulative Production (m³)']),
-                    None if pd.isna(row['Condensate WH Cumulative Production (m³)']) else float(row['Condensate WH Cumulative Production (m³)']),
-                    None if pd.isna(row['Gas Gathered Cumulative (e³m³)']) else float(row['Gas Gathered Cumulative (e³m³)']),
-                    None if pd.isna(row['Condensate Gathered Cumulative (m³)']) else float(row['Condensate Gathered Cumulative (m³)']),
-                    row['Formation Producer'],
-                    row['Layer Producer'],
-                    row['Fault Block'],
-                    row['Pad Name'],
-                    None if pd.isna(row['Lateral Length']) else float(row['Lateral Length']),
-                    row['Orientation'],
-                    int(row['On Production Year']) if pd.notna(row['On Production Year']) else None,
-                    None if pd.isna(row['Alloc. Water Rate (m³)']) else float(row['Alloc. Water Rate (m³)']),
-                    None if pd.isna(row['NGL (m³)']) else float(row['NGL (m³)']),
-                    None if pd.isna(row['Gas WH Avg (10³m³)']) else float(row['Gas WH Avg (10³m³)']),
-                    None if pd.isna(row['Gas S2 Avg (10³m³)']) else float(row['Gas S2 Avg (10³m³)']),
-                    None if pd.isna(row['Gas Gathered Avg (e³m³/d)']) else float(row['Gas Gathered Avg (e³m³/d)']),
-                    None if pd.isna(row['Condensate Gathered Avg (m³/d)']) else float(row['Condensate Gathered Avg (m³/d)'])
-                ))
-            
-            conn.commit()
+            if well_df.empty:
+                continue
+
+            well_df = apply_well_names(well_df, composite_map, fallback_map)
+            if well_df.empty:
+                continue
+            well_df = filter_to_first_production(well_df)
+            if well_df.empty:
+                continue
+
+            well_df = calculate_sequences(well_df)
+            well_df = calculate_cumulatives(well_df)
+            well_df = calculate_monthly_averages(well_df)
+            well_df = add_on_production_year(well_df)
+
+            well_name_prod = well_df.iloc[0]['Well Name']
+            cursor.execute(
+                "DELETE FROM PCE_Production WHERE [Well Name] = ?",
+                well_name_prod,
+            )
+
+            # Ensure required columns exist before building tuples
+            for col in _PROD_COLUMNS:
+                if col not in well_df.columns:
+                    well_df[col] = np.nan
+
+            rows = _df_to_insert_rows(well_df, _PROD_COLUMNS)
+            if rows:
+                for i in range(0, len(rows), 5000):
+                    cursor.executemany(_PROD_INSERT_SQL, rows[i:i + 5000])
+
             if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
+                conn.commit()
                 log(lf.success(
                     f"Updated PCE_Production for {well_name}: "
-                    f"{lf.num(prod_rows_to_insert)} records"
+                    f"{lf.num(len(rows))} records"
                 ))
-        
+
+            well_progress = int((well_idx + 1) / total_wells * 20)
+            progress(80 + well_progress)
+
+        conn.commit()
+
         log(lf.success(
-            f"Sequence, cumulative, and average recalculation complete for {lf.num(total_wells)} wells"
+            f"Sequence/cumulative/average recalculation complete for {lf.num(total_wells)} wells"
         ))
-        
-        # Get total production records updated
+
         cursor.execute("""
             SELECT COUNT(*)
             FROM PCE_Production
             WHERE [Date] BETWEEN ? AND ?
         """, start_date_first_date, end_date_last_date)
         total_production_records = cursor.fetchone()[0]
-        
+
         conn.close()
-        
+
         total_time = time.time() - total_start
-        
         summary = {
             'months_processed': months_processed,
-            'wells_updated': len(affected_wells),
+            'wells_updated': total_wells,
             'cda_records': total_cda_records,
             'production_records': total_production_records,
-            'duration': total_time
+            'duration': total_time,
         }
-        
+
         log(lf.summary("QUICK UPDATE COMPLETE", {
             "Months processed": months_processed,
-            "Wells updated": len(affected_wells),
+            "Wells updated": total_wells,
             "PCE_CDA records": total_cda_records,
             "PCE_Production records": total_production_records,
             "Duration": lf.elapsed(total_time),
         }))
-        
         return summary
-        
+
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
         log(lf.error(str(e)))
