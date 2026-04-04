@@ -1525,39 +1525,70 @@ class WellMasterDialog(QDialog):
         dlg.exec_()
 
     def show_import_preview(self, new_wells):
-        """Show preview of new wells and confirm import"""
+        """Show preview of new wells with per-row checkboxes for selection."""
         preview_dialog = QDialog(self)
         preview_dialog.setWindowTitle("Preview New Wells")
-        preview_dialog.setMinimumWidth(600)
-        preview_dialog.setMinimumHeight(400)
+        preview_dialog.setMinimumWidth(700)
+        preview_dialog.setMinimumHeight(450)
 
         layout = QVBoxLayout(preview_dialog)
 
-        info = QLabel(f"Found {len(new_wells)} new wells to add:")
+        # Header row: label + select-all controls
+        header_row = QHBoxLayout()
+        info = QLabel(f"Found {len(new_wells)} new wells:")
         info.setStyleSheet("font-weight: bold; color: #1a4d3e; font-size: 13px;")
-        layout.addWidget(info)
+        header_row.addWidget(info)
+        header_row.addStretch()
 
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.setStyleSheet("font-size: 11px; padding: 3px 10px;")
+        deselect_all_btn = QPushButton("Deselect All")
+        deselect_all_btn.setStyleSheet("font-size: 11px; padding: 3px 10px;")
+        header_row.addWidget(select_all_btn)
+        header_row.addWidget(deselect_all_btn)
+        layout.addLayout(header_row)
+
+        # Table with checkbox column
         table = QTableWidget()
         table.setStyleSheet(table_style())
-        table.setColumnCount(3)
-        table.setHorizontalHeaderLabels(["Well Name", "GasIDREC", "PressuresIDREC"])
-        table.setRowCount(min(10, len(new_wells)))
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["", "Well Name", "GasIDREC", "PressuresIDREC"])
+        table.setRowCount(len(new_wells))
         table.verticalHeader().setDefaultSectionSize(34)
         table.verticalHeader().setVisible(False)
 
-        for row, well in enumerate(new_wells[:10]):
+        for row, well in enumerate(new_wells):
+            cb_item = QTableWidgetItem()
+            cb_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            cb_item.setCheckState(Qt.Checked)
+            table.setItem(row, 0, cb_item)
+
             for col, val in enumerate([well['well_name'], well['gas_idrec'], well['pressures_idrec']]):
                 it = QTableWidgetItem(val)
                 it.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-                table.setItem(row, col, it)
+                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                table.setItem(row, col + 1, it)
 
+        table.setColumnWidth(0, 32)
         table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(table)
 
-        if len(new_wells) > 10:
-            more_label = QLabel(f"... and {len(new_wells) - 10} more")
-            more_label.setStyleSheet("font-style: italic; color: #64748b;")
-            layout.addWidget(more_label)
+        def _set_all_checks(state):
+            for r in range(table.rowCount()):
+                table.item(r, 0).setCheckState(state)
+            _update_count()
+
+        def _update_count():
+            checked = sum(
+                1 for r in range(table.rowCount())
+                if table.item(r, 0).checkState() == Qt.Checked
+            )
+            add_btn.setText(f"Add {checked} Well{'s' if checked != 1 else ''}")
+            add_btn.setEnabled(checked > 0)
+
+        select_all_btn.clicked.connect(lambda: _set_all_checks(Qt.Checked))
+        deselect_all_btn.clicked.connect(lambda: _set_all_checks(Qt.Unchecked))
+        table.itemChanged.connect(lambda _: _update_count())
 
         confirm_cb = QCheckBox("I want to add these wells to PCE_WM")
         confirm_cb.setChecked(True)
@@ -1565,10 +1596,10 @@ class WellMasterDialog(QDialog):
 
         btn_layout = QHBoxLayout()
 
-        add_btn = QPushButton("Add Wells")
+        add_btn = QPushButton(f"Add {len(new_wells)} Wells")
         add_btn.setStyleSheet(btn_brand())
         add_btn.clicked.connect(
-            lambda: self.do_import_wells(preview_dialog, new_wells, confirm_cb)
+            lambda: self._do_checked_import(preview_dialog, table, new_wells, confirm_cb)
         )
 
         cancel_btn = QPushButton("Cancel")
@@ -1580,6 +1611,18 @@ class WellMasterDialog(QDialog):
         layout.addLayout(btn_layout)
 
         preview_dialog.exec_()
+
+    def _do_checked_import(self, dialog, table, new_wells, confirm_cb):
+        """Collect only the checked wells, then delegate to do_import_wells."""
+        selected = [
+            new_wells[r]
+            for r in range(table.rowCount())
+            if table.item(r, 0).checkState() == Qt.Checked
+        ]
+        if not selected:
+            QMessageBox.warning(self, "No Wells Selected", "Please select at least one well.")
+            return
+        self.do_import_wells(dialog, selected, confirm_cb)
 
     def update_staged_table(self):
         """Show staged wells with proper column alignment and checkboxes"""
