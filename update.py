@@ -1,26 +1,9 @@
-import pyodbc
 import time
 from datetime import datetime, timedelta
 import traceback
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# SQL Server connection settings
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_sql_conn():
-    """Create connection to SQL Server"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    return pyodbc.connect(conn_str)
+import log_format as lf
+from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
 
 def update_all_cda_fields():
     """
@@ -31,34 +14,31 @@ def update_all_cda_fields():
     - Sales CGR Ratio = Condensate_Sales_Production / Gas_Sales_Production
     """
     
-    print("\n" + "="*80)
-    print("PCE_CDA HISTORICAL UPDATE - SIMPLIFIED VERSION")
-    print("="*80)
-    print("Using ONLY GasWH_Production (no Gathered_Gas fallback)")
-    
-    print(f"\nSQL Server: {SQL_SERVER}.{SQL_DATABASE}.PCE_CDA")
-    print("\nIMPORTANT: Close any applications connected to SQL Server before continuing!")
+    print(lf.header(
+        "PCE_CDA historical update (simplified)",
+        Logic="GasWH_Production only (no Gathered_Gas fallback)",
+        Database=f"{SQL_SERVER}.{SQL_DATABASE}.PCE_CDA",
+    ))
+    print(lf.warn("Close any applications connected to SQL Server before continuing."))
     
     confirm = input("\nStart historical update? (Type 'GO' to confirm): ")
     if confirm.upper() != 'GO':
-        print("Update cancelled.")
+        print(lf.detail("Update cancelled."))
         return
     
     total_start = time.time()
     
     try:
         # Connect to SQL Server
-        print("\nConnecting to SQL Server...")
+        print(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
-        print("   Database connected successfully.")
+        print(lf.success("Database connected."))
         
         # -----------------------------------------------------------------
         # STEP 1: Get all months from Allocation_Factors
         # -----------------------------------------------------------------
-        print("\n" + "-"*60)
-        print("STEP 1: Finding all months with allocation factors")
-        print("-"*60)
+        print(lf.step("Step 1: Finding all months with allocation factors"))
         
         cursor.execute("""
             SELECT DISTINCT MonthStartDate 
@@ -67,10 +47,10 @@ def update_all_cda_fields():
         """)
         
         all_months = cursor.fetchall()
-        print(f"   Found {len(all_months)} months")
+        print(lf.detail(f"Found {lf.num(len(all_months))} months"))
         
         if len(all_months) == 0:
-            print("   No allocation factors found. Exiting.")
+            print(lf.warn("No allocation factors found. Exiting."))
             return
         
         total_updated = 0
@@ -94,8 +74,8 @@ def update_all_cda_fields():
             month_start_date = month_start  # Already a date
             month_end_date = month_end.date()  # Convert datetime to date
 
-            print(f"\n   Processing {month_name}...")
-            print(f"      Date range: {month_start_date} to {month_end_date}")
+            print(lf.step(f"Processing {month_name}..."))
+            print(lf.detail(f"Date range: {month_start_date} to {month_end_date}"))
 
             # Get all allocation factors for this month
             cursor.execute("""
@@ -111,7 +91,7 @@ def update_all_cda_fields():
             alloc_rows = cursor.fetchall()
 
             if len(alloc_rows) == 0:
-                print(f"      No allocation factors for {month_name}, skipping")
+                print(lf.detail(f"No allocation factors for {month_name}, skipping"))
                 continue
 
             month_updated = 0
@@ -181,44 +161,41 @@ def update_all_cda_fields():
                     
                 except Exception as e:
                     total_errors += 1
-                    print(f"      Error updating well '{well_name}': {str(e)}")
+                    print(lf.error(f"Well '{well_name}': {str(e)}"))
             
             conn.commit()
             total_updated += month_updated
             months_processed += 1
-            print(f"      Updated {month_updated} wells for {month_name}")
+            print(lf.detail(f"Updated {lf.num(month_updated)} wells for {month_name}"))
         
         # -----------------------------------------------------------------
         # SUMMARY
         # -----------------------------------------------------------------
         total_time = time.time() - total_start
         
-        print("\n" + "="*80)
-        print("UPDATE SUMMARY")
-        print("="*80)
-        print(f"   SQL Server: {SQL_SERVER}.{SQL_DATABASE}.PCE_CDA")
-        print(f"   Months processed: {months_processed}")
-        print(f"   Wells updated per month: ~{total_updated/months_processed:.0f}")
-        print(f"   Total records updated: {total_updated * 30:,} (estimated)")
-        print(f"   Total errors: {total_errors}")
-        print(f"   Total time: {total_time:.1f} seconds")
-        print(f"\n   Calculation logic:")
-        print(f"   - Gas - S2 Production = WH_to_S2 × GasWH_Production")
-        print(f"   - Gas - Sales Production = WH_to_Sales × GasWH_Production (or monthly/days if no sales)")
-        print(f"   - Condensate - Sales Production = WH_to_Sales_Cond × Condensate_WH_Production")
-        print(f"   - Sales CGR Ratio = Condensate_Sales / Gas_Sales")
+        wells_per_month = (total_updated / months_processed) if months_processed else 0
+        print(lf.summary("Update complete", {
+            "SQL Server": f"{SQL_SERVER}.{SQL_DATABASE}.PCE_CDA",
+            "Months processed": months_processed,
+            "Wells updated (total passes)": total_updated,
+            "~Wells per month": f"{wells_per_month:.0f}",
+            "Est. record touches": total_updated * 30,
+            "Errors": total_errors,
+            "Total time": lf.elapsed(total_time),
+        }))
+        print(lf.subheader("Calculation logic"))
+        print(lf.item("Gas - S2 Production = WH_to_S2 × GasWH_Production"))
+        print(lf.item("Gas - Sales Production = WH_to_Sales × GasWH_Production (or monthly/days if no sales)"))
+        print(lf.item("Condensate - Sales Production = WH_to_Sales_Cond × Condensate_WH_Production"))
+        print(lf.item("Sales CGR Ratio = Condensate_Sales / Gas_Sales"))
         
         if total_errors > 0:
-            print(f"\n⚠️  Warning: {total_errors} errors occurred during update")
-        
-        print("\n" + "="*80)
-        print("UPDATE COMPLETE!")
-        print("="*80)
+            print(lf.warn(f"{lf.num(total_errors)} errors occurred during update"))
         
         conn.close()
         
     except Exception as e:
-        print(f"\nERROR: {e}")
+        print(lf.error(str(e)))
         traceback.print_exc()
         return False
     
@@ -226,5 +203,5 @@ def update_all_cda_fields():
 
 if __name__ == "__main__":
     update_all_cda_fields()
-    print("\nPress Enter to exit...")
+    print(lf.detail("Press Enter to exit..."))
     input()

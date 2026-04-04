@@ -1,6 +1,8 @@
 # sales_ratios_gui.py
 import time
 from datetime import datetime, timedelta
+
+import log_format as lf
 from db_connection import get_sql_conn
 
 def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_callback=None):
@@ -27,10 +29,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*60)
-    log("SALES RATIOS UPDATE")
-    log("="*60)
-    log(f"Range: {start_month} to {end_month}")
+    log(lf.header("SALES RATIOS UPDATE", Range=f"{start_month} to {end_month}"))
     
     total_start = time.time()
     
@@ -42,7 +41,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
         # Ensure start is before end
         if start_date > end_date:
             error_msg = "Start month must be before end month"
-            log(f"ERROR: {error_msg}")
+            log(lf.error(error_msg))
             return {"error": error_msg}
         
         # Connect to database (always closed in inner finally)
@@ -59,10 +58,10 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
             """, start_date, end_date)
             
             all_months = cursor.fetchall()
-            log(f"Processing {len(all_months)} month(s)")
+            log(lf.detail(f"Processing {lf.num(len(all_months))} months"))
             
             if len(all_months) == 0:
-                log("No allocation factors found in selected range")
+                log(lf.detail("No allocation factors found in selected range"))
                 return {
                     'months_processed': 0,
                     'wells_updated': 0,
@@ -91,7 +90,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 month_end_date = month_end.date()
                 days_in_month = (month_end_date - month_start_date).days + 1
                 
-                log(f"\nProcessing {month_name}...")
+                log(lf.step(f"Processing {month_name}"))
                 
                 # Get allocation factors for this month
                 cursor.execute("""
@@ -186,7 +185,7 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                                 progress(progress_percent)
 
                     except Exception as e:
-                        log(f"      Error updating well '{well_name}': {e}")
+                        log(lf.error(f"Error updating well '{well_name}': {e}"))
                 
                 # Commit CDA updates
                 conn.commit()
@@ -215,7 +214,10 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 total_cda_records += month_cda_records
                 total_production_records += max(0, production_updated)
 
-                log(f"Updated {month_wells_updated} wells in CDA, {production_updated:,} records in Production")
+                log(lf.detail(
+                    f"Updated {lf.num(month_wells_updated)} wells in CDA, "
+                    f"{lf.num(production_updated)} records in Production"
+                ))
             
             total_time = time.time() - total_start
             
@@ -227,9 +229,13 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 'duration': total_time
             }
             
-            log("\n" + "="*60)
-            log("UPDATE COMPLETE")
-            log("="*60)
+            log(lf.summary("COMPLETE", {
+                "Months processed": months_processed,
+                "Wells updated": total_wells_updated,
+                "PCE_CDA records": total_cda_records,
+                "PCE_Production records": total_production_records,
+                "Duration": lf.elapsed(total_time),
+            }))
             
             return summary
         finally:
@@ -237,7 +243,8 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
         
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
-        log(error_msg)
+        log(lf.error(str(e)))
         import traceback
-        log(traceback.format_exc())
+        for line in traceback.format_exc().strip().split("\n"):
+            log(lf.detail(line))
         return {"error": error_msg}

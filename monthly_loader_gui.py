@@ -1,11 +1,11 @@
 
 # monthly_loader_gui.py
+import log_format as lf
 import pandas as pd
 import pyodbc
 import time
 from datetime import datetime, timedelta
 import os
-import re
 import traceback
 from db_connection import get_sql_conn
 
@@ -36,31 +36,27 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*60)
-    log("COMBINED MONTHLY LOADER")
-    log("="*60)
-    
     total_start = time.time()
     
     # Parse month
     try:
         month_date = datetime.strptime(month_str, "%b %Y")
         month_start = month_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        log(f"Month selected: {month_start.strftime('%B %Y')}")
-    except:
-        error_msg = f"ERROR: Invalid month format: {month_str}"
-        log(error_msg)
+        log(lf.detail(f"Month selected: {month_start.strftime('%B %Y')}"))
+    except Exception:
+        error_msg = f"Invalid month format: {month_str}"
+        log(lf.error(error_msg))
         return {"error": error_msg}
     
     # Validate files exist
     if not os.path.exists(valnav_path):
-        error_msg = f"ERROR: ValNav file not found: {valnav_path}"
-        log(error_msg)
+        error_msg = f"ValNav file not found: {valnav_path}"
+        log(lf.error(error_msg))
         return {"error": error_msg}
     
     if not os.path.exists(accumap_path):
-        error_msg = f"ERROR: Accumap file not found: {accumap_path}"
-        log(error_msg)
+        error_msg = f"Accumap file not found: {accumap_path}"
+        log(lf.error(error_msg))
         return {"error": error_msg}
     
     # Initialize variables
@@ -119,7 +115,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 'Sales_Cond': float(cond_volume)
             }
         
-        log(f"Loaded {len(valnav_data)} ValNav records")
+        log(lf.detail(f"Loaded {lf.num(len(valnav_data))} ValNav records"))
         progress(20)
         
         # Read Accumap data
@@ -168,26 +164,24 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 'Sales_Gas': float(sales_gas)
             }
         
-        log(f"Loaded {len(accumap_data)} Accumap records")
+        log(lf.detail(f"Loaded {lf.num(len(accumap_data))} Accumap records"))
         progress(30)
         
         # -----------------------------------------------------------------
         # CONNECT TO SQL SERVER
         # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("SQL SERVER OPERATIONS")
-        log("="*80)
+        log(lf.step("SQL Server operations"))
         
-        log("\nConnecting to SQL Server...")
+        log(lf.step("Connecting to SQL Server"))
         conn = get_sql_conn()
         cursor = conn.cursor()
-        log("   Database connected successfully.")
+        log(lf.success("Database connected"))
         progress(35)
         
         # -----------------------------------------------------------------
         # DELETE EXISTING DATA FOR THE MONTH
         # -----------------------------------------------------------------
-        log("\nClearing existing data for the month...")
+        log(lf.step("Clearing existing data for the month"))
         
         cursor.execute("""
             SELECT COUNT(*) FROM Allocation_Factors 
@@ -202,14 +196,16 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 WHERE MonthStartDate = ?
             """, month_start)
             conn.commit()
-            log(f"Deleted {existing_count} existing records for {month_start.strftime('%B %Y')}")
+            log(lf.detail(
+                f"Deleted {lf.num(existing_count)} existing records for {month_start.strftime('%B %Y')}"
+            ))
         
         progress(40)
         
         # -----------------------------------------------------------------
         # FETCH WELL MAPPINGS FROM PCE_WM
         # -----------------------------------------------------------------
-        log("\nFetching well mappings from PCE_WM...")
+        log(lf.step("Fetching well mappings from PCE_WM"))
         
         cursor.execute(
             "SELECT [Value Navigator UWI], [Well Name] "
@@ -250,15 +246,13 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 for variation in variations:
                     pce_uwi_dict[variation] = well_name
         
-        log(f"   Loaded {len(pce_original_to_wellname)} UWIs from PCE_WM table")
+        log(lf.detail(f"Loaded {lf.num(len(pce_original_to_wellname))} UWIs from PCE_WM table"))
         progress(45)
         
         # -----------------------------------------------------------------
         # LOAD PCE_CDA DATA FOR THE MONTH
         # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("LOADING PCE_CDA DATA FOR MONTH")
-        log("="*80)
+        log(lf.step("Loading PCE_CDA data for month"))
         
         # Calculate month end date
         if month_start.month == 12:
@@ -269,7 +263,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         month_start_date = month_start.date()
         month_end_date = month_end.date()
         
-        log(f"   Aggregating PCE_CDA data for {month_start.strftime('%B %Y')}...")
+        log(lf.detail(f"Aggregating PCE_CDA data for {month_start.strftime('%B %Y')}..."))
         
         cursor.execute("""
             SELECT [Well Name], 
@@ -294,18 +288,16 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                     'gathered_cond': float(gathered_cond) if gathered_cond is not None else 0
                 }
         
-        log(f"   Found CDA data for {len(cda_lookup)} wells")
+        log(lf.detail(f"Found CDA data for {lf.num(len(cda_lookup))} wells"))
         progress(50)
         
         # -----------------------------------------------------------------
         # MATCH UWIS AND PREPARE COMBINED DATA
         # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("MATCHING UWIS AND PREPARING COMBINED DATA")
-        log("="*80)
+        log(lf.step("Matching UWIs and preparing combined data"))
         
         all_source_uwis = valnav_uwis.union(accumap_uwis)
-        log(f"   Total unique UWIs from both sources: {len(all_source_uwis)}")
+        log(lf.detail(f"Total unique UWIs from both sources: {lf.num(len(all_source_uwis))}"))
         
         matched_wells = {}
         unmatched_valnav = []
@@ -370,18 +362,16 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 elif in_accumap:
                     unmatched_accumap.append(uwi_str)
         
-        log(f"   Successfully matched: {len(matched_wells)} wells")
-        log(f"   Unmatched ValNav UWIs: {len(unmatched_valnav)}")
-        log(f"   Unmatched Accumap UWIs: {len(unmatched_accumap)}")
-        log(f"   Unmatched in both sources: {len(unmatched_both)}")
+        log(lf.detail(f"Successfully matched: {lf.num(len(matched_wells))} wells"))
+        log(lf.detail(f"Unmatched ValNav UWIs: {lf.num(len(unmatched_valnav))}"))
+        log(lf.detail(f"Unmatched Accumap UWIs: {lf.num(len(unmatched_accumap))}"))
+        log(lf.detail(f"Unmatched in both sources: {lf.num(len(unmatched_both))}"))
         progress(60)
         
         # -----------------------------------------------------------------
         # CHECK FOR MISSING WELLS
         # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("CHECKING FOR MISSING WELLS")
-        log("="*80)
+        log(lf.step("Checking for missing wells"))
         
         def normalize_well_name(name):
             if not name or not isinstance(name, str):
@@ -400,7 +390,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 master_wells.add(normalized)
                 master_wells_original[normalized] = original
         
-        log(f"   Total wells in Allocation_Factors master list: {len(master_wells)}")
+        log(lf.detail(f"Total wells in Allocation_Factors master list: {lf.num(len(master_wells))}"))
         
         loaded_wells = set()
         loaded_wells_original = {}
@@ -410,7 +400,9 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 loaded_wells.add(normalized)
                 loaded_wells_original[normalized] = well_name
         
-        log(f"   Wells successfully matched from ValNav/Accumap: {len(loaded_wells)}")
+        log(lf.detail(
+            f"Wells successfully matched from ValNav/Accumap: {lf.num(len(loaded_wells))}"
+        ))
         
         missing_normalized = master_wells - loaded_wells
         missing_count = len(missing_normalized)
@@ -422,14 +414,14 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             missing_wells.append(master_wells_original.get(norm, norm))
         
         if missing_count > 0:
-            log(f"\n   ⚠️ WARNING: {missing_count} wells had no ValNav/Accumap data:")
+            log(lf.warn(f"{missing_count} wells had no ValNav/Accumap data"))
             warning_messages.append(f"{missing_count} wells had no source data")
-            for i, well in enumerate(missing_wells[:10], 1):
-                log(f"      - {well}")
+            for well in missing_wells[:10]:
+                log(lf.item(well))
             if missing_count > 10:
-                log(f"      ... and {missing_count - 10} more")
+                log(lf.detail(f"... and {lf.num(missing_count - 10)} more"))
             
-            log(f"\n   Adding missing wells to Allocation_Factors with zeros...")
+            log(lf.detail("Adding missing wells to Allocation_Factors with zeros"))
             
             wells_added = 0
             for well_name in missing_wells:
@@ -444,9 +436,11 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 }
                 wells_added += 1
             
-            log(f"   ✅ Added {wells_added} wells to the load with zeros")
+            log(lf.success(f"Added {lf.num(wells_added)} wells to the load with zeros"))
         else:
-            log(f"\n   ✅ All {len(master_wells)} wells from master list were successfully loaded!")
+            log(lf.success(
+                f"All {lf.num(len(master_wells))} wells from master list were successfully loaded"
+            ))
             wells_added = 0
         
         total_loaded_wells = len(matched_wells)
@@ -455,9 +449,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         # -----------------------------------------------------------------
         # INSERT COMBINED DATA
         # -----------------------------------------------------------------
-        log("\n" + "="*60)
-        log("INSERTING COMBINED DATA")
-        log("="*80)
+        log(lf.step("Inserting combined data"))
         
         valnav_source = os.path.basename(valnav_path)
         accumap_source = os.path.basename(accumap_path)
@@ -470,7 +462,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         wells_with_cda = 0
         errors = 0
         
-        log(f"\nInserting data for {len(matched_wells)} wells...")
+        log(lf.detail(f"Inserting data for {lf.num(len(matched_wells))} wells"))
         
         for well_idx, (well_name, well_data) in enumerate(matched_wells.items(), 1):
             try:
@@ -559,13 +551,13 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 wells_inserted += 1
                 
                 if wells_inserted % 50 == 0:
-                    log(f"   Inserted {wells_inserted} wells...")
+                    log(lf.detail(f"Inserted {lf.num(wells_inserted)} wells"))
                     progress(70 + (wells_inserted / len(matched_wells) * 20))
                 
             except Exception as e:
                 errors += 1
                 if errors <= 5:
-                    log(f"   Error inserting well '{well_name}': {str(e)[:100]}")
+                    log(lf.error(f"Inserting well '{well_name}': {str(e)[:100]}"))
         
         conn.commit()
         progress(90)        
@@ -585,18 +577,29 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             'wells_added': wells_added,
             'total_wells': len(matched_wells),
             'duration': total_time,
-            'warnings': ', '.join(warning_messages) if warning_messages else None
+            'warnings': ', '.join(warning_messages) if warning_messages else None,
+            'month': month_str,
         }
         
-        log("\n" + "="*60)
-        log("LOAD COMPLETE")
-        log("="*60)
+        complete_metrics = {
+            "Completed": lf.timestamp(),
+            "Month": summary["month"],
+            "ValNav records": summary["valnav_records"],
+            "Accumap records": summary["accumap_records"],
+            "Wells matched": summary["matched_wells"],
+            "Wells added (zeros)": summary["wells_added"],
+            "Total wells": summary["total_wells"],
+            "Duration": lf.elapsed(total_time),
+        }
+        if summary["warnings"]:
+            complete_metrics["Warnings"] = summary["warnings"]
+        log(lf.summary("COMPLETE", complete_metrics))
         
         return summary
         
     except Exception as e:
-        error_msg = f"ERROR: {str(e)}"
-        log(error_msg)
+        error_msg = str(e)
+        log(lf.error(error_msg))
         log(traceback.format_exc())
         return {"error": error_msg}
     

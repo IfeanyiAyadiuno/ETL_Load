@@ -1,29 +1,12 @@
 import pandas as pd
-import pyodbc
-import numpy as np
 from datetime import datetime
-from dotenv import load_dotenv
 import os
 import sys
 import traceback
 import re
 
-load_dotenv()
-
-# SQL Server connection settings
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_sql_conn():
-    """Create connection to SQL Server"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    return pyodbc.connect(conn_str)
+import log_format as lf
+from db_connection import get_sql_conn
 
 def clean_well_name(name):
     """Clean well name by removing extra spaces and normalizing"""
@@ -65,25 +48,27 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         if progress_callback:
             progress_callback(value)
     
-    log("="*60)
-    log("STARTING SURVEY DATA IMPORT")
-    log(f"File: {excel_path}")
-    log(f"Mode: {import_mode}")
-    log("="*60)
-    
+    conn = None
     try:
+        log(
+            lf.header(
+                "SURVEY DATA IMPORT",
+                File=os.path.basename(excel_path),
+                Mode=import_mode,
+            )
+        )
         # -----------------------------------------------------------------
         # STEP 1: Read Excel file
         # -----------------------------------------------------------------
-        log("\n📂 Reading Excel file...")
+        log(lf.step("Reading Excel file"))
         df = pd.read_excel(excel_path)
-        log(f"   Read {len(df)} rows from Excel")
+        log(lf.detail(f"Read {lf.num(len(df))} rows from Excel"))
         progress(10)
         
         # -----------------------------------------------------------------
         # STEP 2: Rename columns to match database
         # -----------------------------------------------------------------
-        log("\n🔄 Mapping columns to database schema...")
+        log(lf.step("Mapping columns"))
         
         column_mapping = {
             'Well name':              'Well Name',
@@ -101,29 +86,29 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         }
         
         df.rename(columns=column_mapping, inplace=True)
-        log(f"   Mapped {len(column_mapping)} columns")
+        log(lf.detail(f"Mapped {lf.num(len(column_mapping))} columns"))
         progress(20)
         
         # -----------------------------------------------------------------
         # STEP 3: Clean the data
         # -----------------------------------------------------------------
-        log("\n🧹 Cleaning data...")
+        log(lf.step("Cleaning data"))
         
         # Clean Well Name
         df['Well Name Cleaned'] = df['Well Name'].apply(clean_well_name)
-        log(f"   Cleaned Well Name column")
+        log(lf.detail("Cleaned Well Name column"))
         
         # Show sample of cleaned names
         sample_df = df[['Well Name', 'Well Name Cleaned']].head(3)
         for _, row in sample_df.iterrows():
-            log(f"      '{row['Well Name']}' → '{row['Well Name Cleaned']}'")
+            log(lf.item(f"'{row['Well Name']}' → '{row['Well Name Cleaned']}'"))
         
         progress(30)
         
         # -----------------------------------------------------------------
         # STEP 4: Validate required columns
         # -----------------------------------------------------------------
-        log("\n✅ Validating data...")
+        log(lf.step("Validating data"))
         required_cols = [
             'Well Name', 'UWI', 'Subsea Elevation', 
             'Inclination', 'Azimuth Angle', 'Measured Depth', 
@@ -135,25 +120,25 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         
         if missing_cols:
             error_msg = f"Missing required columns: {missing_cols}"
-            log(f"❌ {error_msg}")
+            log(lf.error(error_msg))
             return {"error": error_msg}
         
-        log(f"   All required columns present")
+        log(lf.detail("All required columns present"))
         
         # Check for nulls in required columns
         null_counts = df[required_cols].isnull().sum()
         if null_counts.sum() > 0:
-            log(f"⚠️  Warning: Null values found in required columns:")
+            log(lf.warn("Null values found in required columns:"))
             for col in required_cols:
                 if null_counts[col] > 0:
-                    log(f"      {col}: {null_counts[col]} nulls")
+                    log(lf.item(f"{col}: {lf.num(int(null_counts[col]))} nulls"))
         
         progress(40)
         
         # -----------------------------------------------------------------
         # STEP 5: Match wells to database using cleaned names
         # -----------------------------------------------------------------
-        log("\n🔗 Matching wells to database...")
+        log(lf.step("Matching wells to database"))
         
         conn = get_sql_conn()
         
@@ -169,36 +154,36 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         valid_wells_df['Cleaned Name'] = valid_wells_df['Base Composite Name'].apply(clean_well_name)
         valid_wells = set(valid_wells_df['Cleaned Name'].tolist())
         
-        log(f"   Found {len(valid_wells)} valid wells in database")
+        log(lf.detail(f"Found {lf.num(len(valid_wells))} valid wells in database"))
         
         # Show sample of database names
         db_samples = list(valid_wells)[:3]
-        log(f"   Sample DB names: {db_samples}")
+        log(lf.detail(f"Sample DB names: {db_samples}"))
         
         # Check which wells match using cleaned names
         df['Well Found'] = df['Well Name Cleaned'].isin(valid_wells)
         matched_df = df[df['Well Found']].copy()
         unmatched_df = df[~df['Well Found']].copy()
         
-        log(f"   ✓ {len(matched_df)} rows matched to database wells")
-        log(f"   ⚠️ {len(unmatched_df)} rows did not match")
+        log(lf.success(f"{lf.num(len(matched_df))} rows matched to database wells"))
+        log(lf.warn(f"{lf.num(len(unmatched_df))} rows did not match"))
         
         if not unmatched_df.empty:
             # Show sample of unmatched wells
-            log(f"\n   Sample unmatched wells (first 10):")
+            log(lf.detail("Sample unmatched wells (first 10):"))
             for name in unmatched_df['Well Name Cleaned'].dropna().unique()[:10]:
-                log(f"      - '{name}'")
+                log(lf.item(f"'{name}'"))
             
             # Save unmatched wells to file for review
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unmatched_file = f"unmatched_survey_wells_{timestamp}.csv"
             unmatched_df[['Well Name', 'Well Name Cleaned', 'UWI']].drop_duplicates().to_csv(unmatched_file, index=False)
-            log(f"\n   Unmatched wells saved to: {unmatched_file}")
+            log(lf.detail(f"Unmatched wells saved to: {unmatched_file}"))
         
         progress(50)
         
         if matched_df.empty:
-            log("\n❌ No matching wells to import")
+            log(lf.error("No matching wells to import"))
             return {
                 'total_rows': len(df),
                 'matched': 0,
@@ -211,7 +196,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         # -----------------------------------------------------------------
         # STEP 6: Handle duplicates based on import mode
         # -----------------------------------------------------------------
-        log(f"\n🔄 Processing with mode: {import_mode}")
+        log(lf.step(f"Processing with mode: {import_mode}"))
         
         cursor = conn.cursor()
         
@@ -224,11 +209,11 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 cursor.execute("DELETE FROM PCE_Surveys WHERE UWI = ?", uwi)
                 total_deleted += cursor.rowcount
             conn.commit()
-            log(f"   Deleted {total_deleted} existing records for {len(uwis)} wells")
+            log(lf.detail(f"Deleted {lf.num(total_deleted)} existing records for {lf.num(len(uwis))} wells"))
         
         elif import_mode == "append":
             # Check for existing records and filter them out
-            log("   Checking for existing records...")
+            log(lf.detail("Checking for existing records..."))
             
             # Get unique UWIs from the data we're importing
             uwis_to_check = matched_df['UWI'].dropna().unique().tolist()
@@ -259,7 +244,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                     depth_val = float(depth) if depth is not None else None
                     existing_set.add((uwi_str, depth_val))
                 
-                log(f"   Found {len(existing_set)} existing records in database")
+                log(lf.detail(f"Found {lf.num(len(existing_set))} existing records in database"))
                 
                 # Filter matched_df to only include records that don't exist
                 def record_exists(row):
@@ -275,12 +260,11 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 after_count = len(matched_df)
                 skipped_count = before_count - after_count
                 
-                log(f"   Filtered out {skipped_count} existing records")
-                log(f"   {after_count} new records to insert")
+                log(lf.detail(f"Filtered out {lf.num(skipped_count)} existing records"))
+                log(lf.detail(f"{lf.num(after_count)} new records to insert"))
                 
                 if matched_df.empty:
-                    log("\n   No new records to insert. All records already exist in database.")
-                    conn.close()
+                    log(lf.detail("No new records to insert. All records already exist in database."))
                     return {
                         'total_rows': len(df),
                         'matched': original_matched_count,
@@ -295,7 +279,8 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         # -----------------------------------------------------------------
         # STEP 7: Insert data
         # -----------------------------------------------------------------
-        log("\n💾 Inserting data into database...")
+        log(lf.step("Inserting data into database"))
+        error_count = 0
         
         # Prepare insert SQL
         insert_sql = """
@@ -345,16 +330,15 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                     if "Violation of UNIQUE KEY" in str(e):
                         duplicate_skipped += 1
                     else:
-                        log(f"      ❌ Error: {str(e)[:100]}")
+                        error_count += 1
+                        log(lf.error(f"{str(e)[:100]}"))
             
             conn.commit()
             
             if (i + batch_size) % 5000 == 0 or (i + batch_size) >= len(rows_to_insert):
                 pct = int((i + len(batch)) / len(rows_to_insert) * 100) if rows_to_insert else 0
                 progress(60 + int(pct * 0.4))
-                log(f"      Progress: {min(i + batch_size, len(rows_to_insert))}/{len(rows_to_insert)} rows")
-        
-        conn.close()
+                log(lf.detail(f"Progress: {lf.num(min(i + batch_size, len(rows_to_insert)))}/{lf.num(len(rows_to_insert))} rows"))
         
         progress(100)
         
@@ -376,24 +360,35 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             'unmatched': len(unmatched_df),
             'inserted': total_inserted,
             'duplicates': duplicates_final,
-            'errors': 0
+            'errors': error_count,
         }
         
-        log("\n" + "="*60)
-        log("IMPORT COMPLETE!")
-        log("="*60)
-        log(f"Total rows in file: {summary['total_rows']}")
-        log(f"Rows matched to wells: {summary['matched']}")
-        log(f"Rows unmatched: {summary['unmatched']}")
-        log(f"Rows inserted: {summary['inserted']}")
-        log(f"Duplicates skipped: {summary['duplicates']}")
+        log(
+            lf.summary(
+                "IMPORT COMPLETE",
+                {
+                    "Total rows in file": summary["total_rows"],
+                    "Rows matched to wells": summary["matched"],
+                    "Rows unmatched": summary["unmatched"],
+                    "Rows inserted": summary["inserted"],
+                    "Duplicates skipped": summary["duplicates"],
+                    "Errors": summary["errors"],
+                },
+            )
+        )
         
         return summary
         
     except Exception as e:
-        log(f"\n❌ ERROR: {str(e)}")
+        log(lf.error(str(e)))
         traceback.print_exc()
         return {"error": str(e)}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def main():
     """Command-line entry point"""

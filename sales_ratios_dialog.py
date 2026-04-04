@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta
 
+import log_format as lf
+
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -20,6 +22,17 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 
+from styles import (
+    DIALOG_BASE,
+    card_style,
+    section_title_style,
+    dialog_title_style,
+    btn_brand,
+    btn_neutral,
+    progress_bar_style,
+    results_area_style,
+)
+
 
 class SalesRatiosDialog(QDialog):
     def __init__(self, parent=None):
@@ -29,6 +42,7 @@ class SalesRatiosDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
         self.worker = None
+        self.setStyleSheet(DIALOG_BASE)
         self.initUI()
 
     def initUI(self):
@@ -44,25 +58,16 @@ class SalesRatiosDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: transparent; }")
 
         # Create scroll content widget
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(scroll_content)
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Title
         title = QLabel("📈 Public Sales Data and Ratios")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         # Month Range Selection
@@ -121,18 +126,8 @@ class SalesRatiosDialog(QDialog):
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #d1d5db;
-                border-radius: 4px;
-                text-align: center;
-                height: 20px;
-            }
-            QProgressBar::chunk {
-                background-color: #0066b3;
-                border-radius: 4px;
-            }
-        """)
+        self.progress_bar.setStyleSheet(progress_bar_style())
+        self.progress_bar.setFixedHeight(10)
         layout.addWidget(self.progress_bar)
 
         # Results Area
@@ -140,16 +135,7 @@ class SalesRatiosDialog(QDialog):
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setMinimumHeight(180)
-        self.results_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                font-family: Consolas, monospace;
-                font-size: 10pt;
-                padding: 8px;
-            }
-        """)
+        self.results_text.setStyleSheet(results_area_style())
         results_group.layout().addWidget(self.results_text)
         layout.addWidget(results_group)
 
@@ -158,49 +144,12 @@ class SalesRatiosDialog(QDialog):
         button_layout.setSpacing(10)
 
         self.run_btn = QPushButton("▶️ Run Update")
-        self.run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1a4d3e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #2a6b57;
-            }
-            QPushButton:pressed {
-                background-color: #0d3d2e;
-            }
-            QPushButton:disabled {
-                background-color: #a0a0a0;
-            }
-        """)
+        self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self.run_update)
         button_layout.addWidget(self.run_btn)
 
         self.close_btn = QPushButton("Close")
-        self.close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 12px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #8a929c;
-            }
-            QPushButton:pressed {
-                background-color: #545b62;
-            }
-        """)
+        self.close_btn.setStyleSheet(btn_neutral(large=True))
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
@@ -229,15 +178,8 @@ class SalesRatiosDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
+                self.worker.cancel()
+                self.worker.wait(5000)
                 self.log_result("\n⚠️ Operation cancelled by user")
                 self.progress_bar.setRange(0, 100)
                 self.progress_bar.setValue(0)
@@ -261,15 +203,8 @@ class SalesRatiosDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
+                self.worker.cancel()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return
@@ -280,28 +215,13 @@ class SalesRatiosDialog(QDialog):
         """Create a styled group frame with title"""
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-                margin-top: 5px;
-            }
-        """)
+        group.setStyleSheet(card_style())
 
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-weight: bold;
-                font-size: 14px;
-                padding: 0px;
-            }
-        """)
+        title_label.setStyleSheet(section_title_style())
         group_layout.addWidget(title_label)
 
         return group
@@ -341,23 +261,6 @@ class SalesRatiosDialog(QDialog):
         self.results_text.setTextCursor(cursor)
         QApplication.processEvents()
     
-    def format_timestamp(self):
-        """Get formatted timestamp for log entries"""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    def format_duration(self, seconds):
-        """Format duration in human-readable format"""
-        if seconds < 60:
-            return f"{seconds:.1f} seconds"
-        elif seconds < 3600:
-            minutes = int(seconds // 60)
-            secs = int(seconds % 60)
-            return f"{minutes}m {secs}s"
-        else:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            return f"{hours}h {minutes}m"
-
     def run_update(self):
         """Run the sales ratios update in a separate thread"""
         # Confirm before running
@@ -386,17 +289,13 @@ class SalesRatiosDialog(QDialog):
 
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
-        timestamp = self.format_timestamp()
 
-        # Professional header with timestamp
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("|" + " " * 20 + "SALES RATIOS UPDATE" + " " * 32 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Started:     {timestamp:<54} |")
-        self.log_result(f"|  From:        {from_month:<54} |")
-        self.log_result(f"|  To:          {to_month:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("")
+        self.log_result(lf.header(
+            "SALES RATIOS UPDATE",
+            Started=lf.timestamp(),
+            From=from_month,
+            To=to_month,
+        ))
 
         self.worker = SalesRatiosWorker(from_month, to_month)
         self.worker.log_signal.connect(self.log_result)
@@ -418,33 +317,16 @@ class SalesRatiosDialog(QDialog):
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
 
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 22 + "OPERATION COMPLETE" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Completed:   {timestamp:<54} |")
-        
+        metrics = {"Completed": lf.timestamp()}
         if summary:
-            self.log_result("+" + "-" * 70 + "+")
-            self.log_result("|  SUMMARY" + " " * 60 + "|")
-            self.log_result("+" + "-" * 70 + "+")
-            
-            months = summary.get('months_processed', 0)
-            wells = summary.get('wells_updated', 0)
-            cda_records = summary.get('cda_records', 0)
-            prod_records = summary.get('production_records', 0)
-            duration = summary.get('duration', 0)
-            
-            self.log_result(f"|    Months Processed:        {months:>10,} months" + " " * 30 + "|")
-            self.log_result(f"|    Wells Updated:           {wells:>10,} wells" + " " * 30 + "|")
-            self.log_result(f"|    PCE_CDA Records:         {cda_records:>10,} records" + " " * 26 + "|")
-            self.log_result(f"|    PCE_Production Records:  {prod_records:>10,} records" + " " * 24 + "|")
-            self.log_result("+" + "-" * 70 + "+")
-            formatted_duration = self.format_duration(duration)
-            self.log_result(f"|  Duration:     {formatted_duration:<54} |")
-        
-        self.log_result("+" + "=" * 70 + "+")
+            metrics.update({
+                "Months processed": summary.get('months_processed', 0),
+                "Wells updated": summary.get('wells_updated', 0),
+                "PCE_CDA records": summary.get('cda_records', 0),
+                "PCE_Production records": summary.get('production_records', 0),
+                "Duration": lf.elapsed(summary.get('duration', 0)),
+            })
+        self.log_result(lf.summary("COMPLETE", metrics))
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -453,27 +335,7 @@ class SalesRatiosDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 24 + "OPERATION FAILED" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Time:         {timestamp:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        # Wrap error message properly
-        error_lines = []
-        remaining = error_msg
-        while remaining:
-            chunk = remaining[:58]
-            remaining = remaining[58:]
-            error_lines.append(chunk)
-        
-        for i, chunk in enumerate(error_lines):
-            if i == 0:
-                self.log_result(f"|  Error:        {chunk:<54} |")
-            else:
-                self.log_result(f"|                {chunk:<54} |")
-        self.log_result("+" + "=" * 70 + "+")
+        self.log_result(lf.error(error_msg))
 
 
 class SalesRatiosWorker(QThread):
@@ -492,10 +354,6 @@ class SalesRatiosWorker(QThread):
     def cancel(self):
         """Request cancellation of the worker."""
         self._cancelled = True
-        try:
-            self.terminate()
-        except Exception:
-            pass
 
     def run(self):
         """Run the update"""

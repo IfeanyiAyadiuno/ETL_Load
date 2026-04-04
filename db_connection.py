@@ -1,11 +1,20 @@
 # db_connection.py
+import sys
 import pyodbc
 import os
 from dotenv import load_dotenv
 from pathlib import Path
 
+
+def _app_dir():
+    """Return the application directory, whether running from source or frozen exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 # Load .env file
-env_path = Path(__file__).resolve().parent / ".env"
+env_path = _app_dir() / ".env"
 if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 else:

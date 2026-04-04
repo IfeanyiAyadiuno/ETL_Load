@@ -1,7 +1,8 @@
 import time
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
+
+import log_format as lf
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
 
@@ -29,10 +30,10 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*60)
-    log("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE")
-    log("="*60)
-    log(f"Range: {start_month} to {end_month}")
+    log(lf.header(
+        "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
+        Range=f"{start_month} to {end_month}",
+    ))
     
     total_start = time.time()
     
@@ -44,18 +45,18 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         # Ensure start is before end
         if start_date > end_date:
             error_msg = "Start month must be before end month"
-            log(f"ERROR: {error_msg}")
+            log(lf.error(error_msg))
             return {"error": error_msg}
         
         # Connect to SQL Server
-        log("\nConnecting to SQL Server...")
+        log(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
-        log("✅ Database connected")
+        log(lf.success("Database connected"))
         
         # Get well mapping from PCE_WM (exclude exception wells)
-        log("\nFetching well mapping from PCE_WM...")
+        log(lf.step("Fetching well mapping from PCE_WM..."))
         cursor.execute("""
             SELECT 
                 GasIDREC,
@@ -86,7 +87,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 'lateral_length': row[7],
                 'orient': row[8]
             })
-        log(f"   Loaded {len(mapping)} wells")
+        log(lf.detail(f"Loaded {lf.num(len(mapping))} wells"))
         
         # Generate list of months to process
         current = start_date
@@ -99,7 +100,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 current = current.replace(month=current.month + 1)
         
         total_months = len(months_to_process)
-        log(f"Found {total_months} months to process")
+        log(lf.detail(f"Found {lf.num(total_months)} months to process"))
         
         if total_months == 0:
             return {
@@ -130,7 +131,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             month_end_date = month_end.date()
             days_in_month = (month_end_date - month_start_date).days + 1
             
-            log(f"\nProcessing {month_name} ({month_idx + 1}/{total_months})...")
+            log(lf.step(f"Processing {month_name} ({month_idx + 1}/{total_months})"))
             
             # Pull data from Snowflake
             
@@ -231,7 +232,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             sf.close()
             
             total_rows = len(ecf_df) + len(gaswh_df) + len(cgr_df) + len(wgr_df) + len(pressures_df) + len(alloc_df) + len(water_df)
-            log(f"Retrieved {total_rows:,} rows from Snowflake")
+            log(lf.detail(f"Retrieved {lf.num(total_rows)} rows from Snowflake"))
             
             # Delete existing data for this month
             cursor.execute("""
@@ -249,7 +250,10 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             conn.commit()
             
             if deleted_cda > 0 or deleted_prod > 0:
-                log(f"Cleared {deleted_cda:,} CDA and {deleted_prod:,} Production records")
+                log(lf.detail(
+                    f"Cleared {lf.num(deleted_cda)} CDA and "
+                    f"{lf.num(deleted_prod)} Production records"
+                ))
             
             # Build daily data spine
 
@@ -471,7 +475,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                     cursor.executemany(insert_sql, rows_batch)
                     rows_inserted += len(rows_batch)
                     rows_batch = []
-                    log(f"    Inserted batch of {batch_size} rows...")
+                    log(lf.detail(f"Inserted batch of {lf.num(batch_size)} rows..."))
 
             # Insert remaining rows
             if rows_batch:
@@ -480,12 +484,12 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
             conn.commit()
             total_cda_records += rows_inserted
-            log(f"Inserted {rows_inserted:,} records into PCE_CDA")
+            log(lf.detail(f"Inserted {lf.num(rows_inserted)} records into PCE_CDA"))
 
             # -----------------------------------------------------------------
             # STEP 6: Update PCE_Production
             # -----------------------------------------------------------------
-            log("  Updating PCE_Production...")
+            log(lf.step("Updating PCE_Production..."))
 
             # Insert with temporary sequence values
             cursor.execute("""
@@ -550,7 +554,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         """, start_date.date(), end_date.date())
         
         affected_wells = [row[0] for row in cursor.fetchall()]
-        log(f"\nRecalculating sequences for {len(affected_wells)} wells...")
+        log(lf.step(f"Recalculating sequences for {lf.num(len(affected_wells))} wells..."))
         
         for well_idx, well_name in enumerate(affected_wells):
             
@@ -610,19 +614,22 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             'duration': total_time
         }
         
-        log("\n" + "="*60)
-        log("UPDATE COMPLETE")
-        log("="*60)
-        log(f"Months: {months_processed} | Wells: {len(affected_wells)} | CDA: {total_cda_records:,} | Production: {total_production_records:,}")
-        log(f"Duration: {total_time:.1f} seconds")
+        log(lf.summary("COMPLETE", {
+            "Months processed": months_processed,
+            "Wells updated": len(affected_wells),
+            "PCE_CDA records": total_cda_records,
+            "PCE_Production records": total_production_records,
+            "Duration": lf.elapsed(total_time),
+        }))
         
         return summary
         
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
-        log(error_msg)
+        log(lf.error(str(e)))
         import traceback
-        log(traceback.format_exc())
+        for line in traceback.format_exc().strip().split("\n"):
+            log(lf.detail(line))
         return {"error": error_msg}
 
 
@@ -653,10 +660,10 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         if progress_callback:
             progress_callback(value)
     
-    log("\n" + "="*80)
-    log("QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE")
-    log("="*80)
-    log(f"Range: {start_month} to {end_month}")
+    log(lf.header(
+        "QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
+        Range=f"{start_month} to {end_month}",
+    ))
     
     total_start = time.time()
     
@@ -675,7 +682,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         # Ensure start is before end
         if start_date > end_date:
             error_msg = "Start month must be before end month"
-            log(f"ERROR: {error_msg}")
+            log(lf.error(error_msg))
             return {"error": error_msg}
         
         # Calculate actual date range (first day of start month to last day of end month)
@@ -689,14 +696,14 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         end_date_last_date = end_date_last.date()
         
         # Connect to SQL Server
-        log("\nConnecting to SQL Server...")
+        log(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
-        log("✅ Database connected")
+        log(lf.success("Database connected"))
         
         # Get well mapping from PCE_WM
-        log("\nFetching well mapping from PCE_WM...")
+        log(lf.step("Fetching well mapping from PCE_WM..."))
         cursor.execute("""
             SELECT 
                 GasIDREC,
@@ -727,7 +734,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 'lateral_length': row[7],
                 'orient': row[8]
             })
-        log(f"   Loaded {len(mapping)} wells")
+        log(lf.detail(f"Loaded {lf.num(len(mapping))} wells"))
         
         # Generate list of months to process
         current = start_date_first
@@ -740,7 +747,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 current = current.replace(month=current.month + 1)
         
         total_months = len(months_to_process)
-        log(f"Found {total_months} months to process")
+        log(lf.detail(f"Found {lf.num(total_months)} months to process"))
         
         if total_months == 0:
             return {
@@ -769,13 +776,13 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             month_start_date = month_start.date()
             month_end_date = month_end.date()
             
-            log(f"\n{'='*60}")
-            log(f"Processing {month_name}...")
-            log(f"Range: {month_start_date} to {month_end_date}")
-            log(f"Month {month_idx + 1} of {total_months}")
+            log(lf.ruler())
+            log(lf.step(f"Processing {month_name}"))
+            log(lf.detail(f"Range: {month_start_date} to {month_end_date}"))
+            log(lf.detail(f"Month {lf.num(month_idx + 1)} of {lf.num(total_months)}"))
             
             # Pull data from Snowflake (same logic as run_prodview_update)
-            log("  Pulling data from Snowflake...")
+            log(lf.step("Pulling data from Snowflake..."))
             
             # Validate dates are proper date objects
             if not isinstance(month_start_date, (datetime, type(month_start_date))):
@@ -877,21 +884,21 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 water_df = sf.query(water_query)
             except Exception as e:
                 sf.close()
-                log(f"❌ Error pulling data from Snowflake: {e}")
+                log(lf.error(f"Error pulling data from Snowflake: {e}"))
                 raise
             finally:
                 sf.close()
             
-            log(f"    ECF: {len(ecf_df)} rows")
-            log(f"    GasWH: {len(gaswh_df)} rows")
-            log(f"    CGR: {len(cgr_df)} rows")
-            log(f"    WGR: {len(wgr_df)} rows")
-            log(f"    Pressures: {len(pressures_df)} rows")
-            log(f"    Allocations: {len(alloc_df)} rows")
-            log(f"    Water: {len(water_df)} rows")
+            log(lf.detail(f"ECF: {lf.num(len(ecf_df))} rows"))
+            log(lf.detail(f"GasWH: {lf.num(len(gaswh_df))} rows"))
+            log(lf.detail(f"CGR: {lf.num(len(cgr_df))} rows"))
+            log(lf.detail(f"WGR: {lf.num(len(wgr_df))} rows"))
+            log(lf.detail(f"Pressures: {lf.num(len(pressures_df))} rows"))
+            log(lf.detail(f"Allocations: {lf.num(len(alloc_df))} rows"))
+            log(lf.detail(f"Water: {lf.num(len(water_df))} rows"))
             
             # Delete existing data for this month
-            log("  Clearing existing data for month...")
+            log(lf.step("Clearing existing data for month..."))
             
             try:
                 cursor.execute("""
@@ -899,23 +906,23 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     WHERE ProdDate BETWEEN ? AND ?
                 """, month_start_date, month_end_date)
                 deleted_cda = cursor.rowcount
-                log(f"    Deleted {deleted_cda} records from PCE_CDA")
+                log(lf.detail(f"Deleted {lf.num(deleted_cda)} records from PCE_CDA"))
                 
                 cursor.execute("""
                     DELETE FROM PCE_Production 
                     WHERE [Date] BETWEEN ? AND ?
                 """, month_start_date, month_end_date)
                 deleted_prod = cursor.rowcount
-                log(f"    Deleted {deleted_prod} records from PCE_Production")
+                log(lf.detail(f"Deleted {lf.num(deleted_prod)} records from PCE_Production"))
                 
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                log(f"❌ Error deleting existing data: {e}")
+                log(lf.error(f"Error deleting existing data: {e}"))
                 raise
             
             # Build spine and merge data (same as run_prodview_update)
-            log("  Building daily data spine...")
+            log(lf.step("Building daily data spine..."))
             
             all_rows = []
             date_range = pd.date_range(start=month_start_date, end=month_end_date, freq='D').date
@@ -936,10 +943,10 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     })
             
             spine_df = pd.DataFrame(all_rows)
-            log(f"    Created spine with {len(spine_df)} rows")
+            log(lf.detail(f"Created spine with {lf.num(len(spine_df))} rows"))
             
             # Process and merge each data source (same helper function as run_prodview_update)
-            log("  Processing and merging data sources...")
+            log(lf.step("Processing and merging data sources..."))
             
             result_df = spine_df.copy()
             
@@ -967,7 +974,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 return result
             
             # Merge all data sources (same as run_prodview_update)
-            log("    Merging ECF data...")
+            log(lf.detail("Merging ECF data..."))
             if not ecf_df.empty:
                 ecf_processed = prepare_df(ecf_df, 'GASIDREC', 'PRODDATE', ['ECF_Ratio'])
                 if not ecf_processed.empty:
@@ -976,7 +983,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['ECF_Ratio'] = None
             else:
                 result_df['ECF_Ratio'] = None
-            log("    Merging GasWH data...")
+            log(lf.detail("Merging GasWH data..."))
             
             if not gaswh_df.empty:
                 gaswh_processed = prepare_df(gaswh_df, 'GASIDREC', 'PRODDATE', ['GasWH_Production', 'OnProdHours'])
@@ -988,7 +995,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             else:
                 result_df['GasWH_Production'] = None
                 result_df['OnProdHours'] = None
-            log("    Merging CGR data...")
+            log(lf.detail("Merging CGR data..."))
             
             if not cgr_df.empty:
                 cgr_processed = prepare_df(cgr_df, 'PRESSURESIDREC', 'PRODDATE', ['CGR_Ratio'])
@@ -1000,7 +1007,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['CGR_Ratio'] = None
             else:
                 result_df['CGR_Ratio'] = None
-            log("    Merging WGR data...")
+            log(lf.detail("Merging WGR data..."))
             
             if not wgr_df.empty:
                 wgr_processed = prepare_df(wgr_df, 'PRESSURESIDREC', 'PRODDATE', ['WGR_Ratio'])
@@ -1012,7 +1019,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                     result_df['WGR_Ratio'] = None
             else:
                 result_df['WGR_Ratio'] = None
-            log("    Merging Pressures data...")
+            log(lf.detail("Merging Pressures data..."))
             
             if not pressures_df.empty:
                 pressures_processed = prepare_df(pressures_df, 'PRESSURESIDREC', 'PRODDATE', 
@@ -1029,7 +1036,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 result_df['TubingPressure'] = None
                 result_df['CasingPressure'] = None
                 result_df['ChokeSize'] = None
-            log("    Merging Allocations data...")
+            log(lf.detail("Merging Allocations data..."))
             
             if not alloc_df.empty:
                 alloc_processed = prepare_df(alloc_df, 'PRESSURESIDREC', 'PRODDATE', 
@@ -1046,7 +1053,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
                 result_df['Gathered_Gas_Production'] = None
                 result_df['Gathered_Condensate_Production'] = None
                 result_df['NGL_Production'] = None
-            log("    Merging Water data...")
+            log(lf.detail("Merging Water data..."))
             
             if not water_df.empty:
                 water_processed = prepare_df(water_df, 'PRESSURESIDREC', 'PRODDATE', ['AllocatedWater_Rate'])
@@ -1059,13 +1066,13 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             else:
                 result_df['AllocatedWater_Rate'] = None
             
-            log("    Calculating Condensate WH Production...")
+            log(lf.detail("Calculating Condensate WH Production..."))
             result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-            log(f"    Data merge complete. Total rows: {len(result_df):,}")
+            log(lf.detail(f"Data merge complete. Total rows: {lf.num(len(result_df))}"))
             
             # Insert into PCE_CDA
-            log("  Inserting into PCE_CDA...")
-            log(f"    Preparing {len(result_df):,} rows for insertion...")
+            log(lf.step("Inserting into PCE_CDA..."))
+            log(lf.detail(f"Preparing {lf.num(len(result_df))} rows for insertion..."))
             
             insert_sql = """
             INSERT INTO PCE_CDA (
@@ -1125,10 +1132,12 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             try:
                 conn.commit()
                 total_cda_records += rows_inserted
-                log(f"    ✅ Inserted {rows_inserted:,} records into PCE_CDA for {month_name}")
+                log(lf.success(
+                    f"Inserted {lf.num(rows_inserted)} records into PCE_CDA for {month_name}"
+                ))
             except Exception as e:
                 conn.rollback()
-                log(f"❌ Error committing PCE_CDA data for {month_name}: {e}")
+                log(lf.error(f"Error committing PCE_CDA data for {month_name}: {e}"))
                 raise
             
             months_processed += 1
@@ -1136,7 +1145,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             # Update progress (80% for month processing, 20% for well recalculation)
             month_progress = int((month_idx + 1) / total_months * 80)
             progress(month_progress)
-            log(f"✅ Completed {month_name} ({month_idx + 1}/{total_months})")
+            log(lf.success(f"Completed {month_name} ({month_idx + 1}/{total_months})"))
         
         # -----------------------------------------------------------------
         # Get affected wells and recalculate sequences/cumulatives
@@ -1147,18 +1156,20 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         """, start_date_first_date, end_date_last_date)
         
         affected_wells = [row[0] for row in cursor.fetchall()]
-        log(f"\nRecalculating sequences and cumulatives for {len(affected_wells)} wells...")
+        log(lf.step(
+            f"Recalculating sequences and cumulatives for {lf.num(len(affected_wells))} wells..."
+        ))
         
         # Fetch well mapping for name conversion
         composite_map, fallback_map = fetch_well_mapping()
         
         # Process each affected well
         total_wells = len(affected_wells)
-        log(f"  Processing {total_wells} wells...")
+        log(lf.detail(f"Processing {lf.num(total_wells)} wells..."))
         
         for well_idx, well_name in enumerate(affected_wells):
             if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
-                log(f"    Processing well {well_idx + 1}/{total_wells}: {well_name}")
+                log(lf.detail(f"Processing well {well_idx + 1}/{total_wells}: {well_name}"))
             
             # Get ALL historical data for this well from PCE_CDA using pd.read_sql
             query = """
@@ -1312,9 +1323,14 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             
             conn.commit()
             if (well_idx + 1) % 10 == 0 or (well_idx + 1) == total_wells:
-                log(f"    ✅ Updated PCE_Production for {well_name}: {prod_rows_to_insert:,} records")
+                log(lf.success(
+                    f"Updated PCE_Production for {well_name}: "
+                    f"{lf.num(prod_rows_to_insert)} records"
+                ))
         
-        log(f"\n✅ Sequence, cumulative, and average recalculation complete for {total_wells} wells")
+        log(lf.success(
+            f"Sequence, cumulative, and average recalculation complete for {lf.num(total_wells)} wells"
+        ))
         
         # Get total production records updated
         cursor.execute("""
@@ -1336,17 +1352,20 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             'duration': total_time
         }
         
-        log("\n" + "="*60)
-        log("QUICK UPDATE COMPLETE")
-        log("="*60)
-        log(f"Months: {months_processed} | Wells: {len(affected_wells)} | CDA: {total_cda_records:,} | Production: {total_production_records:,}")
-        log(f"Duration: {total_time:.1f} seconds")
+        log(lf.summary("QUICK UPDATE COMPLETE", {
+            "Months processed": months_processed,
+            "Wells updated": len(affected_wells),
+            "PCE_CDA records": total_cda_records,
+            "PCE_Production records": total_production_records,
+            "Duration": lf.elapsed(total_time),
+        }))
         
         return summary
         
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
-        log(error_msg)
+        log(lf.error(str(e)))
         import traceback
-        log(traceback.format_exc())
+        for line in traceback.format_exc().strip().split("\n"):
+            log(lf.detail(line))
         return {"error": error_msg}

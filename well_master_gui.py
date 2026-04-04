@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QStyledItemDelegate
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
+import log_format as lf
 from styles import (
     DIALOG_BASE, card_style, dialog_title_style, section_title_style,
     tab_widget_style, table_style, btn_style, btn_toolbar, btn_neutral, btn_primary,
@@ -91,7 +92,7 @@ class WellMasterDB:
             return wells
 
         except Exception as e:
-            print(f"Error loading wells: {e}")
+            print(lf.error(f"Error loading wells: {e}"))
             return []
 
     @staticmethod
@@ -127,7 +128,7 @@ class WellMasterDB:
             return options
 
         except Exception as e:
-            print(f"Error loading dropdown options: {e}")
+            print(lf.error(f"Error loading dropdown options: {e}"))
             return {}
 
     @staticmethod

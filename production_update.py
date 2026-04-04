@@ -1,29 +1,13 @@
 
 import pandas as pd
-import pyodbc
 import numpy as np
 from datetime import datetime
-from dotenv import load_dotenv
-import os
 import warnings
+
+import log_format as lf
+from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
+
 warnings.filterwarnings('ignore', category=FutureWarning)
-
-load_dotenv()
-
-# SQL Server connection settings
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_sql_conn():
-    """Create connection to SQL Server"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    return pyodbc.connect(conn_str)
 
 def clear_pce_production():
     """Clear all data from PCE_Production table"""
@@ -39,7 +23,7 @@ def clear_pce_production():
             # If the table has no IDENTITY or permissions are limited, ignore the error
             pass
         conn.commit()
-        print(f"Cleared PCE_Production: {deleted:,} records deleted (identity reseeded where applicable)")
+        print(lf.success(f"Cleared PCE_Production: {lf.num(deleted)} records deleted (identity reseeded where applicable)"))
         return deleted
 
 def fetch_cda_data():
@@ -78,7 +62,7 @@ def fetch_cda_data():
     with get_sql_conn() as conn:
         df = pd.read_sql(query, conn)
     
-    print(f"Loaded {len(df):,} rows from PCE_CDA")
+    print(lf.detail(f"Loaded {lf.num(len(df))} rows from PCE_CDA"))
     return df
 
 def fetch_well_mapping():
@@ -113,7 +97,7 @@ def fetch_well_mapping():
         # Always store fallback (Well Name itself)
         fallback_map[source] = str(fallback).strip()
     
-    print(f"Loaded {len(fallback_map)} well name mappings")
+    print(lf.detail(f"Loaded {lf.num(len(fallback_map))} well name mappings"))
     
     return composite_map, fallback_map
 
@@ -150,22 +134,22 @@ def apply_well_names(df, composite_map, fallback_map):
     # Remove rows with no well name mapping
     unmapped_count = df['Well Name'].isna().sum()
     if unmapped_count > 0:
-        print(f"  ⚠️ {unmapped_count:,} rows ({unmapped_count/original_count*100:.1f}%) have no well name mapping")
+        print(lf.warn(f"{lf.num(unmapped_count)} rows ({unmapped_count/original_count*100:.1f}%) have no well name mapping"))
         
         # Show sample of unmapped wells
         if len(unmapped_sources) > 0:
-            print(f"  Unmapped source wells: {', '.join(list(unmapped_sources)[:10])}")
+            print(lf.detail(f"Unmapped source wells: {', '.join(list(unmapped_sources)[:10])}"))
             if len(unmapped_sources) > 10:
-                print(f"    ... and {len(unmapped_sources) - 10} more")
+                print(lf.detail(f"... and {lf.num(len(unmapped_sources) - 10)} more"))
         
         # Drop unmapped rows
         df = df.dropna(subset=['Well Name'])
-        print(f"  → Remaining rows: {len(df):,}")
+        print(lf.detail(f"Remaining rows: {lf.num(len(df))}"))
     
     # Drop the source column
     df = df.drop(columns=['Source_Well_Name'])
     
-    print(f"  Well name mapping complete")
+    print(lf.success("Well name mapping complete"))
     return df
 
 def filter_to_first_production(df):
@@ -232,12 +216,11 @@ def filter_to_first_production(df):
     if filtered_dfs:
         df_filtered = pd.concat(filtered_dfs, ignore_index=True)
         rows_removed = original_count - len(df_filtered)
-        print(f"Filtered to first production: {wells_with_data} wells, {len(df_filtered):,} rows ({rows_removed:,} removed)")
-        # Progress update for long runs
-        print(f"  First-production filtering complete for {total_wells} wells")
+        print(lf.detail(f"Filtered to first production: {lf.num(wells_with_data)} wells, {lf.num(len(df_filtered))} rows ({lf.num(rows_removed)} removed)"))
+        print(lf.detail(f"First-production filtering complete for {lf.num(total_wells)} wells"))
         return df_filtered
     else:
-        print("No wells with production data found!")
+        print(lf.warn("No wells with production data found!"))
         return pd.DataFrame()
 
 def calculate_sequences(df):
@@ -276,7 +259,7 @@ def calculate_sequences(df):
         
         # Lightweight progress every 50 wells
         if well_idx % 50 == 0 or well_idx == total_wells:
-            print(f"  Sequences calculated for {well_idx}/{total_wells} wells")
+            print(lf.detail(f"Sequences calculated for {well_idx}/{total_wells} wells"))
     
     return df
 
@@ -314,7 +297,7 @@ def calculate_monthly_averages(df):
     """
     Calculate monthly averages for each well with progress tracking
     """
-    print("\nCalculating monthly averages...")
+    print(lf.step("Calculating monthly averages..."))
     # Create year-month column for grouping
     df['YearMonth'] = pd.to_datetime(df['Date']).dt.to_period('M')
     
@@ -351,7 +334,7 @@ def calculate_monthly_averages(df):
         
         # Lightweight progress every 50 wells
         if well_idx % 50 == 0 or well_idx == total_wells:
-            print(f"  Monthly averages calculated for {well_idx}/{total_wells} wells")
+            print(lf.detail(f"Monthly averages calculated for {well_idx}/{total_wells} wells"))
     
     # Drop the temporary YearMonth column
     df = df.drop(columns=['YearMonth'])
@@ -378,7 +361,7 @@ def insert_pce_production(df):
     Insert dataframe into PCE_Production table
     """
     if df.empty:
-        print("No rows to insert")
+        print(lf.detail("No rows to insert"))
         return 0
     
     # Define the insert SQL with 39 parameters
@@ -458,39 +441,41 @@ def insert_pce_production(df):
     
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        cursor.fast_executemany = True
         
         total_rows = len(rows_to_insert)
         
         for i in range(0, total_rows, batch_size):
             batch = rows_to_insert[i:i + batch_size]
             
-            for j, row in enumerate(batch):
-                try:
-                    cursor.execute(insert_sql, row)
-                    total_inserted += 1
-                except Exception as row_e:
-                    if "Violation of UNIQUE KEY" in str(row_e):
-                        duplicate_skipped += 1
-                    else:
-                        print(f"Error inserting row {i+j}: {row_e}")
+            try:
+                cursor.executemany(insert_sql, batch)
+                total_inserted += len(batch)
+            except Exception as batch_e:
+                print(lf.warn(f"Batch starting at row {i} failed ({batch_e}); falling back to row-by-row."))
+                for j, row in enumerate(batch):
+                    try:
+                        cursor.execute(insert_sql, row)
+                        total_inserted += 1
+                    except Exception as row_e:
+                        if "Violation of UNIQUE KEY" in str(row_e):
+                            duplicate_skipped += 1
+                        else:
+                            print(lf.error(f"Error inserting row {i+j}: {row_e}"))
             
-            # Commit once per batch instead of once per row for much better performance
             conn.commit()
             
-            # Lightweight progress every 50,000 rows
             if (i + len(batch)) % 50000 == 0 or (i + len(batch)) == total_rows:
-                print(f"  Insert progress: {i + len(batch):,}/{total_rows:,} rows")
+                print(lf.detail(f"Insert progress: {lf.num(i + len(batch))}/{lf.num(total_rows)} rows"))
     
-    print(f"Inserted {total_inserted:,} rows into PCE_Production")
+    print(lf.success(f"Inserted {lf.num(total_inserted)} rows into PCE_Production"))
     if duplicate_skipped > 0:
-        print(f"Warning: Skipped {duplicate_skipped:,} duplicate rows")
+        print(lf.warn(f"Skipped {lf.num(duplicate_skipped)} duplicate rows"))
     
     return total_inserted
 
 def main():
-    print("=" * 60)
-    print("PCE_PRODUCTION POPULATION SCRIPT")
-    print("=" * 60)
+    print(lf.header("PCE_Production population", Started=lf.timestamp()))
     
     # Step 1: Clear existing data
     clear_pce_production()
@@ -502,21 +487,21 @@ def main():
     df = fetch_cda_data()
     
     if df.empty:
-        print("No data to process. Exiting.")
+        print(lf.warn("No data to process. Exiting."))
         return
     
     # Step 4: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
     
     if df.empty:
-        print("No data after well name mapping. Exiting.")
+        print(lf.warn("No data after well name mapping. Exiting."))
         return
     
     # Step 5: Filter to first production date for each well
     df = filter_to_first_production(df)
     
     if df.empty:
-        print("No data after filtering. Exiting.")
+        print(lf.warn("No data after filtering. Exiting."))
         return
     
     # Step 6: Calculate sequences with corrected Day Seq UPRT logic
@@ -535,13 +520,12 @@ def main():
     rows_inserted = insert_pce_production(df)
     
     # Step 11: Final summary
-    print("\n" + "=" * 60)
-    print("SUMMARY")
-    print("=" * 60)
-    print(f"Wells processed: {len(df['Well Name'].unique()):,}")
-    print(f"Total records: {len(df):,}")
-    print(f"Records inserted: {rows_inserted:,}")
-    print("=" * 60)
+    print(lf.summary("Complete", {
+        "Wells processed": len(df["Well Name"].unique()),
+        "Total records": len(df),
+        "Records inserted": rows_inserted,
+        "Destination": f"{SQL_SERVER}.{SQL_DATABASE}.PCE_Production",
+    }))
 
 if __name__ == "__main__":
     main()

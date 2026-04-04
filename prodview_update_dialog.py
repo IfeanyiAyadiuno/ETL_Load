@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta
 
+import log_format as lf
+
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
@@ -203,15 +205,8 @@ class ProdviewUpdateDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
+                self.worker.cancel()
+                self.worker.wait(5000)
                 self.log_result("\n⚠️ Operation cancelled by user")
                 self.progress_bar.setVisible(False)
                 self.run_btn.setEnabled(True)
@@ -234,15 +229,8 @@ class ProdviewUpdateDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
+                self.worker.cancel()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return
@@ -319,23 +307,6 @@ class ProdviewUpdateDialog(QDialog):
         self.results_text.setTextCursor(cursor)
         QApplication.processEvents()
     
-    def format_timestamp(self):
-        """Get formatted timestamp for log entries"""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    def format_duration(self, seconds):
-        """Format duration in human-readable format"""
-        if seconds < 60:
-            return f"{seconds:.1f} seconds"
-        elif seconds < 3600:
-            minutes = int(seconds // 60)
-            secs = int(seconds % 60)
-            return f"{minutes}m {secs}s"
-        else:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            return f"{hours}h {minutes}m"
-
     def run_update(self):
         """Run the prodview update in a separate thread"""
         # Confirm before running
@@ -373,18 +344,14 @@ class ProdviewUpdateDialog(QDialog):
         to_month = self.to_combo.currentText()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         mode_name = "FULL REBUILD" if update_mode == "full_rebuild" else "QUICK UPDATE"
-        timestamp = self.format_timestamp()
 
-        # Professional header with timestamp
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("|" + " " * 10 + "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE" + " " * 16 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Started:     {timestamp:<54} |")
-        self.log_result(f"|  Mode:        {mode_name:<54} |")
-        self.log_result(f"|  From:        {from_month:<54} |")
-        self.log_result(f"|  To:          {to_month:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("")
+        self.log_result(lf.header(
+            "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
+            Started=lf.timestamp(),
+            Mode=mode_name,
+            From=from_month,
+            To=to_month,
+        ))
 
         self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
         self.worker.log_signal.connect(self.log_result)
@@ -410,33 +377,16 @@ class ProdviewUpdateDialog(QDialog):
         self.close_btn.setEnabled(True)
         self.status_label.setText("Complete")
 
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 22 + "OPERATION COMPLETE" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Completed:   {timestamp:<54} |")
-        
+        metrics = {"Completed": lf.timestamp()}
         if summary:
-            self.log_result("+" + "-" * 70 + "+")
-            self.log_result("|  SUMMARY" + " " * 60 + "|")
-            self.log_result("+" + "-" * 70 + "+")
-            
-            months = summary.get('months_processed', 0)
-            wells = summary.get('wells_updated', 0)
-            cda_records = summary.get('cda_records', 0)
-            prod_records = summary.get('production_records', 0)
-            duration = summary.get('duration', 0)
-            
-            self.log_result(f"|    Months Processed:        {months:>10,} months" + " " * 30 + "|")
-            self.log_result(f"|    Wells Updated:           {wells:>10,} wells" + " " * 30 + "|")
-            self.log_result(f"|    PCE_CDA Records:         {cda_records:>10,} records" + " " * 26 + "|")
-            self.log_result(f"|    PCE_Production Records:  {prod_records:>10,} records" + " " * 24 + "|")
-            self.log_result("+" + "-" * 70 + "+")
-            formatted_duration = self.format_duration(duration)
-            self.log_result(f"|  Duration:     {formatted_duration:<54} |")
-        
-        self.log_result("+" + "=" * 70 + "+")
+            metrics.update({
+                "Months processed": summary.get('months_processed', 0),
+                "Wells updated": summary.get('wells_updated', 0),
+                "PCE_CDA records": summary.get('cda_records', 0),
+                "PCE_Production records": summary.get('production_records', 0),
+                "Duration": lf.elapsed(summary.get('duration', 0)),
+            })
+        self.log_result(lf.summary("COMPLETE", metrics))
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -447,27 +397,7 @@ class ProdviewUpdateDialog(QDialog):
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
         self.status_label.setText("Error")
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 24 + "OPERATION FAILED" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Time:         {timestamp:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        # Wrap error message properly
-        error_lines = []
-        remaining = error_msg
-        while remaining:
-            chunk = remaining[:58]
-            remaining = remaining[58:]
-            error_lines.append(chunk)
-        
-        for i, chunk in enumerate(error_lines):
-            if i == 0:
-                self.log_result(f"|  Error:        {chunk:<54} |")
-            else:
-                self.log_result(f"|                {chunk:<54} |")
-        self.log_result("+" + "=" * 70 + "+")
+        self.log_result(lf.error(error_msg))
 
 
 class ProdviewUpdateWorker(QThread):
@@ -488,10 +418,6 @@ class ProdviewUpdateWorker(QThread):
     def cancel(self):
         """Request cancellation of the worker."""
         self._cancelled = True
-        try:
-            self.terminate()
-        except Exception:
-            pass
 
     def run(self):
         """Run the update"""

@@ -1,7 +1,9 @@
 # monthly_loader_dialog.py
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import log_format as lf
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -18,7 +20,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QMessageBox,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
@@ -172,16 +174,9 @@ class MonthlyLoaderDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
-                self.log_result("\n⚠️ Operation cancelled by user")
+                self.worker.cancel()
+                self.worker.wait(5000)
+                self.log_result(lf.warn("Operation cancelled by user"))
                 self.progress_bar.setRange(0, 100)
                 self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(False)
@@ -204,15 +199,8 @@ class MonthlyLoaderDialog(QDialog):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
-                try:
-                    self.worker.cancel()
-                    self.worker.wait()
-                except Exception:
-                    try:
-                        self.worker.terminate()
-                        self.worker.wait()
-                    except Exception:
-                        pass
+                self.worker.cancel()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return
@@ -297,23 +285,6 @@ class MonthlyLoaderDialog(QDialog):
         cursor.movePosition(QTextCursor.End)
         self.results_text.setTextCursor(cursor)
         QApplication.processEvents()
-    
-    def format_timestamp(self):
-        """Get formatted timestamp for log entries"""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    def format_duration(self, seconds):
-        """Format duration in human-readable format"""
-        if seconds < 60:
-            return f"{seconds:.1f} seconds"
-        elif seconds < 3600:
-            minutes = int(seconds // 60)
-            secs = int(seconds % 60)
-            return f"{minutes}m {secs}s"
-        else:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            return f"{hours}h {minutes}m"
 
     def run_loader(self):
         """Run the monthly loader in a separate thread"""
@@ -339,16 +310,9 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar.setValue(0)
         self.results_text.clear()
 
-        # Professional header with timestamp
-        timestamp = self.format_timestamp()
-        month = self.month_combo.currentText()
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("|" + " " * 20 + "PA MONTHLY LOADER" + " " * 33 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Started:     {timestamp:<54} |")
-        self.log_result(f"|  Month:       {month:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result("")
+        self.log_result(
+            lf.header("PA MONTHLY LOADER", Started=lf.timestamp(), Month=month)
+        )
 
         valnav_path = self.settings_section.get('valnav_template', '')
         accumap_path = self.settings_section.get('accumap_template', '')
@@ -369,66 +333,13 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(value)
 
-    def loader_finished(self, summary):
+    def loader_finished(self, _summary):
         """Handle loader completion"""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 22 + "OPERATION COMPLETE" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Completed:   {timestamp:<54} |")
-        
-        if summary:
-            # Extract key metrics from summary lines
-            duration = None
-            for line in summary:
-                if "Total time:" in line:
-                    try:
-                        duration_str = line.split("Total time:")[1].strip().split()[0]
-                        duration = float(duration_str)
-                    except:
-                        pass
-            
-            # Format summary nicely
-            self.log_result("+" + "-" * 70 + "+")
-            self.log_result("|  SUMMARY" + " " * 60 + "|")
-            self.log_result("+" + "-" * 70 + "+")
-            
-            for line in summary:
-                if "=" in line and len(line.strip()) > 10:
-                    continue  # Skip separator lines
-                if "LOAD SUMMARY" in line:
-                    continue
-                # Format summary lines nicely
-                clean_line = line.strip()
-                if clean_line:
-                    if ":" in clean_line:
-                        parts = clean_line.split(":", 1)
-                        label = parts[0].strip()
-                        value = parts[1].strip() if len(parts) > 1 else ""
-                        # Format numbers with commas
-                        if value.replace(',', '').isdigit():
-                            value = f"{int(value.replace(',', '')):,}"
-                        # Ensure proper width
-                        label_padded = label[:30].ljust(30)
-                        value_padded = value[:36].ljust(36)
-                        self.log_result(f"|    {label_padded} {value_padded} |")
-                    else:
-                        clean_line_padded = clean_line[:66].ljust(66)
-                        self.log_result(f"|    {clean_line_padded} |")
-            
-            if duration:
-                formatted_duration = self.format_duration(duration)
-                self.log_result("+" + "-" * 70 + "+")
-                self.log_result(f"|  Duration:     {formatted_duration:<54} |")
-        
-        self.log_result("+" + "=" * 70 + "+")
 
     def loader_error(self, error_msg):
         """Handle loader error"""
@@ -437,34 +348,14 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-        timestamp = self.format_timestamp()
-        self.log_result("")
-        self.log_result("+" + "=" * 70 + "+")
-        self.log_result("|" + " " * 24 + "OPERATION FAILED" + " " * 30 + "|")
-        self.log_result("+" + "-" * 70 + "+")
-        self.log_result(f"|  Time:         {timestamp:<54} |")
-        self.log_result("+" + "-" * 70 + "+")
-        # Wrap error message properly
-        error_lines = []
-        remaining = error_msg
-        while remaining:
-            chunk = remaining[:58]
-            remaining = remaining[58:]
-            error_lines.append(chunk)
-        
-        for i, chunk in enumerate(error_lines):
-            if i == 0:
-                self.log_result(f"|  Error:        {chunk:<54} |")
-            else:
-                self.log_result(f"|                {chunk:<54} |")
-        self.log_result("+" + "=" * 70 + "+")
+        self.log_result(lf.error(error_msg))
 
 
 class MonthlyLoaderWorker(QThread):
     """Worker thread for running the monthly loader"""
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
-    finished_signal = pyqtSignal(list)
+    finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
     def __init__(self, month, valnav_path, accumap_path):
@@ -477,10 +368,6 @@ class MonthlyLoaderWorker(QThread):
     def cancel(self):
         """Request cancellation of the worker."""
         self._cancelled = True
-        try:
-            self.terminate()
-        except Exception:
-            pass
 
     def run(self):
         """Run the loader"""
@@ -508,25 +395,7 @@ class MonthlyLoaderWorker(QThread):
                 self.error_signal.emit(summary['error'])
                 return
 
-            # Format summary for display
-            summary_lines = [
-                "\n" + "="*60,
-                "LOAD SUMMARY",
-                "="*60,
-                f"Month processed: {self.month}",
-                f"ValNav records: {summary.get('valnav_records', 0)}",
-                f"Accumap records: {summary.get('accumap_records', 0)}",
-                f"Wells successfully matched: {summary.get('matched_wells', 0)}",
-                f"Wells added with zeros: {summary.get('wells_added', 0)}",
-                f"Total wells processed: {summary.get('total_wells', 0)}",
-                f"Total time: {summary.get('duration', 0):.1f} seconds"
-            ]
-
-            # Add warnings if any
-            if summary.get('warnings'):
-                summary_lines.insert(1, f"\n⚠️ WARNING: {summary['warnings']}")
-
-            self.finished_signal.emit(summary_lines)
+            self.finished_signal.emit(summary)
 
         except Exception as e:
             self.error_signal.emit(str(e))

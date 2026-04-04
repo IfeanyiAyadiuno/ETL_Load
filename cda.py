@@ -1,34 +1,17 @@
 
 import pandas as pd
 from snowflake_connector import SnowflakeConnector
-import numpy as np  
-from dotenv import load_dotenv
-import os
-import pyodbc
+import numpy as np
 import warnings
-from datetime import datetime
+
+import log_format as lf
+from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
+
 warnings.filterwarnings('ignore', category=FutureWarning)
-
-load_dotenv()
-
-# SQL Server connection settings
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_sql_conn():
-    """Create connection to SQL Server"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    return pyodbc.connect(conn_str)
 
 def ensure_pce_cda_table():
     """Check if PCE_CDA table exists"""
-    print("  Verifying PCE_CDA table exists in SQL Server...")
+    print(lf.detail("Verifying PCE_CDA table exists in SQL Server..."))
     with get_sql_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -37,14 +20,14 @@ def ensure_pce_cda_table():
             WHERE TABLE_NAME = 'PCE_CDA'
         """)
         if cursor.fetchone()[0] == 0:
-            print("  ⚠️ PCE_CDA table not found! Please create it first.")
+            print(lf.warn("PCE_CDA table not found! Please create it first."))
             return False
-        print("  ✅ PCE_CDA table exists")
+        print(lf.success("PCE_CDA table exists"))
         return True
 
 def delete_pce_cda_range(start_date, end_date):
     """Delete records in date range from SQL Server"""
-    print(f"  Deleting records from {start_date} to {end_date}...")
+    print(lf.detail(f"Deleting records from {start_date} to {end_date}..."))
     with get_sql_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -53,7 +36,7 @@ def delete_pce_cda_range(start_date, end_date):
         """, start_date, end_date)
         deleted = cursor.rowcount
         conn.commit()
-        print(f"  Deleted {deleted:,} records")
+        print(lf.detail(f"Deleted {lf.num(deleted)} records"))
         return deleted
 
 def insert_pce_cda_rows(df):
@@ -62,10 +45,10 @@ def insert_pce_cda_rows(df):
     Processes in batches for better performance
     """
     if df.empty:
-        print("  No rows to insert")
+        print(lf.detail("No rows to insert"))
         return 0
     
-    print(f"  Inserting {len(df):,} rows into SQL Server...")
+    print(lf.detail(f"Inserting {lf.num(len(df))} rows into SQL Server..."))
     
     # CLEAN THE DATA - Replace NaN/Inf with None (SQL NULL)
     df_clean = df.copy()
@@ -145,7 +128,7 @@ def insert_pce_cda_rows(df):
                 conn.commit()
                 total_inserted += len(batch)
             except Exception as e:
-                print(f"    ❌ Error on batch starting at row {i}: {e}")
+                print(lf.error(f"Error on batch starting at row {i}: {e}"))
                 # Try one row at a time to find the bad row
                 for j, row in enumerate(batch):
                     try:
@@ -153,19 +136,19 @@ def insert_pce_cda_rows(df):
                         conn.commit()
                         total_inserted += 1
                     except Exception as row_e:
-                        print(f"      ❌ Bad row at position {i+j}: {row_e}")
+                        print(lf.error(f"Bad row at position {i+j}: {row_e}"))
                 # Continue with next batch
                 continue
             
             if (i + batch_size) % 5000 == 0 or (i + batch_size) >= len(rows_to_insert):
-                print(f"    Inserted {min(i + batch_size, len(rows_to_insert)):,} rows...")
+                print(lf.detail(f"Inserted {lf.num(min(i + batch_size, len(rows_to_insert)))} rows..."))
     
-    print(f"  ✅ Successfully inserted {total_inserted:,} rows")
+    print(lf.success(f"Successfully inserted {lf.num(total_inserted)} rows"))
     return total_inserted
 
 def pull_mapping():
     """Pulls mapping from SQL Server PCE_WM including all needed fields"""
-    print("Pulling mapping data from SQL Server...")
+    print(lf.step("Pulling mapping data from SQL Server..."))
     sql = """
     SELECT
         GasIDREC,
@@ -195,25 +178,28 @@ def pull_mapping():
     df["Orient"] = df["Orient"].astype(str).str.strip()
     
     df = df.drop_duplicates(subset=["GasIDREC"])
-    print(f"Found {len(df)} unique wells")
+    print(lf.detail(f"Found {lf.num(len(df))} unique wells"))
     return df
 
-def pull_ecf(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling ECF data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_ecf(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling ECF data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECPARENT AS GasIDREC,
         CAST (DTTM AS DATE) AS ProdDate,
         EFFLUENTFACTOR AS ECF_Ratio
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     # normalize types
     df["GasIDREC"] = df["GASIDREC"].astype(str).str.strip() if "GASIDREC" in df.columns else df["GasIDREC"].astype(str).str.strip()
@@ -226,26 +212,29 @@ def pull_ecf(start: str, end: str) -> pd.DataFrame:
         "ECF_Ratio": df["ECF_Ratio"],
     })
 
-    print(f"    ECF data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"ECF data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_gaswh(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling GasWH data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_gaswh(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling GasWH data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECPARENT AS GasIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
         VOLENTERGAS AS GasWH_Production,
         DURONOR AS OnProdHours
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     gas_col = cols.get("GASIDREC", "GasIDREC")
@@ -260,14 +249,16 @@ def pull_gaswh(start: str, end: str) -> pd.DataFrame:
         "OnProdHours": pd.to_numeric(df[hrs_col], errors="coerce"),
     })
 
-    print(f"    GasWH data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"GasWH data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_cgr(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling CGR data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_cgr(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling CGR data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECCOMP AS PressuresIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
@@ -276,12 +267,13 @@ def pull_cgr(start: str, end: str) -> pd.DataFrame:
             ELSE (RATEHCLIQ / RATEGAS)
         END AS CGR_Ratio
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     pid_col = cols.get("PRESSURESIDREC", "PressuresIDREC")
@@ -294,25 +286,28 @@ def pull_cgr(start: str, end: str) -> pd.DataFrame:
         "CGR_Ratio": pd.to_numeric(df[val_col], errors="coerce")
     })
 
-    print(f"    CGR data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"CGR data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_wgr(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling WGR data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_wgr(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling WGR data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECPARENT AS PressuresIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
         WGR AS WGR_Ratio
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     pid_col = cols.get("PRESSURESIDREC", "PressuresIDREC")
@@ -325,14 +320,16 @@ def pull_wgr(start: str, end: str) -> pd.DataFrame:
         "WGR_Ratio": pd.to_numeric(df[val_col], errors="coerce")
     })
 
-    print(f"    WGR data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"WGR data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_pressures(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling Pressures data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_pressures(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling Pressures data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECPARENT AS PressuresIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
@@ -340,12 +337,13 @@ def pull_pressures(start: str, end: str) -> pd.DataFrame:
         PRESCAS AS CasingPressure,
         SZCHOKE AS ChokeSize
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     pid_col = cols.get("PRESSURESIDREC", "PressuresIDREC")
@@ -362,14 +360,16 @@ def pull_pressures(start: str, end: str) -> pd.DataFrame:
         "ChokeSize": pd.to_numeric(df[choke_col], errors="coerce"),
     })
 
-    print(f"    Pressures data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"Pressures data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_allocations(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling Allocation data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_allocations(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling Allocation data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECCOMP AS PressuresIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
@@ -377,12 +377,13 @@ def pull_allocations(start: str, end: str) -> pd.DataFrame:
         VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
         VOLNEWPRODALLOCNGL AS NGL_Production
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     pid_col = cols.get("PRESSURESIDREC", "PressuresIDREC")
@@ -399,25 +400,28 @@ def pull_allocations(start: str, end: str) -> pd.DataFrame:
         "NGL_Production": pd.to_numeric(df[ngl_col], errors="coerce"),
     })
 
-    print(f"    Allocation data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"Allocation data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
-def pull_alloc_water(start: str, end: str) -> pd.DataFrame:
-    print("  Pulling Allocated Water data from Snowflake...")
-    sf = SnowflakeConnector()
+def pull_alloc_water(start: str, end: str, sf=None) -> pd.DataFrame:
+    print(lf.detail("Pulling Allocated Water data from Snowflake..."))
+    own = sf is None
+    if own:
+        sf = SnowflakeConnector()
 
-    sql = f"""
+    sql = """
     SELECT
         IDRECCOMP AS PressuresIDREC,
         CAST(DTTM AS DATE) AS ProdDate,
         VOLWATER AS AllocatedWater_Rate
     FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitcompgathmonthdaycalc
-    WHERE DTTM >= '{start}'
-      AND DTTM <= '{end}'
+    WHERE DTTM >= %s
+      AND DTTM <= %s
     """
 
-    df = sf.query(sql)
-    sf.close()
+    df = sf.query(sql, params=(start, end))
+    if own:
+        sf.close()
 
     cols = {c.upper(): c for c in df.columns}
     pid_col = cols.get("PRESSURESIDREC", "PressuresIDREC")
@@ -430,14 +434,14 @@ def pull_alloc_water(start: str, end: str) -> pd.DataFrame:
         "AllocatedWater_Rate": pd.to_numeric(df[val_col], errors="coerce")
     })
 
-    print(f"    Allocated Water data pulled: {len(out):,} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})")
+    print(lf.detail(f"Allocated Water data pulled: {lf.num(len(out))} rows (range: {out['ProdDate'].min()} to {out['ProdDate'].max()})"))
     return out
 
 def build_complete_spine(mapping: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
     """
     Build complete spine with all wells × all days (no optimization yet)
     """
-    print("\nBuilding complete data spine (all wells × all days)...")
+    print(lf.step("Building complete data spine (all wells × all days)..."))
     days = pd.date_range(start=start, end=end, freq="D").date
     days_df = pd.DataFrame({"ProdDate": days})
     
@@ -452,7 +456,7 @@ def build_complete_spine(mapping: pd.DataFrame, start: str, end: str) -> pd.Data
     # Sort by Well Name first, then ProdDate
     spine = spine.sort_values(["Well Name", "ProdDate"]).reset_index(drop=True)
     
-    print(f"Created complete spine with {len(spine):,} rows ({len(mapping)} wells × {len(days)} days)")
+    print(lf.detail(f"Created complete spine with {lf.num(len(spine))} rows ({lf.num(len(mapping))} wells × {lf.num(len(days))} days)"))
     return spine
 
 def process_well_batch(well_data, ecf, gaswh, cgr, wgr, pressures, alloc, alloc_water):
@@ -531,7 +535,7 @@ def filter_to_first_production(df):
     Uses Gas WH if available, otherwise falls back to Gathered Gas
     Matches VBA logic: If Gas WH <= 2, use Gathered Gas
     """
-    print("\nFiltering to first production date for each well...")
+    print(lf.step("Filtering to first production date for each well..."))
     
     original_count = len(df)
     wells = df['Well Name'].unique()
@@ -590,20 +594,21 @@ def filter_to_first_production(df):
             wells_with_data += 1
             
             if well_idx % 50 == 0:
-                print(f"    Processed {well_idx}/{total_wells} wells...")
+                print(lf.detail(f"Processed {well_idx}/{total_wells} wells..."))
         else:
             wells_without_data += 1
     
     if filtered_dfs:
         df_filtered = pd.concat(filtered_dfs, ignore_index=True)
-        print(f"  Wells with production data: {wells_with_data}")
-        print(f"  Wells with NO production data: {wells_without_data}")
-        print(f"  Rows before filtering: {original_count:,}")
-        print(f"  Rows after filtering: {len(df_filtered):,}")
-        print(f"  Rows removed: {original_count - len(df_filtered):,} ({((original_count - len(df_filtered))/original_count*100):.1f}%)")
+        print(lf.detail(f"Wells with production data: {lf.num(wells_with_data)}"))
+        print(lf.detail(f"Wells with NO production data: {lf.num(wells_without_data)}"))
+        print(lf.detail(f"Rows before filtering: {lf.num(original_count)}"))
+        print(lf.detail(f"Rows after filtering: {lf.num(len(df_filtered))}"))
+        pct = ((original_count - len(df_filtered)) / original_count * 100) if original_count else 0
+        print(lf.detail(f"Rows removed: {lf.num(original_count - len(df_filtered))} ({pct:.1f}%)"))
         return df_filtered
     else:
-        print("  No wells with production data found!")
+        print(lf.warn("No wells with production data found!"))
         return pd.DataFrame()
 
 if __name__ == "__main__":
@@ -611,42 +616,47 @@ if __name__ == "__main__":
     # NEW: Fixed end date - January 31, 2026
     end = "2026-01-31"
     
-    print("=" * 60)
-    print(f"STARTING DATA PIPELINE - WITH VBA-STYLE FIRST PRODUCTION FILTER")
-    print(f"Date range: {start} to {end}")
-    print("=" * 60)
+    print(lf.header(
+        "CDA data pipeline — VBA-style first production filter",
+        Started=lf.timestamp(),
+        Range=f"{start} to {end}",
+    ))
     
     # Step 1: Check SQL Server table exists and clear data
-    print("\n[Step 1/9] Preparing SQL Server database...")
-    print("  Verifying PCE_CDA table exists...")
+    print(lf.step("[Step 1/9] Preparing SQL Server database..."))
+    print(lf.detail("Verifying PCE_CDA table exists..."))
     if not ensure_pce_cda_table():
-        print("  ❌ Cannot proceed. Please create PCE_CDA table first.")
+        print(lf.error("Cannot proceed. Please create PCE_CDA table first."))
         exit(1)
     
-    print("  Clearing existing data in range...")
+    print(lf.detail("Clearing existing data in range..."))
     delete_pce_cda_range(start, end)
     
     # Step 2: Pull mapping data with all PCE_WM fields
-    print("\n[Step 2/9] Pulling well mapping data from SQL Server...")
+    print(lf.step("[Step 2/9] Pulling well mapping data from SQL Server..."))
     mapping = pull_mapping()
     
-    # Step 3: Pull all data from Snowflake
-    print("\n[Step 3/9] Pulling data from Snowflake...")
-    ecf = pull_ecf(start, end)
-    gaswh = pull_gaswh(start, end)
-    cgr = pull_cgr(start, end)
-    wgr = pull_wgr(start, end)
-    pressures = pull_pressures(start, end)
-    alloc = pull_allocations(start, end)
-    alloc_water = pull_alloc_water(start, end)
-    print("  Snowflake data pull complete")
+    # Step 3: Pull all data from Snowflake (single session)
+    print(lf.step("[Step 3/9] Pulling data from Snowflake..."))
+    sf = SnowflakeConnector()
+    try:
+        ecf = pull_ecf(start, end, sf)
+        gaswh = pull_gaswh(start, end, sf)
+        cgr = pull_cgr(start, end, sf)
+        wgr = pull_wgr(start, end, sf)
+        pressures = pull_pressures(start, end, sf)
+        alloc = pull_allocations(start, end, sf)
+        alloc_water = pull_alloc_water(start, end, sf)
+    finally:
+        sf.close()
+    print(lf.success("Snowflake data pull complete"))
     
     # Step 4: Build complete spine (all wells × all days)
-    print("\n[Step 4/9] Building complete data spine...")
+    print(lf.step("[Step 4/9] Building complete data spine..."))
     spine = build_complete_spine(mapping, start, end)
     
     # Step 5: Process wells one by one in order
-    print("\n[Step 5/9] Processing wells in order (well-by-well, date-by-date)...")
+    print(lf.step("[Step 5/9] Processing wells in order (well-by-well, date-by-date)..."))
     
     # Get unique wells in sorted order
     unique_wells = mapping["Well Name"].sort_values().unique()
@@ -657,13 +667,13 @@ if __name__ == "__main__":
     
     # Process each well sequentially
     for idx, well_name in enumerate(unique_wells, 1):
-        print(f"  Processing well {idx}/{total_wells}: {well_name}")
+        print(lf.detail(f"Processing well {idx}/{total_wells}: {well_name}"))
         
         # Get this well's spine data
         well_spine = spine[spine["Well Name"] == well_name].copy()
         
         if well_spine.empty:
-            print(f"    ⚠️ No spine data for {well_name}, skipping")
+            print(lf.warn(f"No spine data for {well_name}, skipping"))
             continue
         
         # Process this well
@@ -676,102 +686,93 @@ if __name__ == "__main__":
             all_results.append(well_result)
         
         if idx % 10 == 0:
-            print(f"    ✓ Completed {idx} wells so far...")
+            print(lf.success(f"Completed {idx} wells so far..."))
     
     # Step 6: Combine all well results
-    print("\n[Step 6/9] Combining all well data...")
+    print(lf.step("[Step 6/9] Combining all well data..."))
     if all_results:
         joined = pd.concat(all_results, ignore_index=True)
-        print(f"  Combined dataframe rows: {len(joined):,}")
+        print(lf.detail(f"Combined dataframe rows: {lf.num(len(joined))}"))
     else:
         joined = pd.DataFrame()
-        print("  No data to combine")
+        print(lf.detail("No data to combine"))
     
     # Step 7: Apply VBA-style first production filter
     if not joined.empty:
         joined = filter_to_first_production(joined)
     else:
-        print("\nNo data to filter")
+        print(lf.step("No data to filter"))
     
     # Step 8: Data validation
-    print("\n[Step 8/9] Validating data...")
+    print(lf.step("[Step 8/9] Validating data..."))
     if not joined.empty:
-        print(f"  Final dataframe rows: {len(joined):,}")
-        print(f"  Final dataframe columns: {len(joined.columns)}")
+        print(lf.detail(f"Final dataframe rows: {lf.num(len(joined))}"))
+        print(lf.detail(f"Final dataframe columns: {lf.num(len(joined.columns))}"))
         
-        print("\n  Null value counts:")
+        print(lf.subheader("Null value counts"))
         important_cols = ['GasWH_Production', 'ECF_Ratio', 'CGR_Ratio', 'WGR_Ratio', 
                           'TubingPressure', 'CasingPressure', 'Gathered_Gas_Production']
         for col in important_cols:
             if col in joined.columns:
                 null_count = joined[col].isna().sum()
                 pct = (null_count / len(joined)) * 100 if len(joined) > 0 else 0
-                print(f"    {col}: {null_count:,} nulls ({pct:.1f}%)")
+                print(lf.item(f"{col}: {lf.num(null_count)} nulls ({pct:.1f}%)"))
     else:
-        print("  No data to validate")
+        print(lf.detail("No data to validate"))
     
     # Step 9: Load into SQL Server
-    print("\n[Step 9/9] Loading data into SQL Server...")
+    print(lf.step("[Step 9/9] Loading data into SQL Server..."))
     if not joined.empty:
-        print(f"  Inserting {len(joined):,} rows in well-first order...")
+        print(lf.detail(f"Inserting {lf.num(len(joined))} rows in well-first order..."))
         insert_pce_cda_rows(joined)
     else:
-        print("  No data to insert")
+        print(lf.detail("No data to insert"))
     
-    # Final summary
-    print("\n" + "=" * 60)
-    print("PIPELINE COMPLETED SUCCESSFULLY!")
-    print("=" * 60)
-    print("SUMMARY")
-    print("=" * 60)
-    print(f"Date range: {start} to {end}")
-    print(f"Number of wells: {len(mapping)}")
-    
+    summary_metrics = {
+        "Date range": f"{start} to {end}",
+        "Wells": len(mapping),
+        "Records loaded": len(joined) if not joined.empty else 0,
+        "Destination": f"{SQL_SERVER}.{SQL_DATABASE}.PCE_CDA",
+        "Columns": len(joined.columns) if not joined.empty else 0,
+    }
     if not joined.empty:
-        print(f"Total records loaded into SQL Server: {len(joined):,}")
         full_range_days = len(pd.date_range(start=start, end=end, freq='D'))
         estimated_full_rows = len(mapping) * full_range_days
         savings = estimated_full_rows - len(joined)
         savings_pct = (savings / estimated_full_rows * 100) if estimated_full_rows > 0 else 0
-        print(f"Estimated rows if using full range: {estimated_full_rows:,}")
-        print(f"Rows removed by first-production filter: {savings:,} ({savings_pct:.1f}%)")
-    else:
-        print("Total records loaded into SQL Server: 0")
-    
-    print(f"Destination: {SQL_SERVER}.{SQL_DATABASE}.PCE_CDA")
-    print(f"Columns loaded: {len(joined.columns) if not joined.empty else 0}")
-    print(f"Insert order: Well-by-well, date-by-date")
-    print(f"PCE_WM fields added: Formation Producer, Layer Producer, Fault Block, Pad Name, Lateral Length, Orient")
-    print(f"Filter method: VBA-style first production date (Gas WH ≤ 2 → Gathered Gas)")
-    
-    print("\nData source row counts:")
-    print(f"  ECF: {len(ecf):,}")
-    print(f"  GasWH: {len(gaswh):,}")
-    print(f"  CGR: {len(cgr):,}")
-    print(f"  WGR: {len(wgr):,}")
-    print(f"  Pressures: {len(pressures):,}")
-    print(f"  Allocations: {len(alloc):,}")
-    print(f"  Allocated Water: {len(alloc_water):,}")
-    
-    # Show sample of final data
+        summary_metrics["Est. full-range rows"] = estimated_full_rows
+        summary_metrics["Rows removed by filter"] = f"{savings:,} ({savings_pct:.1f}%)"
+
+    print(lf.summary("Pipeline completed successfully", summary_metrics))
+    print(lf.subheader("Insert / filter notes"))
+    print(lf.detail("Insert order: well-by-well, date-by-date"))
+    print(lf.detail("PCE_WM fields: Formation Producer, Layer Producer, Fault Block, Pad Name, Lateral Length, Orient"))
+    print(lf.detail("Filter: VBA-style first production (Gas WH ≤ 2 → Gathered Gas)"))
+
+    print(lf.subheader("Snowflake source row counts"))
+    print(lf.item(f"ECF: {lf.num(len(ecf))}"))
+    print(lf.item(f"GasWH: {lf.num(len(gaswh))}"))
+    print(lf.item(f"CGR: {lf.num(len(cgr))}"))
+    print(lf.item(f"WGR: {lf.num(len(wgr))}"))
+    print(lf.item(f"Pressures: {lf.num(len(pressures))}"))
+    print(lf.item(f"Allocations: {lf.num(len(alloc))}"))
+    print(lf.item(f"Allocated Water: {lf.num(len(alloc_water))}"))
+
     if not joined.empty:
-        print("\nFirst 3 rows of loaded data:")
-        print("-" * 100)
+        print(lf.subheader("First 3 rows of loaded data"))
+        print(lf.ruler())
         sample_cols = ['Well Name', 'ProdDate', 'GasWH_Production', 'CGR_Ratio', 
                        'TubingPressure', 'Gathered_Gas_Production', 'Formation Producer', 'Pad Name']
         display_cols = [col for col in sample_cols if col in joined.columns]
         if display_cols:
             print(joined[display_cols].head(3).to_string(index=False))
-        print("-" * 100)
+        print(lf.ruler())
         
-        # Show well order sample
-        print("\nSample of well order (first 5 wells, first date each):")
-        print("-" * 100)
+        print(lf.subheader("Sample well order (first 5 wells)"))
+        print(lf.ruler())
         first_wells = joined.drop_duplicates(subset=["Well Name"]).head(5)
         for _, row in first_wells.iterrows():
-            print(f"  {row['Well Name']} - First date: {row['ProdDate']}")
-        print("-" * 100)
+            print(lf.detail(f"{row['Well Name']} — first date: {row['ProdDate']}"))
+        print(lf.ruler())
     else:
-        print("\nNo data loaded to display")
-    
-    print("=" * 60)
+        print(lf.warn("No data loaded to display"))

@@ -20,7 +20,7 @@ from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_primary, btn_neutral, btn_danger, progress_bar_style,
-    terminal_log_style, file_path_label_style,
+    results_area_style, file_path_label_style,
 )
 
 
@@ -84,7 +84,6 @@ class WhitsonUploadWorker(QThread):
     def cancel(self):
         """Cancel the upload"""
         self._cancelled = True
-        self.terminate()
 
 
 class WhitsonMassUploadDialog(QDialog):
@@ -166,7 +165,7 @@ class WhitsonMassUploadDialog(QDialog):
         log_layout = QVBoxLayout()
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(terminal_log_style())
+        self.log_output.setStyleSheet(results_area_style())
         self.log_output.setMinimumHeight(250)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
@@ -351,7 +350,7 @@ class WhitsonMassUploadDialog(QDialog):
             )
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
                 self.upload_error("Upload cancelled by user")
             else:
                 return
@@ -370,7 +369,7 @@ class WhitsonMassUploadDialog(QDialog):
             )
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return

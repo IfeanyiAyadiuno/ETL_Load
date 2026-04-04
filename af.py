@@ -573,46 +573,29 @@ if __name__ == "__main__":
 '''
 
 import pandas as pd
-import pyodbc
 import time
 import sys
 from datetime import datetime, timedelta
 import traceback
 import os
 import re
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# SQL Server connection settings
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_sql_conn():
-    """Create connection to SQL Server"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    return pyodbc.connect(conn_str)
+import log_format as lf
+from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
 
 def get_well_name_mapping():
     """
     Connect to SQL Server and create mapping from Well Name_AF to Well Name
     Returns: dictionary {well_name_af: well_name}
     """
-    print("\nLoading well name mapping from PCE_WM table...")
+    print(lf.step("Loading well name mapping from PCE_WM table..."))
     
     try:
-        conn = get_sql_conn()
-        query = ("SELECT [Well Name], [Well Name_AF] FROM PCE_WM "
-                 "WHERE [Well Name_AF] IS NOT NULL "
-                 "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')")
-        df_mapping = pd.read_sql(query, conn)
-        conn.close()
+        with get_sql_conn() as conn:
+            query = ("SELECT [Well Name], [Well Name_AF] FROM PCE_WM "
+                     "WHERE [Well Name_AF] IS NOT NULL "
+                     "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')")
+            df_mapping = pd.read_sql(query, conn)
         
         # Create mapping dictionary
         mapping = {}
@@ -622,19 +605,19 @@ def get_well_name_mapping():
             if pd.notna(well_name_af) and well_name_af.strip():
                 mapping[well_name_af.strip()] = well_name.strip()
         
-        print(f"Loaded {len(mapping)} well name mappings")
+        print(lf.detail(f"Loaded {lf.num(len(mapping))} well name mappings"))
         
         # Show sample mappings
         sample_count = min(3, len(mapping))
         if sample_count > 0:
-            print("\nSample mappings:")
+            print(lf.subheader("Sample mappings"))
             for i, (af_name, actual_name) in enumerate(list(mapping.items())[:sample_count]):
-                print(f"  '{af_name}' → '{actual_name}'")
+                print(lf.item(f"'{af_name}' → '{actual_name}'"))
         
         return mapping
         
     except Exception as e:
-        print(f"ERROR loading well name mapping: {e}")
+        print(lf.error(f"Loading well name mapping: {e}"))
         traceback.print_exc()
         return None
 
@@ -750,65 +733,62 @@ def allocation_factors_loader():
     cutoff_month = 12  # December
     cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
     
-    print("\n" + "="*70)
-    print("ALLOCATION FACTORS LOADER - SQL SERVER VERSION")
-    print("="*70)
-    print(f"(UNTIL {cutoff_month_name})")
+    print(lf.header(
+        "Allocation factors loader — SQL Server",
+        Until=cutoff_month_name,
+        Excel=r"I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\Book1.xlsx",
+        Database=f"{SQL_SERVER}.{SQL_DATABASE}",
+    ))
     
     # File paths
     excel_path = r"I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\Book1.xlsx"
     
-    print(f"Excel: {excel_path}")
-    print(f"SQL Server: {SQL_SERVER}.{SQL_DATABASE}")
-    
     # First, load the well name mapping from PCE_WM table
     well_name_mapping = get_well_name_mapping()
     if well_name_mapping is None:
-        print("Failed to load well name mapping. Exiting.")
+        print(lf.error("Failed to load well name mapping. Exiting."))
         return False
     
-    print("\nIMPORTANT: This will DELETE ALL DATA and reload ONLY UNTIL END OF AUGUST 2025")
-    print("IMPORTANT: Close any applications connected to SQL Server before continuing!")
+    print(lf.warn("This will DELETE ALL Allocation_Factors data and reload through the configured cutoff."))
+    print(lf.warn("Close any applications connected to SQL Server before continuing."))
     
     confirm = input("\nStart load? (Type 'GO' to confirm): ")
     if confirm.upper() != 'GO':
-        print("Load cancelled.")
+        print(lf.detail("Load cancelled."))
         return
     
-    print("\n" + "="*70)
-    print("STARTING LOAD...")
-    print("="*70)
+    print(lf.step("Starting load..."))
     
     total_start = time.time()
     
     try:
         # Read Excel file
-        print("\nReading Excel...")
+        print(lf.step("Reading Excel..."))
         start_time = time.time()
         df = pd.read_excel(excel_path, header=None)
         read_time = time.time() - start_time
-        print(f"Read: {df.shape[0]} rows, {df.shape[1]} columns")
-        print(f"Time: {read_time:.1f}s")
+        print(lf.detail(f"Read: {lf.num(df.shape[0])} rows, {lf.num(df.shape[1])} columns"))
+        print(lf.detail(f"Time: {lf.elapsed(read_time)}"))
         
         # Connect to SQL Server
-        print("\nConnecting to SQL Server...")
+        print(lf.step("Connecting to SQL Server..."))
         conn = get_sql_conn()
         cursor = conn.cursor()
-        print("   Database connected successfully.")
+        print(lf.success("Database connected."))
         
         # Get count of existing data before deletion
         cursor.execute("SELECT COUNT(*) FROM Allocation_Factors")
         existing_count = cursor.fetchone()[0]
-        print(f"Found {existing_count:,} existing records in table")
+        print(lf.detail(f"Found {lf.num(existing_count)} existing records in table"))
         
         # Delete ALL data from table
-        print("Deleting ALL data from Allocation_Factors table...")
+        print(lf.detail("Deleting ALL data from Allocation_Factors table..."))
         cursor.execute("DELETE FROM Allocation_Factors")
         conn.commit()
-        print("All data deleted from table.")
+        print(lf.success("All data deleted from table."))
         
         # Find all wells in the Excel file
-        print("\nFinding all wells...")
+        print(lf.step("Finding all wells..."))
         wells = []
         mapped_wells_count = 0
         transformed_mapped_count = 0
@@ -840,13 +820,13 @@ def allocation_factors_loader():
                             actual_well_name = well_name_mapping[var]
                             mapping_source = f"transformed: {var}"
                             transformed_mapped_count += 1
-                            print(f"  Mapped '{clean_excel_name}' → '{actual_well_name}' (via transformation: {var})")
+                            print(lf.detail(f"Mapped '{clean_excel_name}' → '{actual_well_name}' (via: {var})"))
                             break
                 
                 if actual_well_name is None:
                     actual_well_name = clean_excel_name  # Fallback to Excel name if not found
                     unmapped_wells.append(clean_excel_name)
-                    print(f"  WARNING: No mapping found for '{clean_excel_name}' - using Excel name")
+                    print(lf.warn(f"No mapping found for '{clean_excel_name}' — using Excel name"))
                 
                 # Validate the structure - check if next columns match expected pattern
                 if col + 8 < df.shape[1]:
@@ -885,19 +865,19 @@ def allocation_factors_loader():
             # Move to next column if no well found here
             col += 1
         
-        print(f"\nFound {len(wells)} wells in Excel")
-        print(f"  - Directly mapped: {mapped_wells_count}")
-        print(f"  - Mapped via transformation: {transformed_mapped_count}")
+        print(lf.detail(f"Found {lf.num(len(wells))} wells in Excel"))
+        print(lf.item(f"Directly mapped: {lf.num(mapped_wells_count)}"))
+        print(lf.item(f"Mapped via transformation: {lf.num(transformed_mapped_count)}"))
         
         if unmapped_wells:
-            print(f"\nWARNING: {len(unmapped_wells)} wells had no mapping in PCE_WM table:")
+            print(lf.warn(f"{len(unmapped_wells)} wells had no mapping in PCE_WM:"))
             for w in unmapped_wells[:10]:  # Show first 10 unmapped wells
-                print(f"  - '{w}'")
+                print(lf.item(f"'{w}'"))
             if len(unmapped_wells) > 10:
-                print(f"  ... and {len(unmapped_wells) - 10} more")
+                print(lf.detail(f"... and {lf.num(len(unmapped_wells) - 10)} more"))
         
         # Get months data starting from row 5 (Excel row 6)
-        print("\nProcessing months...")
+        print(lf.step("Processing months..."))
         months = []
         data_start_row = 5  # Excel row 6
         
@@ -906,8 +886,8 @@ def allocation_factors_loader():
             cutoff_date = datetime(cutoff_year + 1, 1, 1) - timedelta(days=1)
         else:
             cutoff_date = datetime(cutoff_year, cutoff_month + 1, 1) - timedelta(days=1)
-        print(f"Cutoff date: {cutoff_date.strftime('%B %d, %Y')}")
-        print(f"⚠️  NOTE: Only data up to {cutoff_date.strftime('%B %Y')} will be loaded")
+        print(lf.detail(f"Cutoff date: {cutoff_date.strftime('%B %d, %Y')}"))
+        print(lf.warn(f"Only data up to {cutoff_date.strftime('%B %Y')} will be loaded"))
         
         months_loaded = 0
         months_skipped = 0
@@ -939,17 +919,17 @@ def allocation_factors_loader():
             else:
                 months_skipped += 1
                 if months_skipped <= 5:
-                    print(f"  Skipping {month_date.strftime('%B %Y')} - after cutoff")
+                    print(lf.detail(f"Skipping {month_date.strftime('%B %Y')} — after cutoff"))
         
         cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
-        print(f"\nLoaded {months_loaded} months (up to {cutoff_month_name})")
+        print(lf.detail(f"Loaded {lf.num(months_loaded)} months (up to {cutoff_month_name})"))
         if months_skipped > 0:
-            print(f"Skipped {months_skipped} months (after {cutoff_month_name})")
+            print(lf.detail(f"Skipped {lf.num(months_skipped)} months (after {cutoff_month_name})"))
         
         # Prepare for data insertion
-        print("\nProcessing and inserting data...")
+        print(lf.step("Processing and inserting data..."))
         total_rows = len(wells) * len(months)
-        print(f"Processing {len(wells)} wells × {len(months)} months = {total_rows:,} rows")
+        print(lf.detail(f"Processing {lf.num(len(wells))} wells × {lf.num(len(months))} months = {lf.num(total_rows)} rows"))
         
         total_inserted = 0
         errors = 0
@@ -980,9 +960,9 @@ def allocation_factors_loader():
             
             # Show progress for every well
             if excel_name != well_name:
-                print(f"\nProcessing Well {well_idx+1}/{len(wells)}: '{excel_name}' → '{well_name}'")
+                print(lf.step(f"Well {well_idx+1}/{len(wells)}: '{excel_name}' → '{well_name}'"))
             else:
-                print(f"\nProcessing Well {well_idx+1}/{len(wells)}: {well_name}")
+                print(lf.step(f"Well {well_idx+1}/{len(wells)}: {well_name}"))
             
             well_data_points = 0
             well_cda_count = 0
@@ -1092,12 +1072,12 @@ def allocation_factors_loader():
                     # Commit every 5000 rows to avoid memory issues
                     if total_inserted % 5000 == 0:
                         conn.commit()
-                        print(f"      Committed {total_inserted:,} rows...")
+                        print(lf.detail(f"Committed {lf.num(total_inserted)} rows..."))
                     
                 except Exception as e:
                     errors += 1
                     if errors <= 3:
-                        print(f"      Error inserting {well_name} - {month_date}: {str(e)[:100]}")
+                        print(lf.error(f"Insert {well_name} — {month_date}: {str(e)[:100]}"))
             
             # Update counters
             if well_cda_count > 0:
@@ -1106,9 +1086,9 @@ def allocation_factors_loader():
                 wells_without_cda_data += 1
             
             # Show completion for this well
-            print(f"      Inserted {well_data_points} months (up to Aug 2025) for well '{well_name}'")
+            print(lf.detail(f"Inserted {lf.num(well_data_points)} months for well '{well_name}'"))
             if well_cda_count > 0:
-                print(f"      Found CDA data for {well_cda_count} months")
+                print(lf.detail(f"CDA data for {lf.num(well_cda_count)} months"))
         
         # Final commit and close connection
         conn.commit()
@@ -1116,47 +1096,41 @@ def allocation_factors_loader():
         
         total_time = time.time() - total_start
         
-        print("\n" + "="*70)
-        print("LOAD SUMMARY")
-        print("="*70)
-        print(f"   Total wells in Excel: {len(wells)}")
-        print(f"   Wells directly mapped: {mapped_wells_count}")
-        print(f"   Wells mapped via transformation: {transformed_mapped_count}")
-        print(f"   Wells without mapping: {len(unmapped_wells)}")
-        print(f"   Wells with CDA data (at least one month): {wells_with_cda_data}")
-        print(f"   Wells without any CDA data: {wells_without_cda_data}")
         cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
-        print(f"   Months loaded: {len(months)} (up to {cutoff_month_name})")
-        print(f"   Months skipped: {months_skipped} (after {cutoff_month_name})")
-        print(f"   Previous records deleted: {existing_count:,}")
-        print(f"   New records inserted: {total_inserted:,}")
-        print(f"   Errors: {errors}")
-        print(f"   Total time: {total_time:.1f} seconds")
-        print(f"   Destination: {SQL_SERVER}.{SQL_DATABASE}.Allocation_Factors")
+        print(lf.summary("Load complete", {
+            "Total wells in Excel": len(wells),
+            "Wells directly mapped": mapped_wells_count,
+            "Wells mapped via transformation": transformed_mapped_count,
+            "Wells without mapping": len(unmapped_wells),
+            "Wells with CDA data (≥1 month)": wells_with_cda_data,
+            "Wells without CDA data": wells_without_cda_data,
+            f"Months loaded (to {cutoff_month_name})": len(months),
+            "Months skipped": months_skipped,
+            "Previous records deleted": existing_count,
+            "New records inserted": total_inserted,
+            "Errors": errors,
+            "Total time": lf.elapsed(total_time),
+            "Destination": f"{SQL_SERVER}.{SQL_DATABASE}.Allocation_Factors",
+        }))
         
         if unmapped_wells:
-            print(f"\nWARNING: {len(unmapped_wells)} wells had no mapping and used Excel names.")
-            print("         Check PCE_WM table for missing Well Name_AF entries.")
-            print("\nUnmapped wells:")
+            print(lf.warn(f"{len(unmapped_wells)} wells had no mapping and used Excel names. Check PCE_WM Well Name_AF."))
+            print(lf.subheader("Unmapped wells"))
             for w in sorted(unmapped_wells)[:20]:
-                print(f"  - {w}")
+                print(lf.item(w))
             if len(unmapped_wells) > 20:
-                print(f"  ... and {len(unmapped_wells) - 20} more")
+                print(lf.detail(f"... and {lf.num(len(unmapped_wells) - 20)} more"))
         
         if months_skipped > 0:
             cutoff_month_name = datetime(cutoff_year, cutoff_month, 1).strftime('%B %Y')
-            print(f"\nNOTE: {months_skipped} months after {cutoff_month_name} were NOT loaded.")
-            print(f"      Use the monthly update script for months after {cutoff_month_name}.")
+            print(lf.detail(f"{lf.num(months_skipped)} months after {cutoff_month_name} were not loaded; use the monthly update script."))
         
         if errors > 0:
-            print(f"\nWarning: {errors} errors occurred")
-        
-        print("\nLOAD COMPLETE!")
-        print("="*70)
+            print(lf.warn(f"{lf.num(errors)} errors occurred"))
         
     except Exception as e:
-        print(f"\nERROR: {e}")
-        print("Full traceback:")
+        print(lf.error(str(e)))
+        print(lf.subheader("Traceback"))
         traceback.print_exc()
         return False
     
@@ -1165,5 +1139,5 @@ def allocation_factors_loader():
 if __name__ == "__main__":
     allocation_factors_loader()
     
-    print("\nPress Enter to exit...")
+    print(lf.detail("Press Enter to exit..."))
     input()

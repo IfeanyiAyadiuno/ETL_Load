@@ -19,11 +19,12 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+import log_format as lf
 from survey_import import import_surveys
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, btn_danger, progress_bar_style,
-    terminal_log_style, file_path_label_style,
+    results_area_style, file_path_label_style,
 )
 
 
@@ -70,7 +71,6 @@ class SurveyImportWorker(QThread):
     def cancel(self):
         """Cancel the import"""
         self._cancelled = True
-        self.terminate()
 
 
 class SurveyImportDialog(QDialog):
@@ -155,7 +155,7 @@ class SurveyImportDialog(QDialog):
         
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(terminal_log_style())
+        self.log_output.setStyleSheet(results_area_style())
         self.log_output.setMinimumHeight(300)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
@@ -232,12 +232,13 @@ class SurveyImportDialog(QDialog):
         
         # Clear log
         self.log_output.clear()
-        self.log_output.append("=" * 60)
-        self.log_output.append("SURVEY DATA IMPORT")
-        self.log_output.append("=" * 60)
-        self.log_output.append(f"File: {file_path}")
-        self.log_output.append(f"Mode: {mode_text}")
-        self.log_output.append("=" * 60)
+        self.log_output.append(
+            lf.header(
+                "SURVEY DATA IMPORT",
+                File=os.path.basename(file_path),
+                Mode=mode_text,
+            )
+        )
         self.log_output.append("")
         
         # Disable controls
@@ -279,15 +280,19 @@ class SurveyImportDialog(QDialog):
         
         # Show summary
         self.log("")
-        self.log("=" * 60)
-        self.log("IMPORT SUMMARY")
-        self.log("=" * 60)
-        self.log(f"Total rows in file: {result.get('total_rows', 0):,}")
-        self.log(f"Rows matched to wells: {result.get('matched', 0):,}")
-        self.log(f"Rows unmatched: {result.get('unmatched', 0):,}")
-        self.log(f"Rows inserted: {result.get('inserted', 0):,}")
-        self.log(f"Duplicates skipped: {result.get('duplicates', 0):,}")
-        self.log("=" * 60)
+        self.log(
+            lf.summary(
+                "IMPORT COMPLETE",
+                {
+                    "Total rows in file": result.get("total_rows", 0),
+                    "Rows matched to wells": result.get("matched", 0),
+                    "Rows unmatched": result.get("unmatched", 0),
+                    "Rows inserted": result.get("inserted", 0),
+                    "Duplicates skipped": result.get("duplicates", 0),
+                    "Errors": result.get("errors", 0),
+                },
+            )
+        )
         
         QMessageBox.information(
             self,
@@ -310,11 +315,7 @@ class SurveyImportDialog(QDialog):
         self.cancel_btn.setStyleSheet(btn_neutral())
         
         self.log("")
-        self.log("=" * 60)
-        self.log("ERROR")
-        self.log("=" * 60)
-        self.log(f"❌ {error_msg}")
-        self.log("=" * 60)
+        self.log(lf.error(error_msg))
         
         QMessageBox.critical(self, "Import Error", f"An error occurred during import:\n\n{error_msg}")
     
@@ -332,7 +333,7 @@ class SurveyImportDialog(QDialog):
             
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
                 self.import_error("Import cancelled by user")
             else:
                 return
@@ -353,7 +354,7 @@ class SurveyImportDialog(QDialog):
             
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return

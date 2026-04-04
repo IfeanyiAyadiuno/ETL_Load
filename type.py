@@ -1,32 +1,10 @@
 import pandas as pd
-import pyodbc
 import os
 import numpy as np
 from datetime import datetime
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# SQL Server connection
-SQL_SERVER = os.getenv("SQL_SERVER", "CALVMSQL02")
-SQL_DATABASE = os.getenv("SQL_DATABASE", "Re_Main_Production")
-SQL_DRIVER = os.getenv("SQL_DRIVER", "{ODBC Driver 17 for SQL Server}")
-
-def get_connection():
-    """Create pyodbc connection with fast_executemany enabled"""
-    conn_str = (
-        f'DRIVER={SQL_DRIVER};'
-        f'SERVER={SQL_SERVER};'
-        f'DATABASE={SQL_DATABASE};'
-        f'Trusted_Connection=yes;'
-    )
-    conn = pyodbc.connect(conn_str)
-    
-    # Create cursor with fast_executemany
-    cursor = conn.cursor()
-    cursor.fast_executemany = True
-    
-    return conn, cursor
+import log_format as lf
+from db_connection import get_sql_conn
 
 def safe_float(value):
     """Safely convert any value to float or return None - handles N/A"""
@@ -74,8 +52,9 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
         if progress_callback:
             progress_callback(value)
     
+    conn = None
     try:
-        log("Reading Excel file...")
+        log(lf.step("Reading Excel file"))
         progress(5)
         df_raw = pd.read_excel(excel_path, header=None)
         df_data = df_raw.iloc[1:].copy().reset_index(drop=True)
@@ -100,7 +79,7 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
         df = df[~df['Well Name'].str.contains('nan', case=False, na=False)]
         
         if len(df) == 0:
-            log("No valid rows found")
+            log(lf.warn("No valid rows found"))
             return False
         
         for col in ['Gas_mcf', 'Gas_mmcf', 'Cond_bbl', 'Cond_mbbl', 'Lateral_raw', 'Reserves_raw']:
@@ -125,19 +104,22 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
         df['Cond_Gathered_Cum'] = df['Cond_WH_Cum']
         df['On_Prod_Year'] = np.where(df['Reserves_raw'].notna(), df['Reserves_raw'].astype(int), None)
         
-        log(f"Processed {len(df)} rows")
+        log(lf.detail(f"Processed {lf.num(len(df))} rows"))
         progress(30)
-        log("Connecting to database...")
-        conn, cursor = get_connection()
+        log(lf.step("Connecting to database"))
+        conn = get_sql_conn()
+        conn.autocommit = False
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
         progress(40)
         
-        log("Deleting existing type curve data...")
+        log(lf.step("Deleting existing type curve data"))
         cursor.execute("DELETE FROM dbo.PCE_Production WHERE [Well Name] LIKE 'YE2%'")
-        conn.commit()
-        log(f"Deleted {cursor.rowcount} rows")
+        log(lf.detail(f"Deleted {lf.num(cursor.rowcount)} rows"))
         progress(50)
         
         rows = []
+        build_skip = 0
         for idx, row in df.iterrows():
             try:
                 rows.append((
@@ -153,11 +135,14 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
                     get_float_value(row['Lateral_raw']), None, row['On_Prod_Year'], row['Remarks']
                 ))
             except Exception:
-                pass
+                build_skip += 1
+
+        if build_skip:
+            log(lf.warn(f"Skipped {lf.num(build_skip)} rows with errors while building insert data"))
 
         if len(rows) == 0:
-            log("No rows to insert")
-            conn.close()
+            log(lf.warn("No rows to insert"))
+            conn.commit()
             return False
 
         progress(60)
@@ -183,35 +168,49 @@ def import_typecurves(excel_path, log_callback=None, progress_callback=None):
 
         batch_size = 250
         total_inserted = 0
-        total_batches = (len(rows) + batch_size - 1) // batch_size
 
-        for i in range(0, len(rows), batch_size):
-            batch = rows[i:i + batch_size]
-            try:
+        try:
+            for i in range(0, len(rows), batch_size):
+                batch = rows[i:i + batch_size]
                 cursor.executemany(insert_sql, batch)
-                conn.commit()
                 total_inserted += len(batch)
-                log(f"Inserted {total_inserted}/{len(rows)} rows...")
-                progress(60 + int((i / len(rows)) * 35))
-            except Exception as e:
-                log(f"Batch failed, trying row-by-row...")
-                conn.rollback()
-                for j, row in enumerate(batch):
-                    try:
-                        cursor.execute(insert_sql, row)
-                        conn.commit()
-                        total_inserted += 1
-                    except Exception:
-                        pass
-                progress(60 + int((total_inserted / len(rows)) * 35))
+                log(lf.detail(f"Inserted {lf.num(total_inserted)}/{lf.num(len(rows))} rows..."))
+                progress(60 + int((i + len(batch)) / len(rows) * 35))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            log(lf.warn("Batch failed, trying row-by-row"))
+            total_inserted = 0
+            cursor.execute("DELETE FROM dbo.PCE_Production WHERE [Well Name] LIKE 'YE2%'")
+            row_skip = 0
+            for row in rows:
+                try:
+                    cursor.execute(insert_sql, row)
+                    total_inserted += 1
+                except Exception:
+                    row_skip += 1
+            if row_skip:
+                log(lf.warn(f"Skipped {lf.num(row_skip)} rows with errors"))
+            conn.commit()
+            progress(60 + int((total_inserted / len(rows)) * 35))
 
-        conn.close()
         progress(100)
-        log(f"Import complete: {total_inserted}/{len(rows)} rows imported")
+        log(lf.success(f"Import complete: {lf.num(total_inserted)}/{lf.num(len(rows))} rows"))
         return True
         
     except Exception as e:
-        log(f"ERROR: {e}")
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        log(lf.error(str(e)))
         import traceback
         log(traceback.format_exc())
         return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass

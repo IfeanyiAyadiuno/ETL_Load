@@ -9,6 +9,7 @@ Tables affected:
 PCE_WM is NOT modified – it is used only to identify exception wells.
 """
 
+import log_format as lf
 from db_connection import get_sql_conn
 
 
@@ -19,23 +20,29 @@ def _purge_by_well_list(wells):
 
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        placeholders = ",".join("?" for _ in wells)
+        params = tuple(wells)
 
         total_cda_deleted = 0
         total_prod_deleted = 0
         total_af_deleted = 0
 
-        for well in wells:
-            # PCE_CDA
-            cursor.execute("DELETE FROM PCE_CDA WHERE [Well Name] = ?", well)
-            total_cda_deleted += cursor.rowcount
-
-            # PCE_Production
-            cursor.execute("DELETE FROM PCE_Production WHERE [Well Name] = ?", well)
-            total_prod_deleted += cursor.rowcount
-
-            # Allocation_Factors
-            cursor.execute("DELETE FROM Allocation_Factors WHERE [Well Name] = ?", well)
-            total_af_deleted += cursor.rowcount
+        for table, col in [
+            ("PCE_CDA", "[Well Name]"),
+            ("PCE_Production", "[Well Name]"),
+            ("Allocation_Factors", "[Well Name]"),
+        ]:
+            cursor.execute(
+                f"DELETE FROM {table} WHERE {col} IN ({placeholders})",
+                params,
+            )
+            n = cursor.rowcount
+            if table == "PCE_CDA":
+                total_cda_deleted = n
+            elif table == "PCE_Production":
+                total_prod_deleted = n
+            else:
+                total_af_deleted = n
 
         conn.commit()
 
@@ -59,16 +66,16 @@ def purge_exception_wells():
         wells = [row[0] for row in cursor.fetchall()]
 
     if not wells:
-        print("No wells found with Exception = 'Y'. Nothing to purge.")
+        print(lf.detail("No wells found with Exception = 'Y'. Nothing to purge."))
         return
 
-    print(f"Found {len(wells)} well(s) with Exception = 'Y'.")
+    print(lf.detail(f"Found {lf.num(len(wells))} well(s) with Exception = 'Y'."))
     total_cda_deleted, total_prod_deleted, total_af_deleted = _purge_by_well_list(wells)
 
-    print("\nPurge complete.")
-    print(f"PCE_CDA rows deleted:            {total_cda_deleted:,}")
-    print(f"PCE_Production rows deleted:     {total_prod_deleted:,}")
-    print(f"Allocation_Factors rows deleted: {total_af_deleted:,}")
+    print(lf.success("Purge complete."))
+    print(lf.item(f"PCE_CDA rows deleted: {lf.num(total_cda_deleted)}"))
+    print(lf.item(f"PCE_Production rows deleted: {lf.num(total_prod_deleted)}"))
+    print(lf.item(f"Allocation_Factors rows deleted: {lf.num(total_af_deleted)}"))
 
 
 def purge_wells(well_names):
@@ -83,10 +90,10 @@ def purge_wells(well_names):
 
     total_cda_deleted, total_prod_deleted, total_af_deleted = _purge_by_well_list(cleaned)
 
-    print(f"\nPurged data for {len(cleaned)} well(s) marked as Exception = 'Y'.")
-    print(f"PCE_CDA rows deleted:            {total_cda_deleted:,}")
-    print(f"PCE_Production rows deleted:     {total_prod_deleted:,}")
-    print(f"Allocation_Factors rows deleted: {total_af_deleted:,}")
+    print(lf.success(f"Purged data for {lf.num(len(cleaned))} well(s)."))
+    print(lf.item(f"PCE_CDA rows deleted: {lf.num(total_cda_deleted)}"))
+    print(lf.item(f"PCE_Production rows deleted: {lf.num(total_prod_deleted)}"))
+    print(lf.item(f"Allocation_Factors rows deleted: {lf.num(total_af_deleted)}"))
 
 
 if __name__ == "__main__":

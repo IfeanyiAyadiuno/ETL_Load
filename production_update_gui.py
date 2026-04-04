@@ -1,6 +1,7 @@
 import sys
 import os
 import configparser
+from pathlib import Path
 import time
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWidget, QVBoxLayout, 
@@ -20,10 +21,16 @@ from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
 from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 
+def _app_dir():
+    """Return the application directory, whether running from source or frozen exe."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 def get_settings_path():
-    """Get absolute path to settings.ini file (next to the script)"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, 'settings.ini')
+    """Get absolute path to settings.ini (next to the exe when frozen, else next to this file)."""
+    return str(_app_dir() / 'settings.ini')
 
 class ProductionUpdateGUI(QMainWindow):
     def __init__(self):

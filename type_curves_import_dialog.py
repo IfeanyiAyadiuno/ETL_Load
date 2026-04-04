@@ -17,11 +17,12 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+import log_format as lf
 from type import import_typecurves
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, btn_danger, progress_bar_style,
-    terminal_log_style, file_path_label_style,
+    results_area_style, file_path_label_style,
 )
 
 
@@ -65,7 +66,6 @@ class TypeCurvesImportWorker(QThread):
     def cancel(self):
         """Cancel the import"""
         self._cancelled = True
-        self.terminate()
 
 
 class TypeCurvesImportDialog(QDialog):
@@ -124,7 +124,7 @@ class TypeCurvesImportDialog(QDialog):
         
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
-        self.log_output.setStyleSheet(terminal_log_style())
+        self.log_output.setStyleSheet(results_area_style())
         self.log_output.setMinimumHeight(300)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
@@ -197,11 +197,9 @@ class TypeCurvesImportDialog(QDialog):
             return
         
         self.log_output.clear()
-        self.log_output.append("=" * 60)
-        self.log_output.append("TYPE CURVES IMPORT")
-        self.log_output.append("=" * 60)
-        self.log_output.append(f"File: {file_path}")
-        self.log_output.append("=" * 60)
+        self.log_output.append(
+            lf.header("TYPE CURVES IMPORT", File=os.path.basename(file_path))
+        )
         self.log_output.append("")
         
         self.run_btn.setEnabled(False)
@@ -237,9 +235,7 @@ class TypeCurvesImportDialog(QDialog):
         self.cancel_btn.setStyleSheet(btn_neutral())
         
         self.log("")
-        self.log("=" * 60)
-        self.log("IMPORT COMPLETE")
-        self.log("=" * 60)
+        self.log(lf.summary("IMPORT COMPLETE", {}))
         
         QMessageBox.information(
             self,
@@ -256,11 +252,7 @@ class TypeCurvesImportDialog(QDialog):
         self.cancel_btn.setStyleSheet(btn_neutral())
         
         self.log("")
-        self.log("=" * 60)
-        self.log("ERROR")
-        self.log("=" * 60)
-        self.log(f"❌ {error_msg}")
-        self.log("=" * 60)
+        self.log(lf.error(error_msg))
         
         QMessageBox.critical(self, "Import Error", f"An error occurred during import:\n\n{error_msg}")
     
@@ -278,7 +270,7 @@ class TypeCurvesImportDialog(QDialog):
             
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
                 self.import_error("Import cancelled by user")
             else:
                 return
@@ -299,7 +291,7 @@ class TypeCurvesImportDialog(QDialog):
             
             if reply == QMessageBox.Yes:
                 self.worker.cancel()
-                self.worker.wait()
+                self.worker.wait(5000)
             else:
                 event.ignore()
                 return

@@ -1,14 +1,21 @@
 # snowflake_connector.py
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import snowflake.connector
 import pandas as pd
 
+def _app_dir():
+    """Return the application directory, whether running from source or frozen exe."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
 class SnowflakeConnector:
     def __init__(self):
-        # Always load .env from THIS folder (works no matter where you run from)
-        env_path = Path(__file__).resolve().parent / ".env"
+        env_path = _app_dir() / ".env"
         load_dotenv(dotenv_path=env_path)
 
         self.conn = None
