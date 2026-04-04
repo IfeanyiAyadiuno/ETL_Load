@@ -99,21 +99,20 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         valnav_data = {}
         valnav_uwis = set()
         
-        for idx, row in df_valnav.iterrows():
-            uwi = row['UWI_clean_valnav']
-            if pd.isna(uwi):
-                continue
-            
-            uwi_str = str(uwi).strip()
-            valnav_uwis.add(uwi_str)
-            
-            gas_volume = row['Gas Actual Volume'] if pd.notna(row['Gas Actual Volume']) else 0
-            cond_volume = row['Allocation Disp Condensate Volume (m³)'] if pd.notna(row['Allocation Disp Condensate Volume (m³)']) else 0
-            
-            valnav_data[uwi_str] = {
-                'S2_Gas': float(gas_volume),
-                'Sales_Cond': float(cond_volume)
-            }
+        df_vn = df_valnav.dropna(subset=['UWI_clean_valnav']).copy()
+        df_vn['UWI_clean_valnav'] = df_vn['UWI_clean_valnav'].astype(str).str.strip()
+        df_vn['Gas Actual Volume'] = pd.to_numeric(df_vn['Gas Actual Volume'], errors='coerce').fillna(0)
+        df_vn['Allocation Disp Condensate Volume (m³)'] = pd.to_numeric(
+            df_vn['Allocation Disp Condensate Volume (m³)'], errors='coerce'
+        ).fillna(0)
+        df_vn = df_vn.drop_duplicates(subset=['UWI_clean_valnav'], keep='last')
+        valnav_uwis = set(df_vn['UWI_clean_valnav'])
+        _vn_idx = df_vn.set_index('UWI_clean_valnav')
+        valnav_data = {
+            uwi: {'S2_Gas': float(r['Gas Actual Volume']),
+                   'Sales_Cond': float(r['Allocation Disp Condensate Volume (m³)'])}
+            for uwi, r in _vn_idx.iterrows()
+        }
         
         log(lf.detail(f"Loaded {lf.num(len(valnav_data))} ValNav records"))
         progress(20)
@@ -150,19 +149,17 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         accumap_data = {}
         accumap_uwis = set()
         
-        for idx, row in df_accumap_filtered.iterrows():
-            uwi = row['UWI_clean_accumap']
-            if pd.isna(uwi):
-                continue
-            
-            uwi_str = str(uwi).strip()
-            accumap_uwis.add(uwi_str)
-            
-            sales_gas = row['PRD Monthly Mktbl GAS e3m3'] if pd.notna(row['PRD Monthly Mktbl GAS e3m3']) else 0
-            
-            accumap_data[uwi_str] = {
-                'Sales_Gas': float(sales_gas)
-            }
+        df_acc = df_accumap_filtered.dropna(subset=['UWI_clean_accumap']).copy()
+        df_acc['UWI_clean_accumap'] = df_acc['UWI_clean_accumap'].astype(str).str.strip()
+        df_acc['PRD Monthly Mktbl GAS e3m3'] = pd.to_numeric(
+            df_acc['PRD Monthly Mktbl GAS e3m3'], errors='coerce'
+        ).fillna(0)
+        df_acc = df_acc.drop_duplicates(subset=['UWI_clean_accumap'], keep='last')
+        accumap_uwis = set(df_acc['UWI_clean_accumap'])
+        accumap_data = {
+            uwi: {'Sales_Gas': float(gas)}
+            for uwi, gas in zip(df_acc['UWI_clean_accumap'], df_acc['PRD Monthly Mktbl GAS e3m3'])
+        }
         
         log(lf.detail(f"Loaded {lf.num(len(accumap_data))} Accumap records"))
         progress(30)
@@ -464,101 +461,80 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         
         log(lf.detail(f"Inserting data for {lf.num(len(matched_wells))} wells"))
         
-        for well_idx, (well_name, well_data) in enumerate(matched_wells.items(), 1):
+        combined_source = f"ValNav: {valnav_source}, Accumap: {accumap_source}"
+        rows_to_insert = []
+
+        for well_name, well_data in matched_wells.items():
             try:
                 valnav_data_for_well = well_data['valnav_data']
                 accumap_data_for_well = well_data['accumap_data']
-                
+
                 prodview_wh_gas = well_data['prodview_wh_gas']
                 prodview_wh_cond = well_data['prodview_wh_cond']
                 gathered_gas = well_data['gathered_gas']
                 gathered_cond = well_data['gathered_cond']
-                
+
                 has_valnav = valnav_data_for_well is not None
                 has_accumap = accumap_data_for_well is not None
-                has_cda = (prodview_wh_gas > 0 or prodview_wh_cond > 0 or 
-                          gathered_gas > 0 or gathered_cond > 0)
-                
+                has_cda = (prodview_wh_gas > 0 or prodview_wh_cond > 0
+                           or gathered_gas > 0 or gathered_cond > 0)
+
                 if has_valnav and has_accumap:
                     wells_both += 1
                 elif has_valnav:
                     wells_valnav_only += 1
                 elif has_accumap:
                     wells_accumap_only += 1
-                
                 if has_cda:
                     wells_with_cda += 1
-                
+
                 s2_gas = valnav_data_for_well['S2_Gas'] if has_valnav else 0
                 sales_cond = valnav_data_for_well['Sales_Cond'] if has_valnav else 0
                 sales_gas = accumap_data_for_well['Sales_Gas'] if has_accumap else 0
-                
-                # Calculate allocation factors
-                if prodview_wh_gas == 0:
-                    wh_to_s2 = 1.0
-                else:
-                    wh_to_s2 = s2_gas / prodview_wh_gas
-                
-                if prodview_wh_gas == 0:
-                    wh_to_sales_gas = 1.0
-                else:
-                    wh_to_sales_gas = sales_gas / prodview_wh_gas
-                
-                if prodview_wh_cond == 0:
-                    wh_to_sales_cond = 1.0
-                else:
-                    wh_to_sales_cond = sales_cond / prodview_wh_cond
-                
-                # Calculate gathered to ratios
-                if gathered_gas == 0:
-                    gathered_to_s2_str = "1"
-                else:
-                    gathered_to_s2 = s2_gas / gathered_gas
-                    gathered_to_s2_str = str(gathered_to_s2)
-                
-                if gathered_gas == 0:
-                    gathered_to_sales_str = "1"
-                else:
-                    gathered_to_sales = sales_gas / gathered_gas
-                    gathered_to_sales_str = str(gathered_to_sales)
-                
-                if gathered_cond == 0:
-                    gathered_to_sales_cond_str = "1"
-                else:
-                    gathered_to_sales_cond = sales_cond / gathered_cond
-                    gathered_to_sales_cond_str = str(gathered_to_sales_cond)
-                
-                combined_source = f"ValNav: {valnav_source}, Accumap: {accumap_source}"
-                
-                cursor.execute("""
-                    INSERT INTO Allocation_Factors (
-                        MonthStartDate, [Well Name], 
-                        Prodview_WH_Gas, Prodview_WH_Cond,
-                        S2_Gas, Sales_Condensate, Sales_Gas,
-                        Gathered_Gas_Production, Gathered_Condensate_Production,
-                        WH_to_S2_AllocFactor, WH_to_Sales_AllocFactor, WH_to_Sales_Cond_AllocFactor,
-                        Gathered_to_S2_Gas, Gathered_to_Sales, Gathered_to_Sales_Condensate,
-                        SourceFile, LoadedAt
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, month_start, well_name, 
-                   prodview_wh_gas, prodview_wh_cond,
-                   s2_gas, sales_cond, sales_gas, 
-                   gathered_gas, gathered_cond,
-                   wh_to_s2, wh_to_sales_gas, wh_to_sales_cond,
-                   gathered_to_s2_str, gathered_to_sales_str, gathered_to_sales_cond_str,
-                   combined_source, loaded_at)
-                
-                wells_inserted += 1
-                
-                if wells_inserted % 50 == 0:
-                    log(lf.detail(f"Inserted {lf.num(wells_inserted)} wells"))
-                    progress(70 + (wells_inserted / len(matched_wells) * 20))
-                
+
+                wh_to_s2 = 1.0 if prodview_wh_gas == 0 else s2_gas / prodview_wh_gas
+                wh_to_sales_gas = 1.0 if prodview_wh_gas == 0 else sales_gas / prodview_wh_gas
+                wh_to_sales_cond = 1.0 if prodview_wh_cond == 0 else sales_cond / prodview_wh_cond
+
+                gathered_to_s2_str = "1" if gathered_gas == 0 else str(s2_gas / gathered_gas)
+                gathered_to_sales_str = "1" if gathered_gas == 0 else str(sales_gas / gathered_gas)
+                gathered_to_sales_cond_str = "1" if gathered_cond == 0 else str(sales_cond / gathered_cond)
+
+                rows_to_insert.append((
+                    month_start, well_name,
+                    prodview_wh_gas, prodview_wh_cond,
+                    s2_gas, sales_cond, sales_gas,
+                    gathered_gas, gathered_cond,
+                    wh_to_s2, wh_to_sales_gas, wh_to_sales_cond,
+                    gathered_to_s2_str, gathered_to_sales_str, gathered_to_sales_cond_str,
+                    combined_source, loaded_at,
+                ))
             except Exception as e:
                 errors += 1
                 if errors <= 5:
-                    log(lf.error(f"Inserting well '{well_name}': {str(e)[:100]}"))
-        
+                    log(lf.error(f"Preparing well '{well_name}': {str(e)[:100]}"))
+
+        insert_sql = """
+            INSERT INTO Allocation_Factors (
+                MonthStartDate, [Well Name],
+                Prodview_WH_Gas, Prodview_WH_Cond,
+                S2_Gas, Sales_Condensate, Sales_Gas,
+                Gathered_Gas_Production, Gathered_Condensate_Production,
+                WH_to_S2_AllocFactor, WH_to_Sales_AllocFactor, WH_to_Sales_Cond_AllocFactor,
+                Gathered_to_S2_Gas, Gathered_to_Sales, Gathered_to_Sales_Condensate,
+                SourceFile, LoadedAt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        cursor.fast_executemany = True
+        batch_size = 5000
+        for i in range(0, len(rows_to_insert), batch_size):
+            batch = rows_to_insert[i:i + batch_size]
+            cursor.executemany(insert_sql, batch)
+            wells_inserted += len(batch)
+            if wells_inserted % 50 == 0 or (i + len(batch)) >= len(rows_to_insert):
+                log(lf.detail(f"Inserted {lf.num(wells_inserted)} wells"))
+                progress(70 + (wells_inserted / max(len(matched_wells), 1) * 20))
+
         conn.commit()
         progress(90)        
 

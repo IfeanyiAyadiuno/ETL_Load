@@ -80,22 +80,19 @@ def fetch_well_mapping():
     with get_sql_conn() as conn:
         df = pd.read_sql(query, conn)
     
-    # Create mapping dictionaries
-    composite_map = {}
-    fallback_map = {}
-    
-    for _, row in df.iterrows():
-        # FIX: Add .strip() to remove trailing spaces from source well names
-        source = str(row['SourceWell']).strip()
-        composite = row['Composite Name']
-        fallback = row['FallbackWell']
-        
-        # Store composite if it exists and is not empty
-        if pd.notna(composite) and str(composite).strip():
-            composite_map[source] = str(composite).strip()
-        
-        # Always store fallback (Well Name itself)
-        fallback_map[source] = str(fallback).strip()
+    df['SourceWell'] = df['SourceWell'].astype(str).str.strip()
+    df['FallbackWell'] = df['FallbackWell'].astype(str).str.strip()
+
+    valid_composite = (
+        df['Composite Name'].notna()
+        & df['Composite Name'].astype(str).str.strip().ne('')
+    )
+    composite_stripped = df['Composite Name'].astype(str).str.strip()
+    composite_map = dict(zip(
+        df.loc[valid_composite, 'SourceWell'],
+        composite_stripped[valid_composite],
+    ))
+    fallback_map = dict(zip(df['SourceWell'], df['FallbackWell']))
     
     print(lf.detail(f"Loaded {lf.num(len(fallback_map))} well name mappings"))
     
@@ -103,164 +100,97 @@ def fetch_well_mapping():
 
 def apply_well_names(df, composite_map, fallback_map):
     """
-    Apply well name mapping: use Composite Name if available, otherwise use Well Name
+    Apply well name mapping: use Composite Name if available, otherwise use Well Name.
+    Vectorized via .map() instead of per-row .apply().
     """
     original_count = len(df)
-    
-    # Track unmapped wells
-    unmapped_sources = set()
-    
-    # Apply mapping
-    def map_well_name(source_well):
-        if pd.isna(source_well) or not str(source_well).strip():
-            return None
-        
-        source = str(source_well).strip()
-        
-        # Try composite name first
-        if source in composite_map:
-            return composite_map[source]
-        
-        # Fall back to well name
-        if source in fallback_map:
-            return fallback_map[source]
-        
-        # No mapping found
-        unmapped_sources.add(source)
-        return None
-    
-    df['Well Name'] = df['Source_Well_Name'].apply(map_well_name)
-    
-    # Remove rows with no well name mapping
+    stripped = df['Source_Well_Name'].astype(str).str.strip()
+
+    mapped = stripped.map(composite_map)
+    still_missing = mapped.isna()
+    mapped[still_missing] = stripped[still_missing].map(fallback_map)
+
+    df['Well Name'] = mapped
+
     unmapped_count = df['Well Name'].isna().sum()
     if unmapped_count > 0:
         print(lf.warn(f"{lf.num(unmapped_count)} rows ({unmapped_count/original_count*100:.1f}%) have no well name mapping"))
-        
-        # Show sample of unmapped wells
+        unmapped_sources = stripped[df['Well Name'].isna()].unique()
         if len(unmapped_sources) > 0:
             print(lf.detail(f"Unmapped source wells: {', '.join(list(unmapped_sources)[:10])}"))
             if len(unmapped_sources) > 10:
                 print(lf.detail(f"... and {lf.num(len(unmapped_sources) - 10)} more"))
-        
-        # Drop unmapped rows
         df = df.dropna(subset=['Well Name'])
         print(lf.detail(f"Remaining rows: {lf.num(len(df))}"))
-    
-    # Drop the source column
+
     df = df.drop(columns=['Source_Well_Name'])
-    
     print(lf.success("Well name mapping complete"))
     return df
 
 def filter_to_first_production(df):
     """
-    For each well, keep only rows from the first non-zero production data onward
-    Uses Gas WH if available, otherwise falls back to Gathered Gas
-    Matches VBA logic: If Gas WH <= 2, use Gathered Gas
+    For each well, keep only rows from the first non-zero production onward.
+    Vectorized: replaces per-well loops + per-row .loc writes with boolean masks.
     """
     original_count = len(df)
-    wells = df['Well Name'].unique()
-    total_wells = len(wells)
-    
-    filtered_dfs = []
-    wells_with_data = 0
-    wells_without_data = 0
-    
-    for well_idx, well_name in enumerate(wells, 1):
-        well_mask = df['Well Name'] == well_name
-        well_data = df[well_mask].copy()
-        
-        # Create effective Gas WH using VBA logic
-        # If Gas WH <= 2, use Gathered Gas instead
-        gas_wh = well_data['Gas WH Production (10³m³)'].fillna(0)
-        gathered_gas = well_data['Gathered Gas (e³m³/d)'].fillna(0)
-        
-        # Apply VBA logic: whgtmp <= 2 -> use gathered gas
-        effective_gas = gas_wh.copy()
-        low_prod_mask = (gas_wh <= 2) & (gas_wh > 0)  # Gas WH between 0 and 2
-        zero_mask = gas_wh == 0  # No Gas WH at all
-        
-        # For low production, use gathered gas
-        effective_gas[low_prod_mask] = gathered_gas[low_prod_mask]
-        # For zero production, use gathered gas if available
-        effective_gas[zero_mask] = gathered_gas[zero_mask]
-        
-        # Find first row with non-zero effective production
-        non_zero_indices = effective_gas[effective_gas > 0].index
-        
-        if len(non_zero_indices) > 0:
-            # Get the first non-zero date
-            first_production_idx = non_zero_indices[0]
-            first_production_date = well_data.loc[first_production_idx, 'Date']
-            
-            # Keep rows from that date onward
-            well_filtered = well_data[well_data['Date'] >= first_production_date].copy()
-            
-            # Apply the Gas WH replacement for all rows (VBA logic)
-            for idx in well_filtered.index:
-                gas_val = well_filtered.loc[idx, 'Gas WH Production (10³m³)']
-                gathered_val = well_filtered.loc[idx, 'Gathered Gas (e³m³/d)']
-                
-                # VBA logic: If Gas WH <= 2, use Gathered Gas
-                if pd.notna(gas_val) and gas_val <= 2 and gas_val > 0:
-                    well_filtered.loc[idx, 'Gas WH Production (10³m³)'] = gathered_val
-                elif pd.isna(gas_val) or gas_val == 0:
-                    # If no Gas WH, use Gathered Gas
-                    well_filtered.loc[idx, 'Gas WH Production (10³m³)'] = gathered_val
-            
-            filtered_dfs.append(well_filtered)
-            wells_with_data += 1
-        else:
-            wells_without_data += 1
-    
-    if filtered_dfs:
-        df_filtered = pd.concat(filtered_dfs, ignore_index=True)
-        rows_removed = original_count - len(df_filtered)
-        print(lf.detail(f"Filtered to first production: {lf.num(wells_with_data)} wells, {lf.num(len(df_filtered))} rows ({lf.num(rows_removed)} removed)"))
-        print(lf.detail(f"First-production filtering complete for {lf.num(total_wells)} wells"))
-        return df_filtered
-    else:
+    df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
+
+    gas_wh = df['Gas WH Production (10³m³)'].fillna(0)
+    gathered = df['Gathered Gas (e³m³/d)'].fillna(0)
+
+    # VBA logic: if Gas WH <= 2, use Gathered Gas instead
+    replace_mask = (gas_wh <= 2)
+    effective = gas_wh.copy()
+    effective[replace_mask] = gathered[replace_mask]
+
+    # Apply replacement to the actual column as well
+    df.loc[replace_mask, 'Gas WH Production (10³m³)'] = gathered[replace_mask]
+
+    # Find first production date per well (first date where effective > 0)
+    has_production = effective > 0
+    first_prod_dates = (
+        df.loc[has_production]
+        .groupby('Well Name')['Date']
+        .min()
+    )
+
+    if first_prod_dates.empty:
         print(lf.warn("No wells with production data found!"))
         return pd.DataFrame()
 
+    df['_first_prod'] = df['Well Name'].map(first_prod_dates)
+    keep_mask = df['_first_prod'].notna() & (df['Date'] >= df['_first_prod'])
+    df_filtered = df.loc[keep_mask].drop(columns=['_first_prod']).reset_index(drop=True)
+
+    wells_with_data = first_prod_dates.shape[0]
+    rows_removed = original_count - len(df_filtered)
+    print(lf.detail(
+        f"Filtered to first production: {lf.num(wells_with_data)} wells, "
+        f"{lf.num(len(df_filtered))} rows ({lf.num(rows_removed)} removed)"
+    ))
+    return df_filtered
+
 def calculate_sequences(df):
     """
-    Calculate Days Seq and Day Seq UPRT for each well
-    Matches VBA logic:
-    - Days Seq: simple counter that resets per well
-    - Day Seq UPRT: stays same when production <= 0, increments otherwise
+    Calculate Days Seq and Day Seq UPRT for each well.
+    Vectorized via groupby().cumcount() and cumsum().
     """
-    df['Days Seq'] = 0
-    df['Day Seq UPRT'] = 0
-    
-    wells = df['Well Name'].unique()
-    total_wells = len(wells)
-    
-    for well_idx, well_name in enumerate(wells, 1):
-        well_mask = df['Well Name'] == well_name
-        well_indices = df[well_mask].index
-        
-        # Days Seq: simple counter starting at 1 (VBA: seq = seq + 1)
-        df.loc[well_indices, 'Days Seq'] = range(1, len(well_indices) + 1)
-        
-        # Day Seq UPRT: VBA logic - nozeroseq = IIf(vdpr <= 0, nozeroseq, nozeroseq + 1)
-        gas_wh = df.loc[well_indices, 'Gas WH Production (10³m³)'].fillna(0).values
-        seq_uprt = []
-        counter = 1
-        
-        for val in gas_wh:
-            if val > 0:
-                seq_uprt.append(counter)
-                counter += 1
-            else:
-                seq_uprt.append(counter - 1 if counter > 1 else 1)
-        
-        df.loc[well_indices, 'Day Seq UPRT'] = seq_uprt
-        
-        # Lightweight progress every 50 wells
-        if well_idx % 50 == 0 or well_idx == total_wells:
-            print(lf.detail(f"Sequences calculated for {well_idx}/{total_wells} wells"))
-    
+    df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
+
+    # Days Seq: simple per-well counter starting at 1
+    df['Days Seq'] = df.groupby('Well Name').cumcount() + 1
+
+    # Day Seq UPRT: cumulative count of production days (>0), floored at 1
+    gas_positive = (
+        pd.to_numeric(df['Gas WH Production (10³m³)'], errors='coerce')
+        .fillna(0)
+        .gt(0)
+        .astype(int)
+    )
+    df['Day Seq UPRT'] = gas_positive.groupby(df['Well Name']).cumsum().clip(lower=1)
+
+    total_wells = df['Well Name'].nunique()
+    print(lf.detail(f"Sequences calculated for {lf.num(total_wells)} wells (vectorized)"))
     return df
 
 def calculate_cumulatives(df):
@@ -295,76 +225,70 @@ def calculate_cumulatives(df):
 
 def calculate_monthly_averages(df):
     """
-    Calculate monthly averages for each well with progress tracking
+    Calculate monthly averages per well.
+    Vectorized via groupby().transform('mean') -- replaces triple-nested loop.
     """
     print(lf.step("Calculating monthly averages..."))
-    # Create year-month column for grouping
-    df['YearMonth'] = pd.to_datetime(df['Date']).dt.to_period('M')
-    
-    # List of columns to calculate monthly averages for
+    df['_YM'] = pd.to_datetime(df['Date']).dt.to_period('M')
+
     monthly_avgs = [
         ('Gas WH Production (10³m³)', 'Gas WH Avg (10³m³)'),
         ('Gas S2 Production (10³m³)', 'Gas S2 Avg (10³m³)'),
         ('Gathered Gas (e³m³/d)', 'Gas Gathered Avg (e³m³/d)'),
-        ('Gathered Condensate (m³/d)', 'Condensate Gathered Avg (m³/d)')
+        ('Gathered Condensate (m³/d)', 'Condensate Gathered Avg (m³/d)'),
     ]
-    
-    # Initialize average columns
-    for _, avg_col in monthly_avgs:
-        df[avg_col] = 0.0
-    
-    # Get unique wells
-    wells = df['Well Name'].unique()
-    total_wells = len(wells)
-    
-    # Calculate monthly averages per well
-    for well_idx, well_name in enumerate(wells, 1):
-        well_mask = df['Well Name'] == well_name
-        well_data = df[well_mask].copy()
-        
-        for month in well_data['YearMonth'].unique():
-            month_mask = (df['Well Name'] == well_name) & (df['YearMonth'] == month)
-            month_indices = df[month_mask].index
-            
-            for source_col, avg_col in monthly_avgs:
-                month_values = df.loc[month_indices, source_col].fillna(0)
-                if len(month_values) > 0:
-                    monthly_avg = month_values.mean()
-                    df.loc[month_indices, avg_col] = monthly_avg
-        
-        # Lightweight progress every 50 wells
-        if well_idx % 50 == 0 or well_idx == total_wells:
-            print(lf.detail(f"Monthly averages calculated for {well_idx}/{total_wells} wells"))
-    
-    # Drop the temporary YearMonth column
-    df = df.drop(columns=['YearMonth'])
-    
+
+    group_keys = [df['Well Name'], df['_YM']]
+    for source_col, avg_col in monthly_avgs:
+        numeric = pd.to_numeric(df[source_col], errors='coerce').fillna(0)
+        df[avg_col] = numeric.groupby(group_keys).transform('mean')
+
+    df = df.drop(columns=['_YM'])
+    print(lf.detail(f"Monthly averages calculated for {lf.num(df['Well Name'].nunique())} wells (vectorized)"))
     return df
 
 def add_on_production_year(df):
     """
-    Add On Production Year column (year of first production date for each well)
+    Add On Production Year column (year of first production date per well).
+    Vectorized via groupby().transform('min').
     """
-    df['On Production Year'] = 0
-    
-    wells = df['Well Name'].unique()
-    
-    for well_name in wells:
-        well_mask = df['Well Name'] == well_name
-        first_date = pd.to_datetime(df.loc[well_mask, 'Date'].min())
-        df.loc[well_mask, 'On Production Year'] = first_date.year
-    
+    first_dates = pd.to_datetime(
+        df.groupby('Well Name')['Date'].transform('min')
+    )
+    df['On Production Year'] = first_dates.dt.year
     return df
+
+_INSERT_COLS = [
+    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name',
+    'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
+    'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
+    'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
+    'Gathered Condensate (m³/d)', 'Sales CGR (m³/e³m³)',
+    'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
+    'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
+    'Choke Size', 'Gas WH Cumulative Production (10³m³)',
+    'Gas S2 Cumulative Production (10³m³)',
+    'Gas Sales Cumulative Production (10³m³)',
+    'Condensate Sales Cumulative Production (m³)',
+    'Condensate WH Cumulative Production (m³)',
+    'Gas Gathered Cumulative (e³m³)',
+    'Condensate Gathered Cumulative (m³)',
+    'Formation Producer', 'Layer Producer', 'Fault Block',
+    'Pad Name', 'Lateral Length', 'Orientation',
+    'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
+    'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
+    'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+]
 
 def insert_pce_production(df):
     """
-    Insert dataframe into PCE_Production table
+    Insert dataframe into PCE_Production table.
+    Vectorized NaN->None conversion + executemany batches.
     """
     if df.empty:
         print(lf.detail("No rows to insert"))
         return 0
-    
-    # Define the insert SQL with 39 parameters
+
     insert_sql = """
     INSERT INTO PCE_Production (
         [Date], [Days Seq], [Day Seq UPRT], [Well Name],
@@ -388,71 +312,34 @@ def insert_pce_production(df):
         [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    
-    # Convert dataframe to list of tuples, replacing NaN with None
-    rows_to_insert = []
-    for _, row in df.iterrows():
-        rows_to_insert.append((
-            row['Date'],
-            int(row['Days Seq']),
-            int(row['Day Seq UPRT']),
-            row['Well Name'],
-            None if pd.isna(row['Gas WH Production (10³m³)']) else float(row['Gas WH Production (10³m³)']),
-            None if pd.isna(row['Condensate WH (m³/d)']) else float(row['Condensate WH (m³/d)']),
-            None if pd.isna(row['Gas S2 Production (10³m³)']) else float(row['Gas S2 Production (10³m³)']),
-            None if pd.isna(row['Gas Sales Production (10³m³)']) else float(row['Gas Sales Production (10³m³)']),
-            None if pd.isna(row['Condensate Sales (m³/d)']) else float(row['Condensate Sales (m³/d)']),
-            None if pd.isna(row['Gathered Gas (e³m³/d)']) else float(row['Gathered Gas (e³m³/d)']),
-            None if pd.isna(row['Gathered Condensate (m³/d)']) else float(row['Gathered Condensate (m³/d)']),
-            None if pd.isna(row['Sales CGR (m³/e³m³)']) else float(row['Sales CGR (m³/e³m³)']),
-            None if pd.isna(row['CGR (m³/e³m³)']) else float(row['CGR (m³/e³m³)']),
-            None if pd.isna(row['WGR (m³/e³m³)']) else float(row['WGR (m³/e³m³)']),
-            None if pd.isna(row['ECF']) else float(row['ECF']),
-            None if pd.isna(row['Hours On']) else float(row['Hours On']),
-            None if pd.isna(row['Tubing Pressure (kPa)']) else float(row['Tubing Pressure (kPa)']),
-            None if pd.isna(row['Casing Pressure (kPa)']) else float(row['Casing Pressure (kPa)']),
-            None if pd.isna(row['Choke Size']) else float(row['Choke Size']),
-            None if pd.isna(row['Gas WH Cumulative Production (10³m³)']) else float(row['Gas WH Cumulative Production (10³m³)']),
-            None if pd.isna(row['Gas S2 Cumulative Production (10³m³)']) else float(row['Gas S2 Cumulative Production (10³m³)']),
-            None if pd.isna(row['Gas Sales Cumulative Production (10³m³)']) else float(row['Gas Sales Cumulative Production (10³m³)']),
-            None if pd.isna(row['Condensate Sales Cumulative Production (m³)']) else float(row['Condensate Sales Cumulative Production (m³)']),
-            None if pd.isna(row['Condensate WH Cumulative Production (m³)']) else float(row['Condensate WH Cumulative Production (m³)']),
-            None if pd.isna(row['Gas Gathered Cumulative (e³m³)']) else float(row['Gas Gathered Cumulative (e³m³)']),
-            None if pd.isna(row['Condensate Gathered Cumulative (m³)']) else float(row['Condensate Gathered Cumulative (m³)']),
-            row['Formation Producer'],
-            row['Layer Producer'],
-            row['Fault Block'],
-            row['Pad Name'],
-            None if pd.isna(row['Lateral Length']) else float(row['Lateral Length']),
-            row['Orientation'],
-            int(row['On Production Year']) if pd.notna(row['On Production Year']) else None,
-            None if pd.isna(row['Alloc. Water Rate (m³)']) else float(row['Alloc. Water Rate (m³)']),
-            None if pd.isna(row['NGL (m³)']) else float(row['NGL (m³)']),
-            None if pd.isna(row['Gas WH Avg (10³m³)']) else float(row['Gas WH Avg (10³m³)']),
-            None if pd.isna(row['Gas S2 Avg (10³m³)']) else float(row['Gas S2 Avg (10³m³)']),
-            None if pd.isna(row['Gas Gathered Avg (e³m³/d)']) else float(row['Gas Gathered Avg (e³m³/d)']),
-            None if pd.isna(row['Condensate Gathered Avg (m³/d)']) else float(row['Condensate Gathered Avg (m³/d)'])
-        ))
-    
-    # Insert in batches
-    batch_size = 1000
+
+    # Ensure int columns are cast properly before NaN->None conversion
+    df = df.copy()
+    df['Days Seq'] = pd.to_numeric(df['Days Seq'], errors='coerce').fillna(0).astype(int)
+    df['Day Seq UPRT'] = pd.to_numeric(df['Day Seq UPRT'], errors='coerce').fillna(0).astype(int)
+    df['On Production Year'] = pd.to_numeric(df['On Production Year'], errors='coerce')
+
+    sub = df[_INSERT_COLS].astype(object)
+    sub[sub.isna()] = None
+    rows_to_insert = list(sub.itertuples(index=False, name=None))
+
+    batch_size = 5000
     total_inserted = 0
     duplicate_skipped = 0
-    
+
     with get_sql_conn() as conn:
         cursor = conn.cursor()
         cursor.fast_executemany = True
-        
+
         total_rows = len(rows_to_insert)
-        
+
         for i in range(0, total_rows, batch_size):
             batch = rows_to_insert[i:i + batch_size]
-            
             try:
                 cursor.executemany(insert_sql, batch)
                 total_inserted += len(batch)
             except Exception as batch_e:
-                print(lf.warn(f"Batch starting at row {i} failed ({batch_e}); falling back to row-by-row."))
+                print(lf.warn(f"Batch at row {i} failed ({batch_e}); row-by-row fallback."))
                 for j, row in enumerate(batch):
                     try:
                         cursor.execute(insert_sql, row)
@@ -462,16 +349,16 @@ def insert_pce_production(df):
                             duplicate_skipped += 1
                         else:
                             print(lf.error(f"Error inserting row {i+j}: {row_e}"))
-            
+
             conn.commit()
-            
+
             if (i + len(batch)) % 50000 == 0 or (i + len(batch)) == total_rows:
                 print(lf.detail(f"Insert progress: {lf.num(i + len(batch))}/{lf.num(total_rows)} rows"))
-    
+
     print(lf.success(f"Inserted {lf.num(total_inserted)} rows into PCE_Production"))
     if duplicate_skipped > 0:
         print(lf.warn(f"Skipped {lf.num(duplicate_skipped)} duplicate rows"))
-    
+
     return total_inserted
 
 def main():

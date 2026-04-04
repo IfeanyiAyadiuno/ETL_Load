@@ -80,7 +80,6 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 month_start = month_row[0]
                 month_name = month_start.strftime('%B %Y')
                 
-                # Calculate month end
                 if month_start.month == 12:
                     month_end = datetime(month_start.year + 1, 1, 1) - timedelta(days=1)
                 else:
@@ -92,106 +91,53 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
                 
                 log(lf.step(f"Processing {month_name}"))
                 
-                # Get allocation factors for this month
+                # Set-based UPDATE: all wells in one shot via JOIN
+                # Updates Gas-S2, Gas-Sales, Condensate-Sales in a single statement
                 cursor.execute("""
-                    SELECT [Well Name], 
-                           WH_to_S2_AllocFactor,
-                           WH_to_Sales_AllocFactor,
-                           WH_to_Sales_Cond_AllocFactor,
-                           Sales_Gas
-                    FROM Allocation_Factors 
+                    UPDATE c SET
+                        c.[Gas - S2 Production] = ISNULL(a.WH_to_S2_AllocFactor, 1.0)
+                                                  * c.[GasWH_Production],
+                        c.[Gas - Sales Production] = CASE
+                            WHEN ISNULL(a.Sales_Gas, 0) > 0
+                            THEN ISNULL(a.WH_to_Sales_AllocFactor, 1.0) * c.[GasWH_Production]
+                            ELSE ISNULL(a.Sales_Gas, 0) / ?
+                        END,
+                        c.[Condensate - Sales Production] = ISNULL(a.WH_to_Sales_Cond_AllocFactor, 1.0)
+                                                            * c.[Condensate_WH_Production]
+                    FROM PCE_CDA c
+                    INNER JOIN Allocation_Factors a
+                        ON c.[Well Name] = a.[Well Name]
+                    WHERE a.MonthStartDate = ?
+                      AND c.ProdDate BETWEEN ? AND ?
+                """, days_in_month, month_start, month_start_date, month_end_date)
+                cda_rows_updated = cursor.rowcount
+
+                # Second pass: compute Sales CGR Ratio from the values just written
+                cursor.execute("""
+                    UPDATE c SET
+                        c.[Sales CGR Ratio] = IIF(c.[Gas - Sales Production] > 0,
+                            c.[Condensate - Sales Production] / c.[Gas - Sales Production],
+                            0)
+                    FROM PCE_CDA c
+                    INNER JOIN Allocation_Factors a
+                        ON c.[Well Name] = a.[Well Name]
+                    WHERE a.MonthStartDate = ?
+                      AND c.ProdDate BETWEEN ? AND ?
+                """, month_start, month_start_date, month_end_date)
+
+                conn.commit()
+
+                # Count wells touched this month
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT [Well Name])
+                    FROM Allocation_Factors
                     WHERE MonthStartDate = ?
                 """, month_start)
-                
-                alloc_rows = cursor.fetchall()
-                
-                if len(alloc_rows) == 0:
-                    continue
-                
-                month_wells_updated = 0
-                month_cda_records = 0
-                
-                # First, count how many CDA records exist for this month
-                cursor.execute("""
-                    SELECT COUNT(*) FROM PCE_CDA 
-                    WHERE ProdDate BETWEEN ? AND ?
-                """, month_start_date, month_end_date)
-                month_cda_records = cursor.fetchone()[0]
-                wells_in_month = len(alloc_rows)
-                
-                for well_idx, (well_name, wh_to_s2, wh_to_sales, wh_to_sales_cond, sales_gas) in enumerate(alloc_rows, start=1):
-                    try:
-                        # Convert to float with defaults
-                        wh_to_s2_val = float(wh_to_s2) if wh_to_s2 is not None else 1.0
-                        wh_to_sales_val = float(wh_to_sales) if wh_to_sales is not None else 1.0
-                        wh_to_sales_cond_val = float(wh_to_sales_cond) if wh_to_sales_cond is not None else 1.0
-                        monthly_sales_gas_val = float(sales_gas) if sales_gas is not None else 0
-                        
-                        # -----------------------------------------------------------------
-                        # UPDATE PCE_CDA
-                        # -----------------------------------------------------------------
-                        
-                        # Update 1: Gas - S2 Production
-                        cursor.execute("""
-                            UPDATE PCE_CDA 
-                            SET [Gas - S2 Production] = ? * [GasWH_Production]
-                            WHERE [Well Name] = ? 
-                            AND ProdDate BETWEEN ? AND ?
-                        """, wh_to_s2_val, well_name, month_start_date, month_end_date)
-                        
-                        # Update 2: Gas - Sales Production
-                        if monthly_sales_gas_val > 0:
-                            cursor.execute("""
-                                UPDATE PCE_CDA 
-                                SET [Gas - Sales Production] = ? * [GasWH_Production]
-                                WHERE [Well Name] = ? 
-                                AND ProdDate BETWEEN ? AND ?
-                            """, wh_to_sales_val, well_name, month_start_date, month_end_date)
-                        else:
-                            daily_sales_gas = monthly_sales_gas_val / days_in_month
-                            cursor.execute("""
-                                UPDATE PCE_CDA 
-                                SET [Gas - Sales Production] = ?
-                                WHERE [Well Name] = ? 
-                                AND ProdDate BETWEEN ? AND ?
-                            """, daily_sales_gas, well_name, month_start_date, month_end_date)
-                        
-                        # Update 3: Condensate - Sales Production
-                        cursor.execute("""
-                            UPDATE PCE_CDA 
-                            SET [Condensate - Sales Production] = ? * [Condensate_WH_Production]
-                            WHERE [Well Name] = ? 
-                            AND ProdDate BETWEEN ? AND ?
-                        """, wh_to_sales_cond_val, well_name, month_start_date, month_end_date)
-                        
-                        # Update 4: Sales CGR Ratio
-                        cursor.execute("""
-                            UPDATE PCE_CDA 
-                            SET [Sales CGR Ratio] = 
-                                IIF([Gas - Sales Production] > 0, 
-                                    [Condensate - Sales Production] / [Gas - Sales Production], 
-                                    0)
-                            WHERE [Well Name] = ? 
-                            AND ProdDate BETWEEN ? AND ?
-                        """, well_name, month_start_date, month_end_date)
-                        
-                        month_wells_updated += 1
-                        
-                        # Emit progress every 10 wells (and on the final well)
-                        if progress_callback and wells_in_month > 0:
-                            if (well_idx % 10 == 0) or (well_idx == wells_in_month):
-                                fraction_month = well_idx / wells_in_month
-                                progress_percent = int(((month_idx + fraction_month) / total_months) * 100)
-                                progress(progress_percent)
+                month_wells_updated = cursor.fetchone()[0]
 
-                    except Exception as e:
-                        log(lf.error(f"Error updating well '{well_name}': {e}"))
+                progress(int(((month_idx + 1) / total_months) * 100))
                 
-                # Commit CDA updates
-                conn.commit()
-                
-                # -----------------------------------------------------------------
-                # UPDATE PCE_PRODUCTION (join PCE_WM to map composite name -> CDA well name)
+                # UPDATE PCE_PRODUCTION via JOIN
                 cursor.execute("""
                     UPDATE p
                     SET 
@@ -211,12 +157,13 @@ def run_sales_ratios_update(start_month, end_month, progress_callback=None, log_
 
                 months_processed += 1
                 total_wells_updated += month_wells_updated
-                total_cda_records += month_cda_records
+                total_cda_records += cda_rows_updated
                 total_production_records += max(0, production_updated)
 
                 log(lf.detail(
-                    f"Updated {lf.num(month_wells_updated)} wells in CDA, "
-                    f"{lf.num(production_updated)} records in Production"
+                    f"Updated {lf.num(month_wells_updated)} wells / "
+                    f"{lf.num(cda_rows_updated)} CDA rows, "
+                    f"{lf.num(production_updated)} Production records"
                 ))
             
             total_time = time.time() - total_start

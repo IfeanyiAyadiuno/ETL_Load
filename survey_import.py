@@ -201,12 +201,14 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         cursor = conn.cursor()
         
         if import_mode == "overwrite" or import_mode == "rewrite":
-            # Delete existing records for these UWI values
             uwis = matched_df['UWI'].unique().tolist()
-            
             total_deleted = 0
-            for uwi in uwis:
-                cursor.execute("DELETE FROM PCE_Surveys WHERE UWI = ?", uwi)
+            # Batched DELETE with IN clause instead of per-UWI round-trips
+            batch_size = 500
+            for i in range(0, len(uwis), batch_size):
+                batch = uwis[i:i + batch_size]
+                placeholders = ','.join(['?'] * len(batch))
+                cursor.execute(f"DELETE FROM PCE_Surveys WHERE UWI IN ({placeholders})", batch)
                 total_deleted += cursor.rowcount
             conn.commit()
             log(lf.detail(f"Deleted {lf.num(total_deleted)} existing records for {lf.num(len(uwis))} wells"))
@@ -235,28 +237,27 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 cursor.execute(existing_query, uwis_to_check)
                 existing_records = cursor.fetchall()
                 
-                # Create a set of (UWI, Measured Depth) tuples for fast lookup
-                existing_set = set()
-                for record in existing_records:
-                    uwi = record[0]
-                    depth = record[1]
-                    uwi_str = str(uwi).strip() if uwi is not None else None
-                    depth_val = float(depth) if depth is not None else None
-                    existing_set.add((uwi_str, depth_val))
-                
-                log(lf.detail(f"Found {lf.num(len(existing_set))} existing records in database"))
-                
-                # Filter matched_df to only include records that don't exist
-                def record_exists(row):
-                    uwi = row.get('UWI')
-                    depth = row.get('Measured Depth')
-                    uwi_str = str(uwi).strip() if pd.notna(uwi) and uwi is not None else None
-                    depth_val = float(depth) if pd.notna(depth) and depth is not None else None
-                    return (uwi_str, depth_val) in existing_set
-                
-                # Filter out existing records
+                existing_df = pd.DataFrame(existing_records, columns=['_ex_uwi', '_ex_depth'])
+                existing_df['_ex_uwi'] = existing_df['_ex_uwi'].astype(str).str.strip()
+                existing_df['_ex_depth'] = pd.to_numeric(existing_df['_ex_depth'], errors='coerce')
+
+                log(lf.detail(f"Found {lf.num(len(existing_df))} existing records in database"))
+
+                # Vectorized anti-join instead of per-row apply()
+                matched_df['_uwi_key'] = matched_df['UWI'].astype(str).str.strip()
+                matched_df['_depth_key'] = pd.to_numeric(matched_df['Measured Depth'], errors='coerce')
+
                 before_count = len(matched_df)
-                matched_df = matched_df[~matched_df.apply(record_exists, axis=1)].copy()
+                merged = matched_df.merge(
+                    existing_df,
+                    left_on=['_uwi_key', '_depth_key'],
+                    right_on=['_ex_uwi', '_ex_depth'],
+                    how='left',
+                    indicator=True,
+                )
+                matched_df = merged[merged['_merge'] == 'left_only'].drop(
+                    columns=['_ex_uwi', '_ex_depth', '_merge', '_uwi_key', '_depth_key'],
+                ).copy()
                 after_count = len(matched_df)
                 skipped_count = before_count - after_count
                 
@@ -295,50 +296,49 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
-        # Prepare rows for insertion
-        rows_to_insert = []
-        for _, row in matched_df.iterrows():
-            rows_to_insert.append((
-                row.get('UWI'),
-                row.get('Well Name Cleaned'),  # Use the cleaned name
-                row.get('Subsea Elevation'),
-                row.get('Inclination'),
-                row.get('Azimuth Angle'),
-                row.get('Measured Depth'),
-                row.get('True Vertical Depth'),
-                row.get('Offset in EW'),
-                row.get('Offset in NS'),
-                row.get('East'),
-                row.get('North'),
-                row.get('PAD'),
-                os.path.basename(excel_path)  # SourceFile
-            ))
-        
-        # Insert in batches
-        batch_size = 1000
+        # Vectorized tuple construction
+        insert_cols = [
+            'UWI', 'Well Name Cleaned', 'Subsea Elevation',
+            'Inclination', 'Azimuth Angle', 'Measured Depth',
+            'True Vertical Depth', 'Offset in EW', 'Offset in NS',
+            'East', 'North', 'PAD',
+        ]
+        sub = matched_df[insert_cols].astype(object)
+        sub[sub.isna()] = None
+        source_file = os.path.basename(excel_path)
+        rows_to_insert = [
+            tuple(row) + (source_file,)
+            for row in sub.itertuples(index=False, name=None)
+        ]
+
+        cursor.fast_executemany = True
+        batch_size = 5000
         total_inserted = 0
         duplicate_skipped = 0
-        
-        for i in range(0, len(rows_to_insert), batch_size):
+        total_rows = len(rows_to_insert)
+
+        for i in range(0, total_rows, batch_size):
             batch = rows_to_insert[i:i + batch_size]
-            
-            for row in batch:
-                try:
-                    cursor.execute(insert_sql, row)
-                    total_inserted += 1
-                except Exception as e:
-                    if "Violation of UNIQUE KEY" in str(e):
-                        duplicate_skipped += 1
-                    else:
-                        error_count += 1
-                        log(lf.error(f"{str(e)[:100]}"))
-            
+            try:
+                cursor.executemany(insert_sql, batch)
+                total_inserted += len(batch)
+            except Exception:
+                for row in batch:
+                    try:
+                        cursor.execute(insert_sql, row)
+                        total_inserted += 1
+                    except Exception as e:
+                        if "Violation of UNIQUE KEY" in str(e):
+                            duplicate_skipped += 1
+                        else:
+                            error_count += 1
+                            log(lf.error(f"{str(e)[:100]}"))
             conn.commit()
-            
-            if (i + batch_size) % 5000 == 0 or (i + batch_size) >= len(rows_to_insert):
-                pct = int((i + len(batch)) / len(rows_to_insert) * 100) if rows_to_insert else 0
+
+            if (i + len(batch)) % 5000 == 0 or (i + len(batch)) >= total_rows:
+                pct = int((i + len(batch)) / total_rows * 100) if total_rows else 0
                 progress(60 + int(pct * 0.4))
-                log(lf.detail(f"Progress: {lf.num(min(i + batch_size, len(rows_to_insert)))}/{lf.num(len(rows_to_insert))} rows"))
+                log(lf.detail(f"Progress: {lf.num(min(i + len(batch), total_rows))}/{lf.num(total_rows)} rows"))
         
         progress(100)
         
