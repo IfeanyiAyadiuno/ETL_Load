@@ -86,7 +86,7 @@ class SalesRatiosDialog(QDialog):
         to_layout.addWidget(QLabel("To:"))
         self.to_combo = QComboBox()
         self.populate_months(self.to_combo)
-        self.to_combo.setCurrentIndex(0)
+        self.to_combo.setCurrentIndex(max(0, self.to_combo.count() - 1))
         to_layout.addWidget(self.to_combo)
         to_layout.addStretch()
         range_layout.addLayout(to_layout)
@@ -227,25 +227,21 @@ class SalesRatiosDialog(QDialog):
         return group
 
     def populate_months(self, combo_box):
-        """Populate month combo box with last 60 months"""
+        """Populate month combo box from Jan 2008 through the current month."""
         current = datetime.now()
         month_names = {
             1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
             7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
         }
 
-        # Generate the last 60 distinct calendar months, oldest first
         months = []
-        year = current.year
-        month = current.month
-        for _ in range(60):
+        year, month = 2008, 1
+        while (year, month) <= (current.year, current.month):
             months.append(f"{month_names[month]} {year}")
-            month -= 1
-            if month == 0:
-                month = 12
-                year -= 1
-
-        months.reverse()
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
 
         combo_box.clear()
         combo_box.addItems(months)
