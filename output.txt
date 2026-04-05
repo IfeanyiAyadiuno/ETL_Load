@@ -221,3 +221,45 @@ Re_Main_Production	dbo	PCE_Production	Gas S2 Avg (10³m³)	38	NULL	YES	float	NUL
 Re_Main_Production	dbo	PCE_Production	Gas Gathered Avg (e³m³/d)	39	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Condensate Gathered Avg (m³/d)	40	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Remarks	41	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+
+
+----------------------------------------------------------------
+  SURVEY DATA IMPORT
+----------------------------------------------------------------
+  File          Survey.xlsx
+  Mode          Append Mode
+----------------------------------------------------------------
+
+----------------------------------------------------------------
+  SURVEY DATA IMPORT
+----------------------------------------------------------------
+  File          Survey.xlsx
+  Mode          append
+----------------------------------------------------------------
+
+> Reading Excel file
+    Read 76,599 rows from Excel
+
+> Mapping columns
+    Mapped 12 columns
+
+> Cleaning data
+    Cleaned Well Name column
+      'B2-01-85-26W6M - T2 - PnP' → 'B2-01-85-26W6M-T2-PnP'
+      'B2-01-85-26W6M - T2 - PnP' → 'B2-01-85-26W6M-T2-PnP'
+      'B2-01-85-26W6M - T2 - PnP' → 'B2-01-85-26W6M-T2-PnP'
+
+> Validating data
+    All required columns present
+
+> Matching wells to database
+    Found 264 valid wells in database
+    Sample DB names: ['H15-1-85-26W6-T2-NCS', 'Q7-1-85-26W6-C4-PnP', 'c-E98-D/94-A-05-C4-PnP']
+  ✓ 76,599 rows matched to database wells
+  ! 0 rows did not match
+
+> Processing with mode: append
+    Checking for existing records...
+  ✗ Shape of passed values is (76599, 1), indices imply (76599, 2)
+
+  ✗ Shape of passed values is (76599, 1), indices imply (76599, 2)

@@ -237,32 +237,33 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 cursor.execute(existing_query, uwis_to_check)
                 existing_records = cursor.fetchall()
                 
-                existing_df = pd.DataFrame(existing_records, columns=['_ex_uwi', '_ex_depth'])
-                existing_df['_ex_uwi'] = existing_df['_ex_uwi'].astype(str).str.strip()
-                existing_df['_ex_depth'] = pd.to_numeric(existing_df['_ex_depth'], errors='coerce')
+                if existing_records:
+                    existing_df = pd.DataFrame(existing_records, columns=['_ex_uwi', '_ex_depth'])
+                    existing_df['_ex_uwi'] = existing_df['_ex_uwi'].astype(str).str.strip()
+                    existing_df['_ex_depth'] = pd.to_numeric(existing_df['_ex_depth'], errors='coerce')
 
-                log(lf.detail(f"Found {lf.num(len(existing_df))} existing records in database"))
+                    log(lf.detail(f"Found {lf.num(len(existing_df))} existing records in database"))
 
-                # Vectorized anti-join instead of per-row apply()
-                matched_df['_uwi_key'] = matched_df['UWI'].astype(str).str.strip()
-                matched_df['_depth_key'] = pd.to_numeric(matched_df['Measured Depth'], errors='coerce')
+                    # Vectorized anti-join
+                    matched_df['_uwi_key'] = matched_df['UWI'].astype(str).str.strip()
+                    matched_df['_depth_key'] = pd.to_numeric(matched_df['Measured Depth'], errors='coerce')
 
-                before_count = len(matched_df)
-                merged = matched_df.merge(
-                    existing_df,
-                    left_on=['_uwi_key', '_depth_key'],
-                    right_on=['_ex_uwi', '_ex_depth'],
-                    how='left',
-                    indicator=True,
-                )
-                matched_df = merged[merged['_merge'] == 'left_only'].drop(
-                    columns=['_ex_uwi', '_ex_depth', '_merge', '_uwi_key', '_depth_key'],
-                ).copy()
-                after_count = len(matched_df)
-                skipped_count = before_count - after_count
-                
-                log(lf.detail(f"Filtered out {lf.num(skipped_count)} existing records"))
-                log(lf.detail(f"{lf.num(after_count)} new records to insert"))
+                    before_count = len(matched_df)
+                    merged = matched_df.merge(
+                        existing_df,
+                        left_on=['_uwi_key', '_depth_key'],
+                        right_on=['_ex_uwi', '_ex_depth'],
+                        how='left',
+                        indicator=True,
+                    )
+                    matched_df = merged[merged['_merge'] == 'left_only'].drop(
+                        columns=['_ex_uwi', '_ex_depth', '_merge', '_uwi_key', '_depth_key'],
+                    ).copy()
+                    after_count = len(matched_df)
+                    skipped_count = before_count - after_count
+                else:
+                    skipped_count = 0
+                    after_count = len(matched_df)
                 
                 if matched_df.empty:
                     log(lf.detail("No new records to insert. All records already exist in database."))
