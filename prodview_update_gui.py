@@ -1,7 +1,7 @@
 import time
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import log_format as lf
 from db_connection import get_sql_conn
@@ -279,6 +279,104 @@ def _batch_executemany(cursor, sql, rows, batch_size=5000):
     """Execute INSERT/UPDATE in batches."""
     for i in range(0, len(rows), batch_size):
         cursor.executemany(sql, rows[i:i + batch_size])
+
+
+# ---------------------------------------------------------------------------
+# populate_wells_cda  (Reusable: populate PCE_CDA for a given set of wells)
+# ---------------------------------------------------------------------------
+
+def populate_wells_cda(mapping_df, start_date, end_date,
+                       progress_callback=None, log_callback=None):
+    """
+    Populate PCE_CDA for the wells described in *mapping_df*.
+
+    mapping_df must have columns:
+        GasIDREC, PressuresIDREC, Well Name,
+        Formation Producer, Layer Producer, Fault Block,
+        Pad Name, Lateral Length, Orient
+
+    Only PCE_CDA is touched; PCE_Production is NOT modified.
+
+    Returns dict with summary stats or {"error": ...}.
+    """
+    def log(msg):
+        (log_callback or print)(msg)
+
+    def progress(val):
+        if progress_callback:
+            progress_callback(val)
+
+    total_start = time.time()
+    well_names = mapping_df['Well Name'].unique().tolist()
+
+    log(lf.header("POPULATE PCE_CDA",
+                   Wells=len(well_names),
+                   Range=f"{start_date} to {end_date}"))
+
+    try:
+        log(lf.step("Pulling Snowflake data..."))
+        sf = SnowflakeConnector()
+        try:
+            sf_data = _pull_all_snowflake_data(sf, start_date, end_date, log)
+        finally:
+            sf.close()
+        progress(30)
+
+        log(lf.step("Building spine and merging data..."))
+        full_range = pd.date_range(start=start_date, end=end_date, freq='D').date
+        spine_df = _build_spine(mapping_df, full_range)
+        log(lf.detail(f"Spine: {lf.num(len(spine_df))} rows"))
+
+        result_df = _merge_sf_data(spine_df, sf_data)
+        result_df['Condensate_WH_Production'] = (
+            result_df['GasWH_Production'] * result_df['CGR_Ratio']
+        )
+        result_df, _repl = _apply_gaswh_replacement(result_df)
+        log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
+        progress(60)
+
+        log(lf.step("Writing to PCE_CDA..."))
+        conn = get_sql_conn()
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
+
+        # Delete existing CDA rows for these specific wells
+        del_batch = 200
+        for i in range(0, len(well_names), del_batch):
+            batch = well_names[i:i + del_batch]
+            ph = ','.join(['?'] * len(batch))
+            cursor.execute(
+                f"DELETE FROM PCE_CDA WHERE [Well Name] IN ({ph})"
+                f" AND ProdDate BETWEEN ? AND ?",
+                batch + [start_date, end_date],
+            )
+        conn.commit()
+
+        rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
+        _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
+        conn.commit()
+        conn.close()
+        progress(100)
+
+        total_time = time.time() - total_start
+        summary = {
+            'wells': len(well_names),
+            'cda_records': len(rows),
+            'duration': total_time,
+        }
+        log(lf.summary("CDA POPULATE COMPLETE", {
+            "Wells": len(well_names),
+            "PCE_CDA records": len(rows),
+            "Duration": lf.elapsed(total_time),
+        }))
+        return summary
+
+    except Exception as e:
+        log(lf.error(str(e)))
+        import traceback
+        for line in traceback.format_exc().strip().split("\n"):
+            log(lf.detail(line))
+        return {"error": f"ERROR: {e}"}
 
 
 # ---------------------------------------------------------------------------

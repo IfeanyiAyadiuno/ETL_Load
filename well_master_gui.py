@@ -5,10 +5,11 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QStyledItemDelegate
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtWidgets import QStyledItemDelegate, QProgressBar, QScrollArea
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import QThread
 import log_format as lf
 from styles import (
     DIALOG_BASE, card_style, dialog_title_style, section_title_style,
@@ -1283,11 +1284,20 @@ class WellMasterDialog(QDialog):
                 QMessageBox.information(
                     self,
                     "Import Complete",
-                    f"Successfully added {inserted} new wells to PCE_WM."
+                    f"Successfully added {inserted} new wells to PCE_WM.\n\n"
+                    f"PCE_CDA will now be populated for these wells."
                 )
 
             self.load_data()
             self.status_label.setText(f"Imported {inserted} new wells")
+
+            # Auto-populate PCE_CDA for the successfully inserted wells
+            successfully_inserted = [
+                w for w in new_wells
+                if w['well_name'] not in [e.split(':')[0] for e in errors]
+            ]
+            if successfully_inserted:
+                self._start_cda_populate(successfully_inserted)
 
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{str(e)}")
@@ -1884,3 +1894,94 @@ class WellMasterDialog(QDialog):
         self.update_staged_table()
         self.status_label.setText(f"Removed {len(selected_rows)} well(s) from staging")
         self.tabs.setCurrentIndex(0)
+
+    # ------------------------------------------------------------------
+    # Auto-populate PCE_CDA for newly imported wells
+    # ------------------------------------------------------------------
+
+    def _start_cda_populate(self, new_wells):
+        """Kick off background CDA populate for newly imported wells."""
+        import pandas as pd
+        from datetime import date
+
+        mapping_df = pd.DataFrame([{
+            'GasIDREC': w['gas_idrec'],
+            'PressuresIDREC': w['pressures_idrec'],
+            'Well Name': w['well_name'],
+            'Formation Producer': None,
+            'Layer Producer': None,
+            'Fault Block': None,
+            'Pad Name': None,
+            'Lateral Length': None,
+            'Orient': None,
+        } for w in new_wells])
+
+        start_date = "2009-01-01"
+        end_date = str(date.today())
+
+        self._cda_dialog = QDialog(self)
+        self._cda_dialog.setWindowTitle("Populating PCE_CDA")
+        self._cda_dialog.setMinimumWidth(520)
+        self._cda_dialog.setMinimumHeight(300)
+        lay = QVBoxLayout(self._cda_dialog)
+
+        title = QLabel(f"Populating CDA for {len(new_wells)} new well(s)...")
+        title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1a4d3e;")
+        lay.addWidget(title)
+
+        self._cda_progress = QProgressBar()
+        self._cda_progress.setRange(0, 100)
+        self._cda_progress.setValue(0)
+        self._cda_progress.setStyleSheet(progress_bar_style())
+        lay.addWidget(self._cda_progress)
+
+        self._cda_log = QTextEdit()
+        self._cda_log.setReadOnly(True)
+        self._cda_log.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        lay.addWidget(self._cda_log)
+
+        self._cda_worker = CdaPopulateWorker(mapping_df, start_date, end_date)
+        self._cda_worker.log_signal.connect(
+            lambda msg: self._cda_log.append(msg)
+        )
+        self._cda_worker.progress_signal.connect(self._cda_progress.setValue)
+        self._cda_worker.finished_signal.connect(
+            lambda result: self._on_cda_populate_done(result)
+        )
+        self._cda_worker.start()
+        self._cda_dialog.exec_()
+
+    def _on_cda_populate_done(self, result):
+        if 'error' in result:
+            self.status_label.setText("CDA populate failed")
+        else:
+            recs = result.get('cda_records', 0)
+            self.status_label.setText(
+                f"CDA populated: {recs:,} records for {result.get('wells', 0)} wells"
+            )
+        if self._cda_dialog:
+            self._cda_dialog.accept()
+
+
+class CdaPopulateWorker(QThread):
+    """Background worker to populate PCE_CDA for specific wells."""
+    log_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)
+    finished_signal = pyqtSignal(dict)
+
+    def __init__(self, mapping_df, start_date, end_date, parent=None):
+        super().__init__(parent)
+        self.mapping_df = mapping_df
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def run(self):
+        from prodview_update_gui import populate_wells_cda
+        result = populate_wells_cda(
+            self.mapping_df,
+            self.start_date,
+            self.end_date,
+            progress_callback=self.progress_signal.emit,
+            log_callback=self.log_signal.emit,
+        )
+        self.finished_signal.emit(result)

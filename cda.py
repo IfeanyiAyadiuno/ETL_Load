@@ -1,5 +1,6 @@
 
 import pandas as pd
+from datetime import date
 from snowflake_connector import SnowflakeConnector
 import numpy as np
 import warnings
@@ -613,8 +614,7 @@ def filter_to_first_production(df):
 
 if __name__ == "__main__":
     start = "2009-01-01"
-    # NEW: Fixed end date - January 31, 2026
-    end = "2026-01-31"
+    end = str(date.today())
     
     print(lf.header(
         "CDA data pipeline — VBA-style first production filter",
