@@ -190,7 +190,7 @@ def calculate_sequences(df):
     df['Day Seq UPRT'] = gas_positive.groupby(df['Well Name']).cumsum().clip(lower=1)
 
     total_wells = df['Well Name'].nunique()
-    print(lf.detail(f"Sequences calculated for {lf.num(total_wells)} wells (vectorized)"))
+    print(lf.detail(f"Sequences calculated for {lf.num(total_wells)} wells"))
     return df
 
 def calculate_cumulatives(df):
