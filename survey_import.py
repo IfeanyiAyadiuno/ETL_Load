@@ -24,6 +24,27 @@ def clean_well_name(name):
     
     return cleaned
 
+
+def _db_rows_to_dataframe(rows, columns):
+    """
+    Build a DataFrame from DB-API fetchall() results.
+
+    pyodbc.Row objects are sequence-like but often become a single column if passed
+    straight to pd.DataFrame(rows, columns=...), causing:
+    Shape of passed values is (n, 1), indices imply (n, 2).
+    """
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    normalized = [tuple(r) for r in rows]
+    ncols = len(columns)
+    for i, t in enumerate(normalized):
+        if len(t) != ncols:
+            raise ValueError(
+                f"Row {i}: query returned {len(t)} field(s), expected {ncols} columns {tuple(columns)}"
+            )
+    return pd.DataFrame(normalized, columns=columns)
+
+
 def import_surveys(excel_path, import_mode="append", progress_callback=None, log_callback=None):
     """
     Import survey data from Excel to SQL Server
@@ -238,7 +259,9 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 existing_records = cursor.fetchall()
                 
                 if existing_records:
-                    existing_df = pd.DataFrame(existing_records, columns=['_ex_uwi', '_ex_depth'])
+                    existing_df = _db_rows_to_dataframe(
+                        existing_records, ['_ex_uwi', '_ex_depth']
+                    )
                     existing_df['_ex_uwi'] = existing_df['_ex_uwi'].astype(str).str.strip()
                     existing_df['_ex_depth'] = pd.to_numeric(existing_df['_ex_depth'], errors='coerce')
 
