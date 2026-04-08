@@ -78,6 +78,7 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean ^
   --hidden-import production_update ^
   --hidden-import prodview_update_gui ^
   --hidden-import cda ^
+  --hidden-import sales_allocation_updates ^
   production_update_gui.py
 ```
 

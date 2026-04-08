@@ -93,8 +93,8 @@ class MonthlyLoaderDialog(QDialog):
         valnav_group.layout().addLayout(valnav_layout)
         layout.addWidget(valnav_group)
 
-        # Accumap File Group
-        accumap_group = self.create_group("📁 Public Data Accumap File")
+        # Accumap (informational — loaded in Public Sales dialog, not PA)
+        accumap_group = self.create_group("📁 Accumap template (Public Sales only)")
         accumap_layout = QHBoxLayout()
         accumap_layout.addWidget(QLabel("Path:"))
 
@@ -113,7 +113,7 @@ class MonthlyLoaderDialog(QDialog):
 
         self.db_status = QLabel("⏳ Checking database connection...")
         self.valnav_status = QLabel("⏳ Checking ValNav file...")
-        self.accumap_status = QLabel("⏳ Checking Accumap file...")
+        self.accumap_status = QLabel("⏳ Accumap (for Public Sales)…")
 
         status_layout.addWidget(self.db_status)
         status_layout.addWidget(self.valnav_status)
@@ -260,14 +260,14 @@ class MonthlyLoaderDialog(QDialog):
             self.valnav_status.setText("❌ ValNav file not found")
             self.valnav_status.setStyleSheet("color: #dc3545;")
 
-        # Check Accumap file
+        # Accumap: not required for PA (Public Sales uses it)
         accumap_path = self.settings_section.get('accumap_template', '')
         if os.path.exists(accumap_path):
-            self.accumap_status.setText("✅ Accumap file found")
+            self.accumap_status.setText("✅ Accumap file on disk (Public Sales dialog)")
             self.accumap_status.setStyleSheet("color: #1a4d3e;")
         else:
-            self.accumap_status.setText("❌ Accumap file not found")
-            self.accumap_status.setStyleSheet("color: #dc3545;")
+            self.accumap_status.setText("ℹ️ PA does not use Accumap — set path in Settings for Public Sales")
+            self.accumap_status.setStyleSheet("color: #856404;")
 
         # Check database connection using imported function
         try:
@@ -317,12 +317,10 @@ class MonthlyLoaderDialog(QDialog):
         )
 
         valnav_path = self.settings_section.get('valnav_template', '')
-        accumap_path = self.settings_section.get('accumap_template', '')
 
         self.worker = MonthlyLoaderWorker(
             self.month_combo.currentText(),
             valnav_path,
-            accumap_path
         )
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
@@ -360,11 +358,10 @@ class MonthlyLoaderWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, month, valnav_path, accumap_path):
+    def __init__(self, month, valnav_path):
         super().__init__()
         self.month = month
         self.valnav_path = valnav_path
-        self.accumap_path = accumap_path
         self._cancelled = False
 
     def cancel(self):
@@ -387,9 +384,8 @@ class MonthlyLoaderWorker(QThread):
             summary = run_monthly_loader(
                 self.month,
                 self.valnav_path,
-                self.accumap_path,
                 progress_callback,
-                log_callback
+                log_callback,
             )
 
             # Check for errors

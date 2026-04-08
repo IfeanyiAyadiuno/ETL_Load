@@ -1,4 +1,5 @@
 # sales_ratios_gui.py
+import os
 import time
 from datetime import datetime, timedelta
 
@@ -67,16 +68,20 @@ def run_sales_ratios_update(
     progress_callback=None,
     log_callback=None,
     cancelled=None,
+    accumap_path=None,
 ):
     """
-    Update sales ratios in PCE_CDA and PCE_Production for a range of months
-    
+    Update sales ratios in PCE_CDA and PCE_Production for a range of months.
+    Merges Accumap public sales gas into Allocation_Factors per month, then applies
+    full sales + CGR updates (see sales_allocation_updates).
+
     Args:
         start_month: Start month in format "MMM YYYY" (e.g., "Jan 2020")
         end_month: End month in format "MMM YYYY" (e.g., "Dec 2025")
         progress_callback: Function to call with progress percentage (0-100)
         log_callback: Function to call with log messages
         cancelled: Optional callable returning True if the run should stop (checked between months).
+        accumap_path: Path to Public Data Accumap Excel (required).
 
     Returns:
         dict: Summary statistics; includes cancelled=True if stopped early
@@ -96,6 +101,16 @@ def run_sales_ratios_update(
         return cancelled is not None and cancelled()
 
     log(lf.header("SALES RATIOS UPDATE", Range=f"{start_month} to {end_month}"))
+
+    from sales_allocation_updates import (
+        merge_accumap_into_allocation_factors,
+        apply_full_sales_ratios_for_month,
+    )
+
+    if not accumap_path or not os.path.isfile(accumap_path):
+        error_msg = f"Accumap file not found or not configured: {accumap_path!r}"
+        log(lf.error(error_msg))
+        return {"error": error_msg}
     
     total_start = time.time()
     
@@ -159,81 +174,20 @@ def run_sales_ratios_update(
 
                 month_start = month_row[0]
                 month_name = month_start.strftime('%B %Y')
-                
-                if month_start.month == 12:
-                    month_end = datetime(month_start.year + 1, 1, 1) - timedelta(days=1)
-                else:
-                    month_end = datetime(month_start.year, month_start.month + 1, 1) - timedelta(days=1)
-                
-                month_start_date = month_start
-                month_end_date = month_end.date()
-                days_in_month = (month_end_date - month_start_date).days + 1
-                
                 log(lf.step(f"Processing {month_name}"))
-                
-                # Set-based UPDATE: all wells in one shot via JOIN
-                # Updates Gas-S2, Gas-Sales, Condensate-Sales in a single statement
-                cursor.execute("""
-                    UPDATE c SET
-                        c.[Gas - S2 Production] = ISNULL(a.WH_to_S2_AllocFactor, 1.0)
-                                                  * c.[GasWH_Production],
-                        c.[Gas - Sales Production] = CASE
-                            WHEN ISNULL(a.Sales_Gas, 0) > 0
-                            THEN ISNULL(a.WH_to_Sales_AllocFactor, 1.0) * c.[GasWH_Production]
-                            ELSE ISNULL(a.Sales_Gas, 0) / ?
-                        END,
-                        c.[Condensate - Sales Production] = ISNULL(a.WH_to_Sales_Cond_AllocFactor, 1.0)
-                                                            * c.[Condensate_WH_Production]
-                    FROM PCE_CDA c
-                    INNER JOIN Allocation_Factors a
-                        ON c.[Well Name] = a.[Well Name]
-                    WHERE a.MonthStartDate = ?
-                      AND c.ProdDate BETWEEN ? AND ?
-                """, days_in_month, month_start, month_start_date, month_end_date)
-                cda_rows_updated = cursor.rowcount
 
-                # Second pass: compute Sales CGR Ratio from the values just written
-                cursor.execute("""
-                    UPDATE c SET
-                        c.[Sales CGR Ratio] = IIF(c.[Gas - Sales Production] > 0,
-                            c.[Condensate - Sales Production] / c.[Gas - Sales Production],
-                            0)
-                    FROM PCE_CDA c
-                    INNER JOIN Allocation_Factors a
-                        ON c.[Well Name] = a.[Well Name]
-                    WHERE a.MonthStartDate = ?
-                      AND c.ProdDate BETWEEN ? AND ?
-                """, month_start, month_start_date, month_end_date)
+                merge_result = merge_accumap_into_allocation_factors(
+                    conn, month_start, accumap_path, log=log
+                )
+                if "error" in merge_result:
+                    log(lf.error(merge_result["error"]))
+                    return {"error": merge_result["error"]}
 
-                conn.commit()
-
-                # Count wells touched this month
-                cursor.execute("""
-                    SELECT COUNT(DISTINCT [Well Name])
-                    FROM Allocation_Factors
-                    WHERE MonthStartDate = ?
-                """, month_start)
-                month_wells_updated = cursor.fetchone()[0]
+                cda_rows_updated, production_updated, month_wells_updated = (
+                    apply_full_sales_ratios_for_month(conn, month_start, log=log)
+                )
 
                 progress(int(((month_idx + 1) / total_months) * 100))
-                
-                # UPDATE PCE_PRODUCTION via JOIN
-                cursor.execute("""
-                    UPDATE p
-                    SET 
-                        p.[Gas S2 Production (10³m³)] = c.[Gas - S2 Production],
-                        p.[Gas Sales Production (10³m³)] = c.[Gas - Sales Production],
-                        p.[Condensate Sales (m³/d)] = c.[Condensate - Sales Production],
-                        p.[Sales CGR (m³/e³m³)] = c.[Sales CGR Ratio]
-                    FROM PCE_Production p
-                    INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
-                    INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
-                    WHERE c.ProdDate BETWEEN ? AND ?
-                      AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
-                """, month_start_date, month_end_date)
-
-                production_updated = cursor.rowcount
-                conn.commit()
 
                 months_processed += 1
                 total_wells_updated += month_wells_updated

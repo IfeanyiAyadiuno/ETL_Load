@@ -9,17 +9,18 @@ import os
 import traceback
 from db_connection import get_sql_conn
 
-def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=None, log_callback=None):
+def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callback=None, accumap_path=None):
     """
-    Run the monthly loader with GUI integration
-    
+    Run the PA monthly loader (ValNav only). Accumap / public sales gas is applied from
+    Public Sales Data and Ratios. ``accumap_path`` is ignored if passed (backward compatible).
+
     Args:
         month_str: Month in format "MMM YYYY" (e.g., "Dec 2025")
         valnav_path: Path to ValNav Excel file
-        accumap_path: Path to Accumap Excel file
         progress_callback: Function to call with progress percentage (0-100)
         log_callback: Function to call with log messages
-    
+        accumap_path: Deprecated; ignored.
+
     Returns:
         dict: Summary statistics and warning messages
     """
@@ -53,17 +54,13 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         error_msg = f"ValNav file not found: {valnav_path}"
         log(lf.error(error_msg))
         return {"error": error_msg}
-    
-    if not os.path.exists(accumap_path):
-        error_msg = f"Accumap file not found: {accumap_path}"
-        log(lf.error(error_msg))
-        return {"error": error_msg}
+
+    if accumap_path:
+        log(lf.detail("Note: Accumap is not used in PA; load public sales gas via Public Sales Data and Ratios."))
     
     # Initialize variables
     valnav_data = {}
-    accumap_data = {}
     valnav_uwis = set()
-    accumap_uwis = set()
     existing_count = 0
     report_filename = None
     missing_report = None
@@ -116,53 +113,6 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         
         log(lf.detail(f"Loaded {lf.num(len(valnav_data))} ValNav records"))
         progress(20)
-        
-        # Read Accumap data
-        accumap_xl = pd.ExcelFile(accumap_path)
-        accumap_sheets = accumap_xl.sheet_names
-        
-        # Try to find the correct sheet
-        target_accumap_sheet = 'Sales Gas - to PRW'
-        if target_accumap_sheet not in accumap_sheets:
-            target_accumap_sheet = accumap_sheets[0]
-        
-        # Read Accumap data
-        df_accumap = pd.read_excel(accumap_path, sheet_name=target_accumap_sheet)
-        
-        # Clean UWI values
-        df_accumap['UWI_clean_accumap'] = df_accumap['Unique Well ID'].astype(str).str.strip()
-        
-        # Remove trailing '0' from UWI
-        df_accumap['UWI_clean_accumap'] = df_accumap['UWI_clean_accumap'].apply(
-            lambda x: x[:-1] if isinstance(x, str) and x.endswith('0') and len(x) > 1 else x
-        )
-        
-        # Convert date column and filter for target month
-        df_accumap['Date_parsed'] = pd.to_datetime(df_accumap['Date'], errors='coerce')
-        df_accumap_filtered = df_accumap[
-            (df_accumap['Date_parsed'].dt.year == month_start.year) & 
-            (df_accumap['Date_parsed'].dt.month == month_start.month)
-        ].copy()
-        
-        
-        # Prepare data dictionary
-        accumap_data = {}
-        accumap_uwis = set()
-        
-        df_acc = df_accumap_filtered.dropna(subset=['UWI_clean_accumap']).copy()
-        df_acc['UWI_clean_accumap'] = df_acc['UWI_clean_accumap'].astype(str).str.strip()
-        df_acc['PRD Monthly Mktbl GAS e3m3'] = pd.to_numeric(
-            df_acc['PRD Monthly Mktbl GAS e3m3'], errors='coerce'
-        ).fillna(0)
-        df_acc = df_acc.drop_duplicates(subset=['UWI_clean_accumap'], keep='last')
-        accumap_uwis = set(df_acc['UWI_clean_accumap'])
-        accumap_data = {
-            uwi: {'Sales_Gas': float(gas)}
-            for uwi, gas in zip(df_acc['UWI_clean_accumap'], df_acc['PRD Monthly Mktbl GAS e3m3'])
-        }
-        
-        log(lf.detail(f"Loaded {lf.num(len(accumap_data))} Accumap records"))
-        progress(30)
         
         # -----------------------------------------------------------------
         # CONNECT TO SQL SERVER
@@ -286,20 +236,24 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 }
         
         log(lf.detail(f"Found CDA data for {lf.num(len(cda_lookup))} wells"))
+
+        days_in_month = (month_end_date - month_start_date).days + 1
+        log(lf.step("Monthly → daily (ValNav, informational only)"))
+        log(lf.detail(
+            f"{month_start.strftime('%B %Y')}: {lf.num(days_in_month)} calendar days; "
+            "S2/condensate factors use monthly ValNav volumes vs summed daily CDA (unchanged)."
+        ))
         progress(50)
         
         # -----------------------------------------------------------------
-        # MATCH UWIS AND PREPARE COMBINED DATA
+        # MATCH UWIS (ValNav only; Accumap is applied in Public Sales)
         # -----------------------------------------------------------------
-        log(lf.step("Matching UWIs and preparing combined data"))
+        log(lf.step("Matching ValNav UWIs to wells"))
         
-        all_source_uwis = valnav_uwis.union(accumap_uwis)
-        log(lf.detail(f"Total unique UWIs from both sources: {lf.num(len(all_source_uwis))}"))
+        log(lf.detail(f"Total unique ValNav UWIs: {lf.num(len(valnav_uwis))}"))
         
         matched_wells = {}
         unmatched_valnav = []
-        unmatched_accumap = []
-        unmatched_both = []
         
         def normalize_uwi_for_matching(uwi_str):
             normalized = uwi_str.lower()
@@ -307,7 +261,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 normalized = normalized[:-3] + '/2'
             return normalized
         
-        for uwi in all_source_uwis:
+        for uwi in valnav_uwis:
             uwi_str = str(uwi)
             matched = False
             
@@ -345,24 +299,11 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 
                 if uwi_str in valnav_data:
                     matched_wells[well_name]['valnav_data'] = valnav_data[uwi_str]
-                
-                if uwi_str in accumap_data:
-                    matched_wells[well_name]['accumap_data'] = accumap_data[uwi_str]
             else:
-                in_valnav = uwi_str in valnav_data
-                in_accumap = uwi_str in accumap_data
-                
-                if in_valnav and in_accumap:
-                    unmatched_both.append(uwi_str)
-                elif in_valnav:
-                    unmatched_valnav.append(uwi_str)
-                elif in_accumap:
-                    unmatched_accumap.append(uwi_str)
+                unmatched_valnav.append(uwi_str)
         
         log(lf.detail(f"Successfully matched: {lf.num(len(matched_wells))} wells"))
         log(lf.detail(f"Unmatched ValNav UWIs: {lf.num(len(unmatched_valnav))}"))
-        log(lf.detail(f"Unmatched Accumap UWIs: {lf.num(len(unmatched_accumap))}"))
-        log(lf.detail(f"Unmatched in both sources: {lf.num(len(unmatched_both))}"))
         progress(60)
         
         # -----------------------------------------------------------------
@@ -398,7 +339,7 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 loaded_wells_original[normalized] = well_name
         
         log(lf.detail(
-            f"Wells successfully matched from ValNav/Accumap: {lf.num(len(loaded_wells))}"
+            f"Wells successfully matched from ValNav: {lf.num(len(loaded_wells))}"
         ))
         
         missing_normalized = master_wells - loaded_wells
@@ -411,8 +352,8 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             missing_wells.append(master_wells_original.get(norm, norm))
         
         if missing_count > 0:
-            log(lf.warn(f"{missing_count} wells had no ValNav/Accumap data"))
-            warning_messages.append(f"{missing_count} wells had no source data")
+            log(lf.warn(f"{missing_count} wells had no ValNav data"))
+            warning_messages.append(f"{missing_count} wells had no ValNav data")
             for well in missing_wells[:10]:
                 log(lf.item(well))
             if missing_count > 10:
@@ -449,25 +390,21 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         log(lf.step("Inserting combined data"))
         
         valnav_source = os.path.basename(valnav_path)
-        accumap_source = os.path.basename(accumap_path)
         loaded_at = datetime.now()
         
         wells_inserted = 0
         wells_valnav_only = 0
-        wells_accumap_only = 0
-        wells_both = 0
         wells_with_cda = 0
         errors = 0
         
         log(lf.detail(f"Inserting data for {lf.num(len(matched_wells))} wells"))
         
-        combined_source = f"ValNav: {valnav_source}, Accumap: {accumap_source}"
+        combined_source = f"ValNav: {valnav_source} (public sales gas via Public Sales dialog)"
         rows_to_insert = []
 
         for well_name, well_data in matched_wells.items():
             try:
                 valnav_data_for_well = well_data['valnav_data']
-                accumap_data_for_well = well_data['accumap_data']
 
                 prodview_wh_gas = well_data['prodview_wh_gas']
                 prodview_wh_cond = well_data['prodview_wh_cond']
@@ -475,22 +412,17 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 gathered_cond = well_data['gathered_cond']
 
                 has_valnav = valnav_data_for_well is not None
-                has_accumap = accumap_data_for_well is not None
                 has_cda = (prodview_wh_gas > 0 or prodview_wh_cond > 0
                            or gathered_gas > 0 or gathered_cond > 0)
 
-                if has_valnav and has_accumap:
-                    wells_both += 1
-                elif has_valnav:
+                if has_valnav:
                     wells_valnav_only += 1
-                elif has_accumap:
-                    wells_accumap_only += 1
                 if has_cda:
                     wells_with_cda += 1
 
                 s2_gas = valnav_data_for_well['S2_Gas'] if has_valnav else 0
                 sales_cond = valnav_data_for_well['Sales_Cond'] if has_valnav else 0
-                sales_gas = accumap_data_for_well['Sales_Gas'] if has_accumap else 0
+                sales_gas = 0.0
 
                 wh_to_s2 = 1.0 if prodview_wh_gas == 0 else s2_gas / prodview_wh_gas
                 wh_to_sales_gas = 1.0 if prodview_wh_gas == 0 else sales_gas / prodview_wh_gas
@@ -536,8 +468,14 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
                 progress(70 + (wells_inserted / max(len(matched_wells), 1) * 20))
 
         conn.commit()
-        progress(90)        
+        progress(85)
 
+        from sales_allocation_updates import apply_valnav_allocation_to_cda_and_production
+
+        log(lf.step("Applying ValNav allocation to PCE_CDA and PCE_Production"))
+        apply_valnav_allocation_to_cda_and_production(conn, month_start, log=log)
+
+        progress(95)
         conn.close()
         progress(100)
         
@@ -548,7 +486,6 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
         
         summary = {
             'valnav_records': len(valnav_data),
-            'accumap_records': len(accumap_data),
             'matched_wells': len(matched_wells) - wells_added,
             'wells_added': wells_added,
             'total_wells': len(matched_wells),
@@ -561,11 +498,11 @@ def run_monthly_loader(month_str, valnav_path, accumap_path, progress_callback=N
             "Completed": lf.timestamp(),
             "Month": summary["month"],
             "ValNav records": summary["valnav_records"],
-            "Accumap records": summary["accumap_records"],
             "Wells matched": summary["matched_wells"],
             "Wells added (zeros)": summary["wells_added"],
             "Total wells": summary["total_wells"],
             "Duration": lf.elapsed(total_time),
+            "Note": "Run Public Sales Data and Ratios to load Accumap and refresh gas sales + CGR",
         }
         if summary["warnings"]:
             complete_metrics["Warnings"] = summary["warnings"]

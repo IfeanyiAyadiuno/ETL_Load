@@ -1,5 +1,6 @@
 # sales_ratios_dialog.py
 
+import os
 import threading
 from datetime import datetime, timedelta
 
@@ -32,14 +33,16 @@ from styles import (
     btn_neutral,
     progress_bar_style,
     results_area_style,
+    file_path_label_style,
     configure_dialog_window_mode,
 )
 from sales_ratios_gui import preflight_sales_ratios_range
 
 
 class SalesRatiosDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, paths_section=None, parent=None):
         super().__init__(parent)
+        self.paths_section = paths_section or {}
         self.setWindowTitle("📈 Public Sales Data and Ratios")
         self.setModal(True)
         self.setMinimumWidth(600)
@@ -48,6 +51,7 @@ class SalesRatiosDialog(QDialog):
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
+        self.validate_inputs()
 
     def initUI(self):
         """Initialize the sales ratios dialog UI"""
@@ -98,21 +102,30 @@ class SalesRatiosDialog(QDialog):
         range_group.layout().addLayout(range_layout)
         layout.addWidget(range_group)
 
+        accumap_group = self.create_group("📁 Public Data Accumap file")
+        accumap_layout = QHBoxLayout()
+        accumap_layout.addWidget(QLabel("Path:"))
+        self.accumap_path_label = QLabel()
+        ap = self.paths_section.get("accumap_template", "Not configured in Settings")
+        self.accumap_path_label.setText(ap)
+        self.accumap_path_label.setStyleSheet(file_path_label_style())
+        self.accumap_path_label.setWordWrap(True)
+        accumap_layout.addWidget(self.accumap_path_label, 1)
+        accumap_group.layout().addLayout(accumap_layout)
+        self.accumap_status = QLabel()
+        accumap_group.layout().addWidget(self.accumap_status)
+        layout.addWidget(accumap_group)
+
         # Info Group
         info_group = self.create_group("ℹ️ This will update:")
         info_layout = QVBoxLayout()
 
         info_text = QLabel(
-            "• PCE_CDA calculated fields:\n"
-            "  - Gas - S2 Production\n"
-            "  - Gas - Sales Production\n"
-            "  - Condensate - Sales Production\n"
-            "  - Sales CGR Ratio\n\n"
-            "• PCE_Production table:\n"
-            "  - Gas S2 Production (10³m³)\n"
-            "  - Gas Sales Production (10³m³)\n"
-            "  - Condensate Sales (m³/d)\n"
-            "  - Sales CGR (m³/e³m³)"
+            "Each month in the range:\n"
+            "  1. Merge Accumap (sales gas) into Allocation_Factors\n"
+            "  2. Recalculate all sales fields + CGR on PCE_CDA\n"
+            "  3. Sync matching columns on PCE_Production\n\n"
+            "Run PA (ValNav) for those months first so Allocation_Factors rows exist."
         )
         info_text.setStyleSheet("""
             QLabel {
@@ -166,6 +179,18 @@ class SalesRatiosDialog(QDialog):
         # Set the scroll content
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+    def validate_inputs(self):
+        """Accumap file required for this dialog."""
+        accumap_path = self.paths_section.get("accumap_template", "")
+        if os.path.isfile(accumap_path):
+            self.accumap_status.setText("✅ Accumap file found")
+            self.accumap_status.setStyleSheet("color: #1a4d3e;")
+            self.run_btn.setEnabled(True)
+        else:
+            self.accumap_status.setText("❌ Accumap file not found — set Accumap Template in Settings")
+            self.accumap_status.setStyleSheet("color: #dc3545;")
+            self.run_btn.setEnabled(False)
 
     def handle_close(self):
         """
@@ -287,6 +312,16 @@ class SalesRatiosDialog(QDialog):
             QMessageBox.critical(self, "Preflight Check", pf["error"])
             return
 
+        accumap_path = self.paths_section.get("accumap_template", "")
+        if not os.path.isfile(accumap_path):
+            QMessageBox.critical(
+                self,
+                "Accumap required",
+                "The Public Sales update needs the Accumap Excel file.\n\n"
+                "Configure **Accumap Template** in Settings and try again.",
+            )
+            return
+
         if pf["allocation_month_count"] == 0:
             w = QMessageBox.warning(
                 self,
@@ -332,7 +367,7 @@ class SalesRatiosDialog(QDialog):
             To=to_month,
         ))
 
-        self.worker = SalesRatiosWorker(from_month, to_month)
+        self.worker = SalesRatiosWorker(from_month, to_month, accumap_path)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.finished_signal.connect(self.update_finished)
@@ -383,10 +418,11 @@ class SalesRatiosWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, from_month, to_month):
+    def __init__(self, from_month, to_month, accumap_path):
         super().__init__()
         self.from_month = from_month
         self.to_month = to_month
+        self.accumap_path = accumap_path
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -410,6 +446,7 @@ class SalesRatiosWorker(QThread):
                 progress_callback,
                 log_callback,
                 cancelled=lambda: self._cancel_event.is_set(),
+                accumap_path=self.accumap_path,
             )
 
             if 'error' in summary:

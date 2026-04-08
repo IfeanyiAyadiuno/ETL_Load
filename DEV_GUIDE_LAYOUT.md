@@ -24,7 +24,7 @@ You can paste this into ChatGPT with a prompt such as:
 ### 1.3 What this System Does (Business View)
 - Pulls **daily production data** from Snowflake/Prodview and loads it into SQL Server.
 - Maintains a **Well Master** table with metadata for each well.
-- Processes **Production Accounting (PA) allocations** from ValNav and Accumap spreadsheets.
+- Processes **Production Accounting (PA) allocations** from **ValNav**; **Accumap** public sales gas is applied in **Public Sales Data and Ratios** (see §4.2 and §4.5).
 - Manages **Survey data** and **Type Curves** imports.
 - Calculates and updates **sales ratios** and related public data.
 
@@ -146,7 +146,7 @@ This section is the **most important** if you want to know "where is the code th
 
 ---
 
-### 4.2 Production Accounting Monthly Loader (ValNav & Accumap)
+### 4.2 Production Accounting Monthly Loader (ValNav; Accumap → §4.5)
 
 - **User path:**
   - Button: **📊 Production Accounting Allocations (PA)**.
@@ -154,16 +154,19 @@ This section is the **most important** if you want to know "where is the code th
 
 - **Logic file:**
   - **File:** `monthly_loader_gui.py`
-  - **Main entry:** `run_monthly_loader(month, valnav_path, accumap_path, progress_callback, log_callback)`
+  - **Main entry:** `run_monthly_loader(month, valnav_path, progress_callback, log_callback)` (optional deprecated `accumap_path` ignored)
 
-- **What it does:**
+- **What it does (target split — ValNav vs Accumap):**
   1. Reads the selected **month** and builds a period.
-  2. Loads **ValNav** and **Accumap** Excel files (paths from `settings.ini`).
-  3. Uses `PCE_WM` for well mapping.
-  4. Computes allocation factors, matches wells, fills gaps.
-  5. Writes allocation data back to SQL Server tables in batches.
+  2. Loads the **ValNav** Excel file (path from `settings.ini`). **Accumap** is **not** part of this job; see **§4.5**.
+  3. Uses `PCE_WM` for well mapping and **PCE_CDA** monthly aggregates (same pattern as today for factor denominators).
+  4. Writes **ValNav-derived** columns into **`Allocation_Factors`** (e.g. `S2_Gas`, `Sales_Condensate`, `WH_to_S2_AllocFactor`, `WH_to_Sales_Cond_AllocFactor`, and related CDA rollups used to compute them). Does **not** populate **`Sales_Gas`** or **`WH_to_Sales_AllocFactor`** (those come from Accumap in Public Sales).
+  5. Calls **`apply_valnav_allocation_to_cda_and_production`** in **`sales_allocation_updates.py`** (ValNav-only CDA/Production columns):
+     - **`PCE_CDA`:** `[Gas - S2 Production]`, `[Condensate - Sales Production]`
+     - **`PCE_Production`:** `[Gas S2 Production (10³m³)]`, `[Condensate Sales (m³/d)]` (via the existing `PCE_WM` composite-name join used in sales ratios)
+  6. Does **not** in this step update **`[Gas - Sales Production]`**, **`[Gas Sales Production (10³m³)]`**, or **`[Sales CGR Ratio]`** / **`[Sales CGR (m³/e³m³)]`** — those stay for **Public Sales Data and Ratios** after Accumap-backed factors exist.
 
-> **Manager summary:** PA monthly logic is in `monthly_loader_gui.py`; the dialog file only deals with UI and threading.
+> **Manager summary:** PA monthly logic is in `monthly_loader_gui.py`; the dialog file only deals with UI and threading. **Ownership:** ValNav → PA + partial CDA/Production; Accumap → Public Sales + remaining CDA/Production sales-gas and CGR fields. Shared SQL helpers live in `sales_allocation_updates.py`.
 
 ---
 
@@ -213,14 +216,15 @@ This section is the **most important** if you want to know "where is the code th
   - Button: **📈 Public Sales Data and Ratios**.
   - Dialog: `SalesRatiosDialog` (`sales_ratios_dialog.py`).
 
-- **Logic file:**
-  - **File:** `sales_ratios_gui.py`
-  - Contains functions that:
-  - For a selected month range, read relevant records from `PCE_CDA`.
-  - Recalculate sales-related fields and ratios.
-  - Update **both** `PCE_CDA` (daily-level fields) **and** `PCE_Production` (monthly summary fields) in batches.
-    
-> **Key point:** This module **does not pull from Snowflake**; it works on existing SQL Server data in `PCE_CDA` and pushes matching fields into `PCE_Production`.
+- **Logic files:**
+  - **`sales_ratios_gui.py`** — **`run_sales_ratios_update`**: orchestrates each month (requires **`accumap_path`**).
+  - **`sales_allocation_updates.py`** — **`merge_accumap_into_allocation_factors`**, **`apply_full_sales_ratios_for_month`**: Accumap merge into **`Allocation_Factors`**, then full sales + CGR on **`PCE_CDA`** / **`PCE_Production`**.
+
+- **Accumap / public sales gas:**
+  - The **Accumap** Excel (sheet **Sales Gas - to PRW**, **`PRD Monthly Mktbl GAS e3m3`**) is read **here** per calendar month; **`Sales_Gas`**, **`WH_to_Sales_AllocFactor`**, and **`Gathered_to_Sales`** are written onto existing **`Allocation_Factors`** rows for that month (PA must have created the rows first).
+  - Then **`apply_full_sales_ratios_for_month`** updates all sales allocation columns on **`PCE_CDA`** (including **`CASE`** on **`Sales_Gas / days_in_month`**), **`Sales CGR Ratio`**, and the four aligned columns on **`PCE_Production`**.
+
+> **Key point:** This module **does not pull from Snowflake**; it works on SQL Server **`PCE_CDA`**, **`Allocation_Factors`**, and **`PCE_Production`**. **Does not** replace PA: PA should have already written ValNav-side factors and S2/condensate sales fields on CDA/Production for the same months where applicable.
 
 ---
 
@@ -350,7 +354,7 @@ Provide a **simple table** like this in the final document:
 - **PA Monthly Loader**  
   - UI: `monthly_loader_dialog.py` (`MonthlyLoaderDialog`)  
   - Logic: `monthly_loader_gui.py` (`run_monthly_loader`)  
-  - Data: ValNav + Accumap → PA tables
+  - Data: ValNav → `Allocation_Factors` (ValNav columns/factors) + targeted `PCE_CDA` / `PCE_Production` updates (S2 gas, condensate sales only). Accumap → Public Sales (see Sales Ratios).
 
 - **Survey Import**  
   - UI: `survey_import_dialog.py` (`SurveyImportDialog`)  
@@ -365,7 +369,7 @@ Provide a **simple table** like this in the final document:
 - **Sales Ratios**  
   - UI: `sales_ratios_dialog.py` (`SalesRatiosDialog`)  
   - Logic: `sales_ratios_gui.py`  
-  - Data: `PCE_CDA` and `PCE_Production`recalculations
+  - Data: Accumap → `Allocation_Factors` (sales gas); `PCE_CDA` and `PCE_Production` recalculations (gas sales, CGR, and aligned columns)
 
 - **Well Master**  
   - UI + Logic: `well_master_gui.py` (`WellMasterDialog` + helpers)  

@@ -356,8 +356,15 @@ class ProductionUpdateGUI(QMainWindow):
     def open_sales_ratios(self):
         """Open the sales ratios update dialog"""
         self.log("Opening Sales Ratios Update dialog...")
-        
-        dialog = SalesRatiosDialog(self)
+
+        config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
+        else:
+            config["PATHS"] = {}
+
+        dialog = SalesRatiosDialog(config["PATHS"], self)
         dialog.exec_()
         
         # Clear selection

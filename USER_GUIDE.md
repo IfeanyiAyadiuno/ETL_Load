@@ -59,18 +59,20 @@ Credential, VPN, and ODBC driver requirements are managed by IT; obtain confirma
 | `PCE_WM` | Well master: well list and linkage to Snowflake identifiers (**GasIDREC**, **PressuresIDREC**). Wells absent or excluded here may be omitted from daily loads. |
 | `PCE_CDA` | Daily-style production rows sourced from Snowflake (and related processing). |
 | `PCE_Production` | Production history for reporting; sequences, cumulatives, and averages derived from CDA according to the job executed. |
-| `Allocation_Factors` | Monthly allocation inputs from ValNav and Accumap (PA module). |
+| `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
-**Public Sales Data and Ratios** applies allocation factors to update calculated sales fields in `PCE_CDA` and aligned columns in `PCE_Production`.
+**Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors).
+
+**Public Sales Data and Ratios** loads **Accumap** (public sales gas) into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** for **gas sales production** and **sales CGR**, using the same style of updates as today for those fields.
 
 ### Reference sequence
 
 1. Maintain **Well Master** (including new wells from Snowflake where required).  
 2. Execute **Prodview / Snowflake** per the agreed refresh schedule.  
-3. Run **PA** after monthly ValNav and Accumap files are available.  
-4. Run **Public Sales Data and Ratios** when sales-ratio fields require updating for a defined month range.
+3. Run **PA** when the monthly **ValNav** file is ready (PA applies ValNav to **`Allocation_Factors`** and refreshes **S2** and **condensate sales** on **`PCE_CDA`** / **`PCE_Production`**).  
+4. Run **Public Sales Data and Ratios** when the **Accumap** file is ready and you need **gas sales** and **sales CGR** updated for a month range (it applies Accumap to **`Allocation_Factors`** and updates the remaining sales fields on **`PCE_CDA`** / **`PCE_Production`**).
 
-**Why this order:** Sales Ratios reads **`Allocation_Factors`** (loaded by PA) and updates **`PCE_CDA`** / **`PCE_Production`** using daily data that should already exist in **`PCE_CDA`** from Prodview. The Public Sales dialog may warn you if factors or CDA rows are missing for the selected range; you can still continue, but the update may do nothing useful until those steps are done.
+**Why this order:** Daily wellhead-style rows should already exist in **`PCE_CDA`** from Prodview. **PA** does not replace **Public Sales**—each module owns a different subset of **`Allocation_Factors`** and of the calculated sales columns. The Public Sales dialog may warn you if factors or CDA rows are missing for the selected range.
 
 **Sales Ratios cancel:** If you cancel during a run, the app stops **between months**; completed months stay committed.
 
@@ -115,7 +117,7 @@ The **Operation log** records timestamped lines (`[HH:MM:SS] …`). Status text 
 
 **Save Settings** writes `settings.ini`. **Cancel** discards changes.
 
-PA, Survey, Type Curves, and Whitson modules read these paths as defaults; incorrect or missing paths produce file-not-found messages in the respective dialogs.
+PA uses **ValNav Template**; **Public Sales Data and Ratios** uses **Accumap Template** for public sales gas. Survey, Type Curves, and Whitson read their paths as defaults; incorrect or missing paths produce file-not-found messages in the respective dialogs.
 
 > **Figure 2 — Settings**  
 > *[Insert screenshot: Settings dialog showing SQL Server fields and all file path rows with Browse. Red arrow: Save Settings. Red arrow: ValNav / Accumap paths.]*
@@ -195,9 +197,11 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 ## Production Accounting Allocations (PA)
 
-**Objective:** Load one month of ValNav and Accumap data into **`Allocation_Factors`** (monthly loader logic).
+**Objective:** For the selected month, write **ValNav**-based rows/columns into **`Allocation_Factors`**, then update **`PCE_CDA`** and **`PCE_Production`** for **S2 gas** and **condensate sales** only (same logical fields as in **Public Sales Data and Ratios**, but only the ValNav-driven subset).
 
-**Prerequisites:** **ValNav Template** and **Accumap Template** set in **Settings**; source files must exist for the target month.
+**Prerequisites:** **ValNav Template** set in **Settings**; ValNav source file must exist for the target month.
+
+**Accumap** is **not** part of this step: public **sales gas** and **sales CGR** are handled when you run **Public Sales Data and Ratios** using the **Accumap Template**.
 
 **Month control:** Dropdown contains roughly the **last 24** calendar months, **oldest first**. Select the month that matches the files being loaded (first list item is the oldest in the window).
 
@@ -205,7 +209,7 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 1. Open **Production Accounting Allocations (PA)**.  
 2. Select **Month**.  
-3. Verify status: database, **ValNav file**, **Public Data Accumap file**.  
+3. Verify status: database and **ValNav file**. (Accumap path is shown for reference; PA does not read it.)  
 4. **Run Monthly Loader**; confirm the dialog.  
 5. Review **Results** (counts, warnings, elapsed time).
 
@@ -220,7 +224,9 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 ## Public Sales Data and Ratios
 
-**Objective:** Update calculated sales fields in **`PCE_CDA`** and corresponding columns in **`PCE_Production`** using **`Allocation_Factors`** (set-based SQL updates).
+**Objective:** Apply **Accumap** (public sales gas) to **`Allocation_Factors`**, then update **`PCE_CDA`** and **`PCE_Production`** for **gas sales production** and **sales CGR** (and any aligned columns computed in the same pass). **S2 gas** and **condensate sales** should already be current from **PA** for months where you ran ValNav first.
+
+**Prerequisites:** **Accumap Template** in **Settings**; run **PA** first for months where ValNav-based allocation and S2/condensate sales fields need to be current.
 
 **Month range:** **From** and **To** list every month from **January 2008** through the **current calendar month**, oldest first. Default **From** is **Jan 2008**; default **To** is the **current month** (full history through the current month unless changed).
 
@@ -350,7 +356,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 | `PCE_WM` | Well master table: identifiers and attributes per well. |
 | `PCE_CDA` | Daily-style production data from Snowflake for wells in the well master. |
 | `PCE_Production` | Production history with sequences, cumulatives, and averages for downstream use. |
-| `Allocation_Factors` | Monthly allocation data from ValNav/Accumap (PA). |
+| `Allocation_Factors` | Monthly allocation data: ValNav side from **PA**; Accumap (sales gas) from **Public Sales Data and Ratios**. |
 | GasIDREC / PressuresIDREC | Snowflake keys linking a well to meter/completion data. |
 | Composite Name | Production row naming derived from well master mapping where applicable. |
 | Quick Update vs Full Rebuild | Quick: month-bounded CDA and Production update. Full: complete `PCE_Production` rebuild from `PCE_CDA`. |
