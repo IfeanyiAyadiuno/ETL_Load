@@ -5,9 +5,7 @@ from PyQt5.QtWidgets import QStyledItemDelegate, QComboBox
 
 
 class PlainTextDelegate(QStyledItemDelegate):
-    """Table-level delegate for plain text cells.
-    Resets the editor cursor to position 0 after Qt sets the data so that
-    long values always show from the left instead of being clipped."""
+    """Table-level delegate for plain text cells."""
 
     def setEditorData(self, editor, index):
         super().setEditorData(editor, index)
