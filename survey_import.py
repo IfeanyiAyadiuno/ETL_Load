@@ -135,11 +135,25 @@ def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) ->
     return False
 
 
+def _collapse_digit_runs_leading_zeros(s: str) -> str:
+    """Each contiguous digit block is normalized via int() so 094→94, 05→5, 00→0."""
+
+    def norm_digits(m: re.Match) -> str:
+        block = m.group(0)
+        try:
+            return str(int(block, 10))
+        except ValueError:
+            return block
+
+    return re.sub(r"\d+", norm_digits, s)
+
+
 def well_name_match_key(name) -> str:
     """
     Normalized key for matching survey/file text to PCE_WM [Well Name].
 
     Vendors often differ on casing and on slash vs hyphen in lateral IDs (e.g. D/94 vs D-94).
+    Contiguous digits are compared with leading zeros removed (e.g. V098 vs V98, …-094-… vs …-94-…).
     This does not change the stored display name; use clean_well_name for that.
     """
     if name is None or (isinstance(name, float) and pd.isna(name)):
@@ -154,6 +168,7 @@ def well_name_match_key(name) -> str:
     s = re.sub(r"\s*-\s*", "-", s)
     s = re.sub(r"-+", "-", s)
     s = re.sub(r"\s+", " ", s).strip()
+    s = _collapse_digit_runs_leading_zeros(s)
     return s
 
 
