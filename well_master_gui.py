@@ -175,17 +175,35 @@ class WellMasterDB:
 
     @staticmethod
     def delete_well(well_name):
-        """Permanently delete a well from PCE_WM by Well Name."""
+        """Permanently delete a well from PCE_WM by Well Name.
+
+        Removes dependent rows first (PCE_CDA, PCE_Production, Allocation_Factors,
+        PCE_Surveys) so foreign keys such as FK_PCE_CDA_PCE_WM do not block the delete.
+        """
         from db_connection import get_sql_conn
+        from purge_exception_wells import delete_dependent_rows_for_well_master
+
+        conn = None
         try:
             conn = get_sql_conn()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM PCE_WM WHERE [Well Name] = ?", well_name)
+            delete_dependent_rows_for_well_master(cursor, [well_name])
+            cursor.execute("DELETE FROM PCE_WM WHERE [Well Name] = ?", (well_name,))
             conn.commit()
-            conn.close()
             return True, None
         except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             return False, str(e)
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     @staticmethod
     def save_well_updates(updates):
@@ -1353,7 +1371,10 @@ class WellMasterDialog(QDialog):
         reply = QMessageBox.warning(
             self,
             "Confirm Delete",
-            f"Permanently remove {len(names)} well(s) from PCE_WM?\n\n{names_list}\n\nThis cannot be undone.",
+            f"Permanently remove {len(names)} well(s) from PCE_WM?\n\n{names_list}\n\n"
+            "All matching rows in PCE_CDA, PCE_Production, Allocation_Factors, and "
+            "PCE_Surveys will be deleted first, then the well master row.\n\n"
+            "This cannot be undone.",
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
         )
