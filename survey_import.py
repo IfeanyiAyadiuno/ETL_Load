@@ -366,7 +366,7 @@ def _apply_append_or_overwrite(
         if not uwis_to_check:
             return matched_df, 0
 
-        placeholders = ",".join(["?"] for _ in uwis_to_check)
+        placeholders = ",".join(["?"] * len(uwis_to_check))
         existing_query = f"""
                     SELECT [UWI], [Measured Depth]
                     FROM PCE_Surveys
