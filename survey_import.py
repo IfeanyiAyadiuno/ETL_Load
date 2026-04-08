@@ -103,7 +103,7 @@ def clean_well_name(name):
 
 def _well_name_lookup_trim_candidates(text: str) -> List[str]:
     """
-    Strings to try against PCE_WM [Base Composite Name], in order.
+    Strings to try against PCE_WM [Well Name], in order.
 
     Survey cells often prefix the asset with operator/area text (e.g. \"Pacific … Altares\")
     while Well Master stores the trailing well id. We try the full cell first (longest match
@@ -137,7 +137,7 @@ def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) ->
 
 def well_name_match_key(name) -> str:
     """
-    Normalized key for matching survey/file text to PCE_WM [Base Composite Name].
+    Normalized key for matching survey/file text to PCE_WM [Well Name].
 
     Vendors often differ on casing and on slash vs hyphen in lateral IDs (e.g. D/94 vs D-94).
     This does not change the stored display name; use clean_well_name for that.
@@ -263,7 +263,7 @@ def lookup_wm_uwi_pad_for_directional(
     well_name_from_file: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Match well name text to PCE_WM [Base Composite Name] using well_name_match_key
+    Match well name text to PCE_WM [Well Name] using well_name_match_key
     (case-insensitive; slashes normalized to hyphens). Tries the full cell text first,
     then drops leading words one at a time so prefixed vendor strings still resolve.
     Returns (uwi, pad, error_message).
@@ -272,9 +272,10 @@ def lookup_wm_uwi_pad_for_directional(
     try:
         df = pd.read_sql(
             """
-            SELECT [Base Composite Name], [Value Navigator UWI], [Pad Name]
+            SELECT [Well Name], [Value Navigator UWI], [Pad Name]
             FROM PCE_WM
-            WHERE [Base Composite Name] IS NOT NULL
+            WHERE [Well Name] IS NOT NULL
+              AND LTRIM(RTRIM([Well Name])) <> ''
               AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
             """,
             conn,
@@ -286,7 +287,7 @@ def lookup_wm_uwi_pad_for_directional(
         return None, None, "No wells found in PCE_WM."
 
     df = df.copy()
-    df["_key"] = df["Base Composite Name"].apply(well_name_match_key)
+    df["_key"] = df["Well Name"].apply(well_name_match_key)
 
     m = pd.DataFrame()
     for cand in _well_name_lookup_trim_candidates(well_name_from_file):
@@ -304,7 +305,7 @@ def lookup_wm_uwi_pad_for_directional(
         disp_s = disp if isinstance(disp, str) else str(well_name_from_file)
         return None, None, (
             f"No unique PCE_WM row matches this well name after trying the full cell and "
-            f"dropping leading words (compare to [Base Composite Name]): '{disp_s}'"
+            f"dropping leading words (compare to [Well Name] in Well Master): '{disp_s}'"
         )
     uwi = m.iloc[0]["Value Navigator UWI"]
     pad = m.iloc[0]["Pad Name"]
@@ -574,14 +575,15 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         conn = get_sql_conn()
         valid_wells_df = pd.read_sql(
             """
-            SELECT DISTINCT [Base Composite Name]
+            SELECT DISTINCT [Well Name]
             FROM PCE_WM
-            WHERE [Base Composite Name] IS NOT NULL
+            WHERE [Well Name] IS NOT NULL
+              AND LTRIM(RTRIM([Well Name])) <> ''
               AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
         """,
             conn,
         )
-        valid_wells_df["Match Key"] = valid_wells_df["Base Composite Name"].apply(
+        valid_wells_df["Match Key"] = valid_wells_df["Well Name"].apply(
             well_name_match_key
         )
         valid_wells = {k for k in valid_wells_df["Match Key"].tolist() if k}
@@ -692,7 +694,7 @@ def import_directional_survey_with_mapping(
 ) -> dict:
     """
     Import a single-well directional survey workbook using user-defined row/column mapping.
-    UWI and PAD come from PCE_WM (Value Navigator UWI, Pad Name) via Base Composite Name match.
+    UWI and PAD come from PCE_WM (Value Navigator UWI, Pad Name) via [Well Name] match.
     """
     def log(message):
         if log_callback:
