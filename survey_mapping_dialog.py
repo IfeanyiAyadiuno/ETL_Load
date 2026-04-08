@@ -313,11 +313,12 @@ class SurveyMappingDialog(QDialog):
         if v is None or (isinstance(v, float) and pd.isna(v)):
             QMessageBox.warning(self, "Well name", "Well name cell is empty.")
             return
-        cleaned = clean_well_name(str(v).strip())
+        raw = str(v).strip()
+        cleaned = clean_well_name(raw)
         if not cleaned:
             QMessageBox.warning(self, "Well name", "Could not clean well name.")
             return
-        uwi, pad, err = lookup_wm_uwi_pad_for_directional(cleaned)
+        uwi, pad, err = lookup_wm_uwi_pad_for_directional(raw)
         if err:
             QMessageBox.warning(self, "PCE_WM", err)
             return

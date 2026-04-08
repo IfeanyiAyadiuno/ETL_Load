@@ -101,6 +101,62 @@ def clean_well_name(name):
     return cleaned
 
 
+def _well_name_lookup_trim_candidates(text: str) -> List[str]:
+    """
+    Strings to try against PCE_WM [Base Composite Name], in order.
+
+    Survey cells often prefix the asset with operator/area text (e.g. \"Pacific … Altares\")
+    while Well Master stores the trailing well id. We try the full cell first (longest match
+    wins), then the same text with 1, 2, … leading whitespace-separated words removed.
+    """
+    raw = str(text).strip()
+    if not raw:
+        return []
+    tokens = re.split(r"\s+", raw)
+    out: List[str] = []
+    for i in range(len(tokens)):
+        part = " ".join(tokens[i:]).strip()
+        if part:
+            out.append(part)
+    return out
+
+
+def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) -> bool:
+    """True if any leading-word-trim variant matches a key in valid_wm_keys (legacy bulk)."""
+    if well_name_cell is None or (isinstance(well_name_cell, float) and pd.isna(well_name_cell)):
+        return False
+    text = str(well_name_cell).strip()
+    if not text:
+        return False
+    for cand in _well_name_lookup_trim_candidates(text):
+        k = well_name_match_key(cand)
+        if k and k in valid_wm_keys:
+            return True
+    return False
+
+
+def well_name_match_key(name) -> str:
+    """
+    Normalized key for matching survey/file text to PCE_WM [Base Composite Name].
+
+    Vendors often differ on casing and on slash vs hyphen in lateral IDs (e.g. D/94 vs D-94).
+    This does not change the stored display name; use clean_well_name for that.
+    """
+    if name is None or (isinstance(name, float) and pd.isna(name)):
+        return ""
+    if not isinstance(name, str):
+        name = str(name).strip()
+    cleaned = clean_well_name(name)
+    if not isinstance(cleaned, str) or not cleaned:
+        return ""
+    s = cleaned.casefold()
+    s = s.replace("\\", "-").replace("/", "-")
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"-+", "-", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """Rename Excel columns to canonical names using case-insensitive match."""
     canonical_by_fold = {
@@ -204,11 +260,13 @@ INSERT_COLS = [
 
 
 def lookup_wm_uwi_pad_for_directional(
-    cleaned_well_name: str,
+    well_name_from_file: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Match cleaned well name to PCE_WM [Base Composite Name] (cleaned).
-    Returns (uwi, pad, error_message). error_message set if 0 or multiple matches.
+    Match well name text to PCE_WM [Base Composite Name] using well_name_match_key
+    (case-insensitive; slashes normalized to hyphens). Tries the full cell text first,
+    then drops leading words one at a time so prefixed vendor strings still resolve.
+    Returns (uwi, pad, error_message).
     """
     conn = get_sql_conn()
     try:
@@ -228,18 +286,25 @@ def lookup_wm_uwi_pad_for_directional(
         return None, None, "No wells found in PCE_WM."
 
     df = df.copy()
-    df["_clean"] = df["Base Composite Name"].apply(
-        lambda x: clean_well_name(x) if pd.notna(x) and isinstance(x, str) else ""
-    )
-    m = df[df["_clean"] == cleaned_well_name]
-    if len(m) == 0:
+    df["_key"] = df["Base Composite Name"].apply(well_name_match_key)
+
+    m = pd.DataFrame()
+    for cand in _well_name_lookup_trim_candidates(well_name_from_file):
+        k = well_name_match_key(cand)
+        if not k:
+            continue
+        m = df[df["_key"] == k]
+        if len(m) == 1:
+            break
+        # 0 rows: try next candidate; >1 rows: try next (shorter tail may disambiguate)
+        m = pd.DataFrame()
+
+    if len(m) != 1:
+        disp = clean_well_name(well_name_from_file)
+        disp_s = disp if isinstance(disp, str) else str(well_name_from_file)
         return None, None, (
-            f"No PCE_WM row matches well name after cleaning: '{cleaned_well_name}'"
-        )
-    if len(m) > 1:
-        return None, None, (
-            f"Multiple PCE_WM rows ({len(m)}) match well name '{cleaned_well_name}'. "
-            "Resolve duplicates in Well Master."
+            f"No unique PCE_WM row matches this well name after trying the full cell and "
+            f"dropping leading words (compare to [Base Composite Name]): '{disp_s}'"
         )
     uwi = m.iloc[0]["Value Navigator UWI"]
     pad = m.iloc[0]["Pad Name"]
@@ -516,15 +581,17 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         """,
             conn,
         )
-        valid_wells_df["Cleaned Name"] = valid_wells_df["Base Composite Name"].apply(
-            clean_well_name
+        valid_wells_df["Match Key"] = valid_wells_df["Base Composite Name"].apply(
+            well_name_match_key
         )
-        valid_wells = set(valid_wells_df["Cleaned Name"].tolist())
+        valid_wells = {k for k in valid_wells_df["Match Key"].tolist() if k}
         log(lf.detail(f"Found {lf.num(len(valid_wells))} valid wells in database"))
         db_samples = list(valid_wells)[:3]
-        log(lf.detail(f"Sample DB names: {db_samples}"))
+        log(lf.detail(f"Sample DB match keys (normalized): {db_samples}"))
 
-        df["Well Found"] = df["Well Name Cleaned"].isin(valid_wells)
+        df["Well Found"] = df["Well Name"].apply(
+            lambda w: survey_well_name_matches_wm_keys(w, valid_wells)
+        )
         matched_df = df[df["Well Found"]].copy()
         unmatched_df = df[~df["Well Found"]].copy()
         log(lf.success(f"{lf.num(len(matched_df))} rows matched to database wells"))
@@ -669,7 +736,7 @@ def import_directional_survey_with_mapping(
             return {"error": "Well name is invalid after cleaning."}
 
         log(lf.step("Resolving UWI and PAD from PCE_WM"))
-        uwi, pad, err = lookup_wm_uwi_pad_for_directional(cleaned)
+        uwi, pad, err = lookup_wm_uwi_pad_for_directional(well_name)
         if err:
             log(lf.error(err))
             return {"error": err}
