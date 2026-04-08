@@ -1,0 +1,4 @@
+dist/ProductionUpdate.exe filter=lfs diff=lfs merge=lfs -text
+build/ProductionUpdate/ProductionUpdate.pkg filter=lfs diff=lfs merge=lfs -text
+*.exe filter=lfs diff=lfs merge=lfs -text
+*.pkg filter=lfs diff=lfs merge=lfs -text
