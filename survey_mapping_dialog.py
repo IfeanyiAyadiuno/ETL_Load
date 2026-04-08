@@ -34,6 +34,7 @@ from styles import (
     btn_brand,
     btn_neutral,
     btn_primary,
+    configure_dialog_window_mode,
 )
 
 
@@ -76,6 +77,7 @@ class SurveyMappingDialog(QDialog):
         self.setModal(True)
         self.setMinimumSize(720, 520)
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
         self._build_ui()
         self._load_workbook()
 

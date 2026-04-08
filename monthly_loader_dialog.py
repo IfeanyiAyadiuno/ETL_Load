@@ -26,6 +26,7 @@ from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, progress_bar_style, results_area_style,
     file_path_label_style,
+    configure_dialog_window_mode,
 )
 
 
@@ -39,6 +40,7 @@ class MonthlyLoaderDialog(QDialog):
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
         self.initUI()
         self.validate_inputs()
 

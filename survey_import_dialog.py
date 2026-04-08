@@ -34,6 +34,7 @@ from styles import (
     progress_bar_style,
     results_area_style,
     file_path_label_style,
+    configure_dialog_window_mode,
 )
 
 
@@ -103,6 +104,7 @@ class SurveyImportDialog(QDialog):
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
         self.initUI()
         self.validate_inputs()
 

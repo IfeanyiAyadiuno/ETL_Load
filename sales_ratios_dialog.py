@@ -31,6 +31,7 @@ from styles import (
     btn_neutral,
     progress_bar_style,
     results_area_style,
+    configure_dialog_window_mode,
 )
 
 
@@ -43,6 +44,7 @@ class SalesRatiosDialog(QDialog):
         self.setMinimumHeight(500)
         self.worker = None
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
         self.initUI()
 
     def initUI(self):

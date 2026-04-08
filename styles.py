@@ -401,3 +401,34 @@ def search_input_style() -> str:
             border-color: {_PRIMARY};
         }}
     """
+
+
+def configure_dialog_window_mode(dialog) -> None:
+    """Min/max title-bar buttons (Windows), F11 toggles full screen, Esc exits full screen."""
+    from PyQt5.QtCore import Qt, QObject, QEvent
+    from PyQt5.QtGui import QKeySequence
+    from PyQt5.QtWidgets import QShortcut
+
+    dialog.setWindowFlag(Qt.WindowMinMaxButtonsHint, True)
+
+    def _toggle_fullscreen():
+        if dialog.isFullScreen():
+            dialog.showNormal()
+        else:
+            dialog.showFullScreen()
+
+    fs_sc = QShortcut(QKeySequence(Qt.Key_F11), dialog)
+    fs_sc.setContext(Qt.WidgetWithChildrenShortcut)
+    fs_sc.activated.connect(_toggle_fullscreen)
+
+    class _EscExitFullscreen(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.KeyPress and dialog.isFullScreen():
+                if event.key() == Qt.Key_Escape:
+                    dialog.showNormal()
+                    return True
+            return False
+
+    filt = _EscExitFullscreen(dialog)
+    filt.setParent(dialog)
+    dialog.installEventFilter(filt)

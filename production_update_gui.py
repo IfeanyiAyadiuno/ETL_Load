@@ -20,6 +20,8 @@ from well_master_gui import WellMasterDialog
 from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
 from whitson_mass_upload_dialog import WhitsonMassUploadDialog
+from styles import configure_dialog_window_mode
+
 
 def _app_dir():
     """Return the application directory, whether running from source or frozen exe."""
@@ -507,6 +509,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings - Production Update System")
         self.setModal(True)
         self.setMinimumWidth(500)
+        configure_dialog_window_mode(self)
         self.initUI()
         self.load_settings()
         
@@ -850,6 +853,7 @@ class ExportsDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(500)
         self.setMinimumHeight(300)
+        configure_dialog_window_mode(self)
         self.initUI()
         
     def initUI(self):

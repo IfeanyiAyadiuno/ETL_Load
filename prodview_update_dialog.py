@@ -26,6 +26,7 @@ from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, progress_bar_style, results_area_style,
     info_panel_style,
+    configure_dialog_window_mode,
 )
 
 
@@ -38,6 +39,7 @@ class ProdviewUpdateDialog(QDialog):
         self.setMinimumHeight(500)
         self.worker = None
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
         self.initUI()
 
     def initUI(self):

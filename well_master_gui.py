@@ -16,7 +16,20 @@ from styles import (
     tab_widget_style, table_style, btn_style, btn_toolbar, btn_neutral, btn_primary,
     btn_success, btn_brand, btn_danger, search_input_style, progress_bar_style,
     _BRAND, _PRIMARY, _SUCCESS, _NEUTRAL, _DANGER,
+    configure_dialog_window_mode,
 )
+
+
+def _strip_leading_snowflake_asterisk(name):
+    """Remove leading '*' tokens from Snowflake unit names (e.g. *B-G095 → B-G095)."""
+    if name is None:
+        return ""
+    if not isinstance(name, str):
+        name = str(name)
+    s = name.strip()
+    while s.startswith("*"):
+        s = s[1:].strip()
+    return s
 
 
 class WellMasterDB:
@@ -360,6 +373,7 @@ class WellMasterDialog(QDialog):
         self.setMinimumWidth(1300)
         self.setMinimumHeight(850)
         self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
 
         # Data
         self.all_wells = []            # All well records
@@ -1130,7 +1144,9 @@ class WellMasterDialog(QDialog):
             def normalize_well_name(name):
                 if not name or not isinstance(name, str):
                     return ""
-                normalized = name.strip()
+                normalized = _strip_leading_snowflake_asterisk(name)
+                if not normalized:
+                    return ""
                 normalized = re.sub(r'-0(\d+)', r'-\1', normalized)
                 normalized = re.sub(r'\b0+(\d+)', r'\1', normalized)
                 normalized = re.sub(r'[-_]+', '-', normalized)
@@ -1204,7 +1220,7 @@ class WellMasterDialog(QDialog):
             # --- DEDUP DAILY WELLS against existing PCE_WM ---
             new_daily_wells = []
             for row in daily_rows:
-                well_name = str(row['UNIT_NAME']).strip()
+                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
                 gas_id    = str(row['GASIDREC']).strip()
                 pres_id   = str(row['PRESSURESIDREC']).strip()
 
@@ -1224,7 +1240,7 @@ class WellMasterDialog(QDialog):
             # --- DEDUP TESTER-ONLY WELLS by name + PressuresIDREC ---
             new_tester_wells = []
             for row in tester_only_rows:
-                well_name = str(row['UNIT_NAME']).strip()
+                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
                 pres_id   = str(row['PRESSURESIDREC']).strip()
 
                 if not well_name or not pres_id:
@@ -1274,6 +1290,7 @@ class WellMasterDialog(QDialog):
             errors = []
 
             for well in new_wells:
+                wn = _strip_leading_snowflake_asterisk(well.get('well_name', ''))
                 try:
                     cursor.execute("""
                         INSERT INTO PCE_WM (
@@ -1281,10 +1298,10 @@ class WellMasterDialog(QDialog):
                             [GasIDREC],
                             [PressuresIDREC]
                         ) VALUES (?, ?, ?)
-                    """, well['well_name'], well['gas_idrec'], well['pressures_idrec'])
+                    """, wn, well['gas_idrec'], well['pressures_idrec'])
                     inserted += 1
                 except Exception as e:
-                    errors.append(f"{well['well_name']}: {str(e)}")
+                    errors.append(f"{wn}: {str(e)}")
 
             conn.commit()
             conn.close()
@@ -1310,9 +1327,10 @@ class WellMasterDialog(QDialog):
             self.status_label.setText(f"Imported {inserted} new wells")
 
             # Auto-populate PCE_CDA for the successfully inserted wells
+            err_names = {e.split(":", 1)[0].strip() for e in errors}
             successfully_inserted = [
                 w for w in new_wells
-                if w['well_name'] not in [e.split(':')[0] for e in errors]
+                if _strip_leading_snowflake_asterisk(w.get("well_name", "")) not in err_names
             ]
             if successfully_inserted:
                 self._start_cda_populate(successfully_inserted)
@@ -1412,6 +1430,7 @@ class WellMasterDialog(QDialog):
         dlg.setMinimumWidth(720)
         dlg.setMinimumHeight(440)
         dlg.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(dlg)
 
         layout = QVBoxLayout(dlg)
         layout.setSpacing(14)
@@ -1530,7 +1549,9 @@ class WellMasterDialog(QDialog):
             filled = []
             for r, well in enumerate(tester_wells):
                 if checkboxes[r].isChecked():
-                    raw_name = tbl.item(r, 1).text().strip()
+                    raw_name = _strip_leading_snowflake_asterisk(
+                        tbl.item(r, 1).text().strip()
+                    )
                     filled.append({
                         'well_name':       raw_name,
                         'gas_idrec':       gas_items[r].text().strip(),
@@ -1561,6 +1582,7 @@ class WellMasterDialog(QDialog):
         preview_dialog.setWindowTitle("Preview New Wells")
         preview_dialog.setMinimumWidth(700)
         preview_dialog.setMinimumHeight(450)
+        configure_dialog_window_mode(preview_dialog)
 
         layout = QVBoxLayout(preview_dialog)
 
@@ -1597,7 +1619,12 @@ class WellMasterDialog(QDialog):
             for col, val in enumerate([well['well_name'], well['gas_idrec'], well['pressures_idrec']]):
                 it = QTableWidgetItem(val)
                 it.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-                it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                if col == 0:
+                    it.setFlags(
+                        Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
+                    )
+                else:
+                    it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 table.setItem(row, col + 1, it)
 
         table.setColumnWidth(0, 32)
@@ -1645,11 +1672,17 @@ class WellMasterDialog(QDialog):
 
     def _do_checked_import(self, dialog, table, new_wells, confirm_cb):
         """Collect only the checked wells, then delegate to do_import_wells."""
-        selected = [
-            new_wells[r]
-            for r in range(table.rowCount())
-            if table.item(r, 0).checkState() == Qt.Checked
-        ]
+        selected = []
+        for r in range(table.rowCount()):
+            if table.item(r, 0).checkState() != Qt.Checked:
+                continue
+            w = dict(new_wells[r])
+            name_item = table.item(r, 1)
+            if name_item is not None:
+                w["well_name"] = _strip_leading_snowflake_asterisk(
+                    name_item.text().strip()
+                )
+            selected.append(w)
         if not selected:
             QMessageBox.warning(self, "No Wells Selected", "Please select at least one well.")
             return
@@ -1944,6 +1977,7 @@ class WellMasterDialog(QDialog):
         self._cda_dialog.setWindowTitle("Populating PCE_CDA")
         self._cda_dialog.setMinimumWidth(520)
         self._cda_dialog.setMinimumHeight(300)
+        configure_dialog_window_mode(self._cda_dialog)
         lay = QVBoxLayout(self._cda_dialog)
 
         title = QLabel(f"Populating CDA for {len(new_wells)} new well(s)...")
