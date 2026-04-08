@@ -377,6 +377,7 @@ def table_style() -> str:
         }}
         QTableWidget::item {{
             padding: 6px 6px;
+            color: {_TEXT};
         }}
         QTableWidget::item:selected {{
             background-color: #dbeafe;

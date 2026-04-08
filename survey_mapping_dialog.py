@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QInputDialog,
 )
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor, QBrush
 
 from survey_import import (
     DirectionalSurveyMappingSpec,
@@ -66,6 +67,22 @@ def _save_presets(data: dict) -> None:
     p = _presets_path()
     with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def _preview_grid_cell_text(v) -> str:
+    """Stable string for QTableWidget; avoids pd.isna() issues on odd cell types."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, bytes):
+        return v.decode("utf-8", errors="replace")
+    try:
+        if bool(pd.isna(v)):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(v)
 
 
 class SurveyMappingDialog(QDialog):
@@ -231,18 +248,24 @@ class SurveyMappingDialog(QDialog):
             return
         max_r = min(45, len(df))
         max_c = min(20, len(df.columns))
-        self.preview_table.clear()
+        # clear() strips header state; clearContents + explicit counts avoids blank paint glitches
+        self.preview_table.clearContents()
         self.preview_table.setRowCount(max_r)
         self.preview_table.setColumnCount(max_c)
+        text_brush = QBrush(QColor("#0f172a"))
         for r in range(max_r):
             for c in range(max_c):
                 v = df.iat[r, c]
-                txt = "" if pd.isna(v) else str(v)
+                txt = _preview_grid_cell_text(v)
                 if len(txt) > 80:
                     txt = txt[:77] + "..."
                 it = QTableWidgetItem(txt)
+                it.setForeground(text_brush)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 self.preview_table.setItem(r, c, it)
+        self.preview_table.horizontalScrollBar().setValue(0)
+        self.preview_table.verticalScrollBar().setValue(0)
+        self.preview_table.resizeColumnsToContents()
 
     def _on_header_changed(self):
         hr = self.spin_header_excel.value() - 1

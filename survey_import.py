@@ -31,13 +31,43 @@ def is_survey_csv_path(path: str) -> bool:
 _CSV_ENCODINGS_TRY = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
 
 
+def _infer_csv_delimiter(sample: str) -> str:
+    """Prefer comma; fall back to semicolon, tab, or pipe (Excel / vendor exports)."""
+    if not sample or not sample.strip():
+        return ","
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        if dialect.delimiter in ",;\t|":
+            return dialect.delimiter
+    except csv.Error:
+        pass
+    first = sample.splitlines()[0] if sample else ""
+    scores = {
+        ",": first.count(","),
+        ";": first.count(";"),
+        "\t": first.count("\t"),
+        "|": first.count("|"),
+    }
+    mx = max(scores.values())
+    if mx == 0:
+        return ","
+    # On a tie, prefer comma (US-style) then semicolon, tab, pipe
+    for d in (",", ";", "\t", "|"):
+        if scores[d] == mx:
+            return d
+    return ","
+
+
 def _read_csv_rows(path: str) -> List[List[str]]:
-    """Read CSV with csv.reader (RFC 4180): quoted commas and ragged rows are OK."""
+    """Read CSV with csv.reader (RFC 4180): quoted fields, ragged rows, delimiter sniffing."""
     last_err: Optional[Exception] = None
     for enc in _CSV_ENCODINGS_TRY:
         try:
             with open(path, "r", encoding=enc, newline="") as f:
-                return list(csv.reader(f))
+                sample = f.read(16384)
+                f.seek(0)
+                delim = _infer_csv_delimiter(sample)
+                return list(csv.reader(f, delimiter=delim))
         except UnicodeDecodeError as e:
             last_err = e
     if last_err:
