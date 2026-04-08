@@ -70,6 +70,10 @@ Credential, VPN, and ODBC driver requirements are managed by IT; obtain confirma
 3. Run **PA** after monthly ValNav and Accumap files are available.  
 4. Run **Public Sales Data and Ratios** when sales-ratio fields require updating for a defined month range.
 
+**Why this order:** Sales Ratios reads **`Allocation_Factors`** (loaded by PA) and updates **`PCE_CDA`** / **`PCE_Production`** using daily data that should already exist in **`PCE_CDA`** from Prodview. The Public Sales dialog may warn you if factors or CDA rows are missing for the selected range; you can still continue, but the update may do nothing useful until those steps are done.
+
+**Sales Ratios cancel:** If you cancel during a run, the app stops **between months**; completed months stay committed.
+
 ---
 
 ## Main window

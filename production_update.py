@@ -1,3 +1,4 @@
+import time
 
 import pandas as pd
 import numpy as np
@@ -361,58 +362,118 @@ def insert_pce_production(df):
 
     return total_inserted
 
-def main():
+def main(cancel_event=None):
+    """
+    Rebuild PCE_Production from PCE_CDA. Optional cancel_event (threading.Event):
+    checked between major steps for best-effort cooperative cancel.
+    """
+    t0 = time.time()
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    def _duration():
+        return time.time() - t0
+
+    base_meta = {"mode": "full_rebuild", "duration_seconds": _duration()}
+
     print(lf.header("PCE_Production population", Started=lf.timestamp()))
-    
+    if aborted():
+        print(lf.warn("Cancelled before start."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 1: Clear existing data
     clear_pce_production()
-    
+    if aborted():
+        print(lf.warn("Cancelled after clearing PCE_Production."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 2: Fetch well name mappings
     composite_map, fallback_map = fetch_well_mapping()
-    
+    if aborted():
+        print(lf.warn("Cancelled after loading well mappings."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 3: Fetch CDA data
     df = fetch_cda_data()
-    
+
     if df.empty:
         print(lf.warn("No data to process. Exiting."))
-        return
-    
+        return {
+            **base_meta,
+            "skipped": True,
+            "reason": "No rows in PCE_CDA",
+            "duration_seconds": _duration(),
+        }
+
     # Step 4: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
-    
+
     if df.empty:
         print(lf.warn("No data after well name mapping. Exiting."))
-        return
-    
+        return {
+            **base_meta,
+            "skipped": True,
+            "reason": "No data after well name mapping",
+            "duration_seconds": _duration(),
+        }
+
     # Step 5: Filter to first production date for each well
     df = filter_to_first_production(df)
-    
+
     if df.empty:
         print(lf.warn("No data after filtering. Exiting."))
-        return
-    
+        return {
+            **base_meta,
+            "skipped": True,
+            "reason": "No data after first-production filter",
+            "duration_seconds": _duration(),
+        }
+
+    if aborted():
+        print(lf.warn("Cancelled before sequence calculations."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 6: Calculate sequences with corrected Day Seq UPRT logic
     df = calculate_sequences(df)
-    
+
     # Step 7: Calculate cumulatives
     df = calculate_cumulatives(df)
-    
+
     # Step 8: Calculate monthly averages
     df = calculate_monthly_averages(df)
-    
+
     # Step 9: Add On Production Year
     df = add_on_production_year(df)
-    
+
+    if aborted():
+        print(lf.warn("Cancelled before inserting into PCE_Production."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 10: Insert into PCE_Production
     rows_inserted = insert_pce_production(df)
-    
+
+    wells_processed = len(df["Well Name"].unique())
+    total_records = len(df)
+
     # Step 11: Final summary
     print(lf.summary("Complete", {
-        "Wells processed": len(df["Well Name"].unique()),
-        "Total records": len(df),
+        "Wells processed": wells_processed,
+        "Total records": total_records,
         "Records inserted": rows_inserted,
         "Destination": f"{SQL_SERVER}.{SQL_DATABASE}.PCE_Production",
     }))
 
+    return {
+        **base_meta,
+        "wells_processed": wells_processed,
+        "total_records": total_records,
+        "records_inserted": rows_inserted,
+        "duration_seconds": _duration(),
+    }
+
+
 if __name__ == "__main__":
-    main()
+    out = main()
+    if out:
+        print(lf.detail(f"Exit summary: {out}"))

@@ -104,7 +104,7 @@ def _pull_all_snowflake_data(sf, start_date, end_date, log):
 
 def _fetch_well_mapping(cursor):
     """Fetch well mapping from PCE_WM (exclude exception wells)."""
-            cursor.execute("""
+    cursor.execute("""
         SELECT GasIDREC, PressuresIDREC, [Well Name],
                [Formation Producer], [Layer Producer], [Fault Block],
                [Pad Name], [Lateral Length], [Orient]
@@ -129,11 +129,11 @@ def _build_spine(mapping_df, date_range):
 
 def _prepare_sf_df(df, id_col, date_col, value_cols):
     """Clean and deduplicate a Snowflake result set."""
-                if df.empty:
-                    return pd.DataFrame()
-                
+    if df.empty:
+        return pd.DataFrame()
+
     col_map = {c.upper(): c for c in df.columns}
-                result = pd.DataFrame()
+    result = pd.DataFrame()
     result['_join_key'] = df[col_map.get(id_col.upper(), id_col)].astype(str).str.strip()
     result['ProdDate'] = pd.to_datetime(df[col_map.get(date_col.upper(), date_col)]).dt.date
 
@@ -168,7 +168,7 @@ def _merge_sf_data(spine_df, sf_data):
         if processed.empty:
             for vc in value_cols:
                 result[vc] = np.nan
-                else:
+        else:
             processed = processed.rename(columns={'_join_key': join_col})
             result = result.merge(processed, on=[join_col, 'ProdDate'], how='left')
 
@@ -415,12 +415,12 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
         # Single Snowflake pull
         log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
-            sf = SnowflakeConnector()
+        sf = SnowflakeConnector()
         try:
             sf_data = _pull_all_snowflake_data(sf, overall_start, overall_end, log)
-            finally:
-                sf.close()
-            
+        finally:
+            sf.close()
+
         # Single-pass: one spine, one merge, one DELETE, one INSERT
         log(lf.step("Building full-range spine and merging data..."))
         full_range = pd.date_range(start=overall_start, end=overall_end, freq='D').date
@@ -439,10 +439,10 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                         overall_start, overall_end)
         cursor.execute("DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
                         overall_start, overall_end)
-                conn.commit()
+        conn.commit()
 
         # Insert CDA
-            log(lf.step("Inserting into PCE_CDA..."))
+        log(lf.step("Inserting into PCE_CDA..."))
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
         _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
         conn.commit()
@@ -479,7 +479,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             WHERE c.ProdDate BETWEEN ? AND ?
         """, overall_start, overall_end)
         total_prod = cursor.rowcount
-                conn.commit()
+        conn.commit()
         progress(70)
 
         # SQL-based sequence recalculation (replaces Python per-well loop)
@@ -681,7 +681,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             conn.commit()
             total_wells = len(affected_well_names)
             total_prod = len(prod_rows)
-        log(lf.success(
+            log(lf.success(
                 f"Inserted {lf.num(total_prod)} records for {lf.num(total_wells)} wells"
             ))
         else:

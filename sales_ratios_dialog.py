@@ -1,5 +1,6 @@
 # sales_ratios_dialog.py
 
+import threading
 from datetime import datetime, timedelta
 
 import log_format as lf
@@ -33,6 +34,7 @@ from styles import (
     results_area_style,
     configure_dialog_window_mode,
 )
+from sales_ratios_gui import preflight_sales_ratios_range
 
 
 class SalesRatiosDialog(QDialog):
@@ -175,7 +177,8 @@ class SalesRatiosDialog(QDialog):
                 self,
                 "Cancel Update?",
                 "A Sales Ratios update operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "Stop after the current month finishes? Completed months are already committed;\n"
+                "later months in the range will not run.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -200,7 +203,8 @@ class SalesRatiosDialog(QDialog):
                 self,
                 "Cancel Update?",
                 "A Sales Ratios update operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "Stop after the current month finishes? Completed months are already committed;\n"
+                "later months in the range will not run.",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -278,6 +282,39 @@ class SalesRatiosDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
+        pf = preflight_sales_ratios_range(from_month, to_month)
+        if "error" in pf:
+            QMessageBox.critical(self, "Preflight Check", pf["error"])
+            return
+
+        if pf["allocation_month_count"] == 0:
+            w = QMessageBox.warning(
+                self,
+                "No allocation factors",
+                "No rows in Allocation_Factors for this month range.\n\n"
+                "Load Production Accounting Allocations (PA) for these months first, "
+                "or the update will process nothing useful.\n\n"
+                "Continue anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if w != QMessageBox.Yes:
+                return
+
+        if pf["allocation_month_count"] > 0 and pf["cda_row_count"] == 0:
+            w = QMessageBox.warning(
+                self,
+                "No CDA data in range",
+                "There are allocation factors for this range, but no PCE_CDA rows "
+                "for these calendar dates.\n\n"
+                "Run Prodview / Snowflake (Quick Update) for this period first.\n\n"
+                "Continue anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if w != QMessageBox.Yes:
+                return
+
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
@@ -317,6 +354,8 @@ class SalesRatiosDialog(QDialog):
 
         metrics = {"Completed": lf.timestamp()}
         if summary:
+            if summary.get("cancelled"):
+                metrics["Status"] = "Cancelled (partial)"
             metrics.update({
                 "Months processed": summary.get('months_processed', 0),
                 "Wells updated": summary.get('wells_updated', 0),
@@ -324,7 +363,8 @@ class SalesRatiosDialog(QDialog):
                 "PCE_Production records": summary.get('production_records', 0),
                 "Duration": lf.elapsed(summary.get('duration', 0)),
             })
-        self.log_result(lf.summary("COMPLETE", metrics))
+        title = "CANCELLED (partial)" if summary and summary.get("cancelled") else "COMPLETE"
+        self.log_result(lf.summary(title, metrics))
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -347,11 +387,11 @@ class SalesRatiosWorker(QThread):
         super().__init__()
         self.from_month = from_month
         self.to_month = to_month
-        self._cancelled = False
+        self._cancel_event = threading.Event()
 
     def cancel(self):
-        """Request cancellation of the worker."""
-        self._cancelled = True
+        """Request stop after the current month completes."""
+        self._cancel_event.set()
 
     def run(self):
         """Run the update"""
@@ -368,7 +408,8 @@ class SalesRatiosWorker(QThread):
                 self.from_month,
                 self.to_month,
                 progress_callback,
-                log_callback
+                log_callback,
+                cancelled=lambda: self._cancel_event.is_set(),
             )
 
             if 'error' in summary:

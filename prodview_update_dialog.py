@@ -1,5 +1,6 @@
 # prodview_update_dialog.py
 
+import threading
 from datetime import datetime, timedelta
 
 import log_format as lf
@@ -97,27 +98,30 @@ class ProdviewUpdateDialog(QDialog):
         mode_group = self.create_group("⚙️ Update Mode")
         mode_layout = QVBoxLayout()
 
-        self.mode_full_rebuild = QRadioButton("Full Rebuild Mode")
-        self.mode_full_rebuild.setChecked(True)
+        self.mode_full_rebuild = QRadioButton(
+            "Full rebuild — entire PCE_Production from all PCE_CDA"
+        )
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Processes ALL historical data\n"
-            "  • Clears and rebuilds entire PCE_Production table\n"
-            "  • Takes 30-40 minutes (full rebuild)"
+            "  • Clears and rebuilds the full PCE_Production table from current PCE_CDA\n"
+            "  • Does not pull Snowflake; use after CDA is correct\n"
+            "  • Typically 30–40 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
-        self.mode_quick_update = QRadioButton("Quick Update Mode")
+        self.mode_quick_update = QRadioButton(
+            "Quick update — Snowflake range, replace CDA/Production for that range"
+        )
+        self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "  • Processes only selected month range\n"
-            "  • Updates PCE_CDA for selected months\n"
-            "  • Updates PCE_Production for selected months\n"
-            "  • Recalculates sequences for affected wells only\n"
-            "  • Updates cumulatives incrementally"
+            "  • Pulls Snowflake for the selected From/To range\n"
+            "  • Replaces PCE_CDA rows in that date range; deletes matching PCE_Production dates\n"
+            "  • Reloads all CDA into memory to recalc sequences/cumulatives, then rebuilds PCE_Production\n"
+            "  • Usual choice for routine refreshes"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
@@ -201,8 +205,10 @@ class ProdviewUpdateDialog(QDialog):
             reply = QMessageBox.question(
                 self,
                 "Cancel Update?",
-                "A Prodview/Snowflake update operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "A Prodview/Snowflake update is running.\n\n"
+                "Cancellation may not stop work immediately (Python/SQL may keep running).\n"
+                "Quick Update can leave partial commits after a successful step—avoid cancelling mid-run.\n\n"
+                "Close anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -225,8 +231,10 @@ class ProdviewUpdateDialog(QDialog):
             reply = QMessageBox.question(
                 self,
                 "Cancel Update?",
-                "A Prodview/Snowflake update operation is currently running.\n\n"
-                "Are you sure you want to cancel? Cancelling may leave the database in an incomplete state.",
+                "A Prodview/Snowflake update is running.\n\n"
+                "Cancellation may not stop work immediately (Python/SQL may keep running).\n"
+                "Quick Update can leave partial commits after a successful step—avoid cancelling mid-run.\n\n"
+                "Close anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
             )
@@ -243,19 +251,17 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode"""
         if self.mode_full_rebuild.isChecked():
             self.info_text.setText(
-                "  • Pull new data from Snowflake\n"
-                "  • Update PCE_CDA\n"
-                "  • Clear and rebuild entire PCE_Production table\n"
-                "  • Recalculate all sequences, cumulatives, and averages\n"
-                "  • ⚠️ Takes 30-40 minutes (full rebuild)"
+                "  • Rebuild entire PCE_Production from all rows in PCE_CDA\n"
+                "  • Clears PCE_Production first, then recalculates sequences/cumulatives/averages\n"
+                "  • No Snowflake pull in this mode\n"
+                "  • ⚠️ Long run (often 30–40 minutes)"
             )
         else:
             self.info_text.setText(
-                "  • Pull new data from Snowflake (selected range only)\n"
-                "  • Update PCE_CDA (selected months only)\n"
-                "  • Update PCE_Production (selected months only)\n"
-                "  • Recalculate sequences for affected wells only\n"
-                "  • Update cumulatives incrementally"
+                "  • Pull Snowflake for the selected From/To range\n"
+                "  • Replace PCE_CDA in that range; remove matching PCE_Production dates\n"
+                "  • Recalculate from full CDA and rebuild PCE_Production (all wells in CDA)\n"
+                "  • Routine refresh path"
             )
 
     def create_group(self, title):
@@ -315,15 +321,21 @@ class ProdviewUpdateDialog(QDialog):
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
-        mode_label = "FULL REBUILD (30–40 minutes, all history)" if update_mode == "full_rebuild" else "QUICK UPDATE (selected months only)"
+        mode_label = "FULL REBUILD (all PCE_CDA → PCE_Production, no Snowflake)" if update_mode == "full_rebuild" else "QUICK UPDATE (Snowflake for selected range)"
+        full_warn = ""
+        if update_mode == "full_rebuild":
+            full_warn = (
+                "\n\nFull rebuild clears the entire PCE_Production table and rebuilds it from "
+                "all rows in PCE_CDA. From/To above apply only to Quick Update, not to this mode.\n"
+            )
         reply = QMessageBox.question(
             self,
             "Confirm Prodview/Snowflake Update",
             "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
             f"  • Mode: {mode_label}\n"
             f"  • From: {from_month}\n"
-            f"  • To:   {to_month}\n\n"
-            "This will update PCE_CDA and PCE_Production in SQL Server.\n\n"
+            f"  • To:   {to_month}\n"
+            f"{full_warn}\n"
             "Do you want to continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
@@ -377,10 +389,30 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-        self.status_label.setText("Complete")
 
         metrics = {"Completed": lf.timestamp()}
-        if summary:
+        title = "COMPLETE"
+
+        if summary.get("skipped"):
+            self.status_label.setText("Skipped")
+            title = "SKIPPED"
+            metrics["Reason"] = summary.get("reason", "")
+            metrics["Duration"] = lf.elapsed(summary.get("duration_seconds", 0))
+        elif summary.get("cancelled"):
+            self.status_label.setText("Cancelled")
+            title = "CANCELLED"
+            metrics["Status"] = "Stopped between steps (best effort)"
+            metrics["Duration"] = lf.elapsed(summary.get("duration_seconds", 0))
+        elif summary.get("mode") == "full_rebuild":
+            self.status_label.setText("Complete")
+            metrics.update({
+                "Wells processed": summary.get("wells_processed", 0),
+                "Total CDA records": summary.get("total_records", 0),
+                "Records inserted": summary.get("records_inserted", 0),
+                "Duration": lf.elapsed(summary.get("duration_seconds", 0)),
+            })
+        else:
+            self.status_label.setText("Complete")
             metrics.update({
                 "Months processed": summary.get('months_processed', 0),
                 "Wells updated": summary.get('wells_updated', 0),
@@ -388,7 +420,8 @@ class ProdviewUpdateDialog(QDialog):
                 "PCE_Production records": summary.get('production_records', 0),
                 "Duration": lf.elapsed(summary.get('duration', 0)),
             })
-        self.log_result(lf.summary("COMPLETE", metrics))
+
+        self.log_result(lf.summary(title, metrics))
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -415,11 +448,11 @@ class ProdviewUpdateWorker(QThread):
         self.from_month = from_month
         self.to_month = to_month
         self.update_mode = update_mode
-        self._cancelled = False
+        self._cancel_event = threading.Event()
 
     def cancel(self):
-        """Request cancellation of the worker."""
-        self._cancelled = True
+        """Request best-effort cancel (full rebuild checks between major steps)."""
+        self._cancel_event.set()
 
     def run(self):
         """Run the update"""
@@ -460,20 +493,20 @@ class ProdviewUpdateWorker(QThread):
                 sys.stdout = log_capture
 
                 try:
-                    run_full_rebuild()
+                    summary = run_full_rebuild(cancel_event=self._cancel_event)
 
                     if log_capture.buffer.strip():
                         self.log_signal.emit(log_capture.buffer.strip())
 
                     sys.stdout = old_stdout
 
-                    summary = {
-                        'months_processed': 1,
-                        'wells_updated': 0,
-                        'cda_records': 0,
-                        'production_records': 0,
-                        'duration': 0
-                    }
+                    if summary is None:
+                        summary = {
+                            "mode": "full_rebuild",
+                            "skipped": True,
+                            "reason": "No result returned",
+                            "duration_seconds": 0.0,
+                        }
 
                 except Exception as e:
                     sys.stdout = old_stdout
@@ -497,10 +530,10 @@ class ProdviewUpdateWorker(QThread):
                     log_callback
                 )
 
-            if 'error' in summary:
-                self.error_signal.emit(summary['error'])
+            if summary and summary.get("error"):
+                self.error_signal.emit(summary["error"])
             else:
-                self.finished_signal.emit(summary)
+                self.finished_signal.emit(summary or {})
 
         except Exception as e:
             self.error_signal.emit(str(e))
