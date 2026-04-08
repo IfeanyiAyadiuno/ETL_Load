@@ -604,3 +604,12 @@ Re_Main_Production	dbo	PCE_Production	Remarks	41	NULL	YES	nvarchar	500	1000	NULL
   Duplicates skipped                                       0
   Errors                                                 298
 ----------------------------------------------------------------
+
+
+pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "settings.ini;." --hidden-import pyodbc --hidden-import snowflake.connector --hidden-import dotenv --hidden-import openpyxl --hidden-import pandas --hidden-import numpy --hidden-import production_update --hidden-import prodview_update_gui --hidden-import cda production_update_gui.
+
+
+
+
+
+
