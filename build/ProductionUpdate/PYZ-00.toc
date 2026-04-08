@@ -4860,6 +4860,10 @@
    'I:\\ResEng\\Tools\\Programmers '
    'Paradise\\mvp_cda_load\\survey_import_dialog.py',
    'PYMODULE'),
+  ('survey_mapping_dialog',
+   'I:\\ResEng\\Tools\\Programmers '
+   'Paradise\\mvp_cda_load\\survey_mapping_dialog.py',
+   'PYMODULE'),
   ('sysconfig',
    'C:\\Users\\iayadiuno\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sysconfig.py',
    'PYMODULE'),
