@@ -245,9 +245,9 @@ class SurveyImportDialog(QDialog):
     def _browse_directional(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select survey Excel",
+            "Select survey file",
             "",
-            "Excel (*.xlsx *.xls);;All files (*.*)",
+            "Survey files (*.xlsx *.xls *.csv);;All files (*.*)",
         )
         if path:
             self.directional_path = path

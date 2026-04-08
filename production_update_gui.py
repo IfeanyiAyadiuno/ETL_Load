@@ -629,7 +629,7 @@ class SettingsDialog(QDialog):
         survey_layout = QHBoxLayout()
         survey_layout.addWidget(QLabel("Survey File:"))
         self.survey_input = QLineEdit()
-        self.survey_input.setPlaceholderText("Path to Survey Excel file...")
+        self.survey_input.setPlaceholderText("Path to Survey Excel or CSV file...")
         survey_layout.addWidget(self.survey_input)
         survey_browse = QPushButton("Browse")
         survey_browse.setStyleSheet("""
@@ -762,12 +762,12 @@ class SettingsDialog(QDialog):
             self.accumap_input.setText(filename)
     
     def browse_survey(self):
-        """Browse for Survey Excel file"""
+        """Browse for Survey Excel or CSV file"""
         filename, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Select Survey Excel File", 
+            self,
+            "Select Survey File",
             self.survey_input.text() or "",
-            "Excel files (*.xlsx *.xls);;All Files (*)"
+            "Survey files (*.xlsx *.xls *.csv);;All Files (*)"
         )
         if filename:
             self.survey_input.setText(filename)

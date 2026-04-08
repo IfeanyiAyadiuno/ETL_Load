@@ -23,6 +23,46 @@ DIRECTIONAL_FIELD_KEYS = [
 ]
 
 
+def is_survey_csv_path(path: str) -> bool:
+    return str(path).lower().endswith(".csv")
+
+
+def _read_csv_with_fallback_encodings(path: str, **kwargs) -> pd.DataFrame:
+    """Try common encodings (Excel export often uses utf-8-sig)."""
+    last_err: Optional[Exception] = None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return pd.read_csv(path, encoding=enc, **kwargs)
+        except UnicodeDecodeError as e:
+            last_err = e
+        except pd.errors.ParserError as e:
+            last_err = e
+    if last_err:
+        raise last_err
+    raise OSError(f"Could not read CSV: {path}")
+
+
+def read_survey_raw_grid(path: str, sheet_index: int = 0) -> pd.DataFrame:
+    """
+    Raw cell grid for directional mapping: Excel sheet or comma-separated CSV (single table).
+    For CSV, sheet_index is ignored. Uses comma as separator.
+    """
+    if is_survey_csv_path(path):
+        return _read_csv_with_fallback_encodings(
+            path, header=None, dtype=object, sep=",", skipinitialspace=True
+        )
+    return pd.read_excel(path, sheet_name=sheet_index, header=None, dtype=object)
+
+
+def read_legacy_flat_survey_file(path: str) -> pd.DataFrame:
+    """First row = headers: Excel workbook or CSV for bulk / Settings survey import."""
+    if is_survey_csv_path(path):
+        return _read_csv_with_fallback_encodings(
+            path, header=0, dtype=object, sep=",", skipinitialspace=True
+        )
+    return pd.read_excel(path)
+
+
 def clean_well_name(name):
     """Clean well name by removing extra spaces and normalizing"""
     if pd.isna(name) or not isinstance(name, str):
@@ -388,9 +428,9 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                 Mode=import_mode,
             )
         )
-        log(lf.step("Reading Excel file"))
-        df = pd.read_excel(excel_path)
-        log(lf.detail(f"Read {lf.num(len(df))} rows from Excel"))
+        log(lf.step("Reading survey file"))
+        df = read_legacy_flat_survey_file(excel_path)
+        log(lf.detail(f"Read {lf.num(len(df))} rows"))
         progress(10)
 
         log(lf.step("Mapping columns"))
@@ -584,11 +624,9 @@ def import_directional_survey_with_mapping(
         if md_col is None:
             return {"error": "Measured Depth column is not mapped."}
 
-        log(lf.step("Reading Excel (raw layout)"))
-        df_raw = pd.read_excel(
-            excel_path, sheet_name=mapping_spec.sheet_index, header=None, dtype=object
-        )
-        log(lf.detail(f"Sheet shape: {lf.num(len(df_raw))} rows × {lf.num(len(df_raw.columns))} cols"))
+        log(lf.step("Reading survey file (raw layout)"))
+        df_raw = read_survey_raw_grid(excel_path, mapping_spec.sheet_index)
+        log(lf.detail(f"Grid shape: {lf.num(len(df_raw))} rows × {lf.num(len(df_raw.columns))} cols"))
         progress(10)
 
         wnr, wnc = mapping_spec.well_name_row, mapping_spec.well_name_col

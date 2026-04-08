@@ -27,6 +27,8 @@ from survey_import import (
     DIRECTIONAL_FIELD_KEYS,
     lookup_wm_uwi_pad_for_directional,
     clean_well_name,
+    read_survey_raw_grid,
+    is_survey_csv_path,
 )
 from styles import (
     DIALOG_BASE,
@@ -190,21 +192,28 @@ class SurveyMappingDialog(QDialog):
 
     def _load_workbook(self):
         try:
-            xl = pd.ExcelFile(self.file_path)
-            self.sheet_combo.blockSignals(True)
-            self.sheet_combo.clear()
-            self.sheet_combo.addItems(xl.sheet_names)
-            self.sheet_combo.blockSignals(False)
-            self._load_sheet(0)
+            if is_survey_csv_path(self.file_path):
+                self.sheet_combo.blockSignals(True)
+                self.sheet_combo.clear()
+                self.sheet_combo.addItem("CSV (single table)")
+                self.sheet_combo.setEnabled(False)
+                self.sheet_combo.blockSignals(False)
+                self._load_sheet(0)
+            else:
+                self.sheet_combo.setEnabled(True)
+                xl = pd.ExcelFile(self.file_path)
+                self.sheet_combo.blockSignals(True)
+                self.sheet_combo.clear()
+                self.sheet_combo.addItems(xl.sheet_names)
+                self.sheet_combo.blockSignals(False)
+                self._load_sheet(0)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not read Excel:\n{e}")
+            QMessageBox.critical(self, "Error", f"Could not read file:\n{e}")
             self.reject()
 
     def _load_sheet(self, index: int):
         try:
-            self._raw_df = pd.read_excel(
-                self.file_path, sheet_name=index, header=None, dtype=object
-            )
+            self._raw_df = read_survey_raw_grid(self.file_path, index)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Could not read sheet:\n{e}")
             return
