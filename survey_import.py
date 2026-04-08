@@ -284,7 +284,7 @@ INSERT_SQL = """
             [Measured Depth], [True Vertical Depth],
             [Offset in EW], [Offset in NS],
             [East], [North],
-            <redacted_PAD>, [SourceFile]
+            [PAD], [SourceFile]
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
