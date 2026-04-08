@@ -1,3 +1,4 @@
+import csv
 import pandas as pd
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -27,39 +28,65 @@ def is_survey_csv_path(path: str) -> bool:
     return str(path).lower().endswith(".csv")
 
 
-def _read_csv_with_fallback_encodings(path: str, **kwargs) -> pd.DataFrame:
-    """Try common encodings (Excel export often uses utf-8-sig)."""
+_CSV_ENCODINGS_TRY = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
+
+
+def _read_csv_rows(path: str) -> List[List[str]]:
+    """Read CSV with csv.reader (RFC 4180): quoted commas and ragged rows are OK."""
     last_err: Optional[Exception] = None
-    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+    for enc in _CSV_ENCODINGS_TRY:
         try:
-            return pd.read_csv(path, encoding=enc, **kwargs)
+            with open(path, "r", encoding=enc, newline="") as f:
+                return list(csv.reader(f))
         except UnicodeDecodeError as e:
-            last_err = e
-        except pd.errors.ParserError as e:
             last_err = e
     if last_err:
         raise last_err
-    raise OSError(f"Could not read CSV: {path}")
+    raise OSError(f"Could not decode CSV: {path}")
+
+
+def _pad_csv_rows_to_grid(rows: List[List[str]]) -> pd.DataFrame:
+    """Pad ragged rows to equal width so line 2 can have more columns than line 1."""
+    if not rows:
+        return pd.DataFrame()
+    max_c = max(len(r) for r in rows)
+    padded: List[List[Optional[str]]] = []
+    for r in rows:
+        row = list(r)
+        if len(row) < max_c:
+            row.extend([None] * (max_c - len(row)))
+        padded.append(row)
+    return pd.DataFrame(padded, dtype=object)
 
 
 def read_survey_raw_grid(path: str, sheet_index: int = 0) -> pd.DataFrame:
     """
     Raw cell grid for directional mapping: Excel sheet or comma-separated CSV (single table).
-    For CSV, sheet_index is ignored. Uses comma as separator.
+    For CSV, sheet_index is ignored. Uses csv.reader (not pandas C parser) so ragged rows
+    and quoted fields with commas do not fail with "Expected N fields, saw M".
     """
     if is_survey_csv_path(path):
-        return _read_csv_with_fallback_encodings(
-            path, header=None, dtype=object, sep=",", skipinitialspace=True
-        )
+        return _pad_csv_rows_to_grid(_read_csv_rows(path))
     return pd.read_excel(path, sheet_name=sheet_index, header=None, dtype=object)
 
 
 def read_legacy_flat_survey_file(path: str) -> pd.DataFrame:
     """First row = headers: Excel workbook or CSV for bulk / Settings survey import."""
     if is_survey_csv_path(path):
-        return _read_csv_with_fallback_encodings(
-            path, header=0, dtype=object, sep=",", skipinitialspace=True
-        )
+        rows = _read_csv_rows(path)
+        if not rows:
+            return pd.DataFrame()
+        max_c = max(len(r) for r in rows)
+        header = list(rows[0])
+        while len(header) < max_c:
+            header.append(f"Unnamed_{len(header)}")
+        body: List[List[Optional[str]]] = []
+        for r in rows[1:]:
+            row = list(r)
+            if len(row) < max_c:
+                row.extend([None] * (max_c - len(row)))
+            body.append(row[:max_c])
+        return pd.DataFrame(body, columns=header[:max_c], dtype=object)
     return pd.read_excel(path)
 
 
