@@ -235,9 +235,13 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 **Objective:** Load survey rows from Excel into **`PCE_Surveys`**.
 
-**Path** reflects **Survey File** in **Settings** (no in-dialog Browse; change **Settings** to repoint the file).
+There are **two import paths** in the Survey dialog:
 
-**Import Mode:** **Append Mode** (insert rows not already present) or **Overwrite Mode** (delete existing rows for matching UWIs, then insert).
+1. **Bulk (Settings path)** — Uses **Survey File** from **Settings** (read-only path in the dialog). This is the **legacy** flat-workbook flow: columns are matched by header name (matching is **case-insensitive** after normalization). Change **Settings** to repoint the file.
+
+2. **Directional / mapped import** — Choose this mode to **Browse** to any `.xlsx` / `.xls` workbook whose layout varies by vendor. Click **Configure mapping…** to open a **second dialog**: pick the sheet, set the **header row** and **first data row**, choose the **well name** cell, and map file columns to survey fields (**Measured Depth** is required). **UWI** and **Pad** are **not** taken from the Excel file; after the well name is read, the app looks up **one** row in **`PCE_WM`** by cleaned well name vs **`[Base Composite Name]`** and uses **`[Value Navigator UWI]`** and **`[Pad Name]`** for every survey row. You can **Load/Save** mapping presets (JSON) for repeat layouts.
+
+**Import Mode:** **Append Mode** (insert rows not already present) or **Overwrite Mode** (delete existing rows for matching UWIs, then insert). Applies to both paths.
 
 Execute **Run Import**; review the **Import Log**.
 
