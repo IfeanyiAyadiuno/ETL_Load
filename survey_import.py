@@ -313,12 +313,13 @@ INSERT_COLS = [
 
 def lookup_wm_uwi_pad_for_directional(
     well_name_from_file: str,
-) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Match well name text to PCE_WM [Well Name] using well_name_match_key
     (case-insensitive; slashes normalized to hyphens). Tries the full cell text first,
     then drops leading words one at a time so prefixed vendor strings still resolve.
-    Returns (uwi, pad, error_message).
+    Returns (uwi, pad, wm_well_name, error_message). On success error_message is None
+    and wm_well_name is the exact PCE_WM.[Well Name] to store in PCE_Surveys.
     """
     conn = get_sql_conn()
     try:
@@ -336,7 +337,7 @@ def lookup_wm_uwi_pad_for_directional(
         conn.close()
 
     if df.empty:
-        return None, None, "No wells found in PCE_WM."
+        return None, None, None, "No wells found in PCE_WM."
 
     df = df.copy()
     df["_key"] = df["Well Name"].apply(well_name_match_key)
@@ -355,17 +356,21 @@ def lookup_wm_uwi_pad_for_directional(
     if len(m) != 1:
         disp = clean_well_name(well_name_from_file)
         disp_s = disp if isinstance(disp, str) else str(well_name_from_file)
-        return None, None, (
+        return None, None, None, (
             f"No unique PCE_WM row matches this well name after trying the full cell and "
             f"dropping leading words (compare to [Well Name] in Well Master): '{disp_s}'"
         )
     uwi = m.iloc[0]["Value Navigator UWI"]
     pad = m.iloc[0]["Pad Name"]
+    wm_wn = m.iloc[0]["Well Name"]
     if pd.isna(uwi) or str(uwi).strip() == "":
-        return None, None, "Value Navigator UWI is missing in PCE_WM for this well."
+        return None, None, None, "Value Navigator UWI is missing in PCE_WM for this well."
     uwi_s = str(uwi).strip()
     pad_s = "" if pd.isna(pad) or pad is None else str(pad).strip()
-    return uwi_s, pad_s, None
+    wm_wn_s = "" if pd.isna(wm_wn) or wm_wn is None else str(wm_wn).strip()
+    if not wm_wn_s:
+        return None, None, None, "[Well Name] is missing in PCE_WM for the matched row."
+    return uwi_s, pad_s, wm_wn_s, None
 
 
 def _apply_append_or_overwrite(
@@ -746,7 +751,8 @@ def import_directional_survey_with_mapping(
 ) -> dict:
     """
     Import a single-well directional survey workbook using user-defined row/column mapping.
-    UWI and PAD come from PCE_WM (Value Navigator UWI, Pad Name) via [Well Name] match.
+    UWI, PAD, and the stored [Well Name] on each row come from the matched PCE_WM record
+    (Value Navigator UWI, Pad Name, Well Name). The survey file cell is only used to find that row.
     """
     def log(message):
         if log_callback:
@@ -789,13 +795,14 @@ def import_directional_survey_with_mapping(
         if not cleaned:
             return {"error": "Well name is invalid after cleaning."}
 
-        log(lf.step("Resolving UWI and PAD from PCE_WM"))
-        uwi, pad, err = lookup_wm_uwi_pad_for_directional(well_name)
+        log(lf.step("Resolving UWI, PAD, and Well Name from PCE_WM"))
+        uwi, pad, wm_well_name, err = lookup_wm_uwi_pad_for_directional(well_name)
         if err:
             log(lf.error(err))
             return {"error": err}
         log(lf.detail(f"UWI: {uwi}"))
         log(lf.detail(f"PAD: {pad or '(empty)'}"))
+        log(lf.detail(f"Well Name (from PCE_WM): {wm_well_name}"))
         progress(25)
 
         data_start = mapping_spec.resolved_data_start_row()
@@ -824,7 +831,7 @@ def import_directional_survey_with_mapping(
 
             row_dict = {
                 "UWI": uwi,
-                "Well Name Cleaned": cleaned,
+                "Well Name Cleaned": wm_well_name,
                 "Subsea Elevation": col_val(r, "Subsea Elevation"),
                 "Inclination": col_val(r, "Inclination"),
                 "Azimuth Angle": col_val(r, "Azimuth Angle"),

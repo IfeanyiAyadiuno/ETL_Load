@@ -285,14 +285,15 @@ class SurveyMappingDialog(QDialog):
         if not cleaned:
             QMessageBox.warning(self, "Well name", "Could not clean well name.")
             return
-        uwi, pad, err = lookup_wm_uwi_pad_for_directional(raw)
+        uwi, pad, wm_well_name, err = lookup_wm_uwi_pad_for_directional(raw)
         if err:
             QMessageBox.warning(self, "PCE_WM", err)
             return
         QMessageBox.information(
             self,
             "PCE_WM",
-            f"Cleaned name: {cleaned}\n\nUWI: {uwi}\nPAD: {pad or '(empty)'}",
+            f"File cell text: {cleaned}\n\nPCE_WM [Well Name]: {wm_well_name}\n"
+            f"UWI: {uwi}\nPAD: {pad or '(empty)'}",
         )
 
     def _collect_spec(self):
