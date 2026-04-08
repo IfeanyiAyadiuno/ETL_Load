@@ -17,8 +17,8 @@ DIRECTIONAL_FIELD_KEYS = [
     "Azimuth Angle",
     "Subsea Elevation",
     "True Vertical Depth",
-    "Offset in EW",
-    "Offset in NS",
+    "Longitude",
+    "Latitude",
     "East",
     "North",
 ]
@@ -212,8 +212,10 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
         "azimuth angle": "Azimuth Angle",
         "measured depth": "Measured Depth",
         "true vertical depth": "True Vertical Depth",
-        "offset in ew": "Offset in EW",
-        "offset in ns": "Offset in NS",
+        "longitude": "Longitude",
+        "latitude": "Latitude",
+        "offset in ew": "Longitude",
+        "offset in ns": "Latitude",
         "east": "East",
         "north": "North",
         "pad": "PAD",
@@ -252,7 +254,12 @@ class DirectionalSurveyMappingSpec:
 
     @classmethod
     def from_json_dict(cls, d: dict) -> "DirectionalSurveyMappingSpec":
-        cols = d.get("columns") or {}
+        cols = dict(d.get("columns") or {})
+        # Presets saved before Longitude/Latitude replaced Offset in EW / NS
+        if "Longitude" not in cols and "Offset in EW" in cols:
+            cols["Longitude"] = cols.pop("Offset in EW", None)
+        if "Latitude" not in cols and "Offset in NS" in cols:
+            cols["Latitude"] = cols.pop("Offset in NS", None)
         return cls(
             sheet_index=int(d.get("sheet_index", 0)),
             header_row=int(d.get("header_row", 0)),
@@ -282,7 +289,7 @@ INSERT_SQL = """
             [Subsea Elevation],
             [Inclination], [Azimuth Angle],
             [Measured Depth], [True Vertical Depth],
-            [Offset in EW], [Offset in NS],
+            [Longitude], [Latitude],
             [East], [North],
             [PAD], [SourceFile]
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -296,8 +303,8 @@ INSERT_COLS = [
     "Azimuth Angle",
     "Measured Depth",
     "True Vertical Depth",
-    "Offset in EW",
-    "Offset in NS",
+    "Longitude",
+    "Latitude",
     "East",
     "North",
     "PAD",
@@ -595,8 +602,8 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             "Azimuth Angle",
             "Measured Depth",
             "True Vertical Depth",
-            "Offset in EW",
-            "Offset in NS",
+            "Longitude",
+            "Latitude",
             "East",
             "North",
             "PAD",
@@ -823,8 +830,8 @@ def import_directional_survey_with_mapping(
                 "Azimuth Angle": col_val(r, "Azimuth Angle"),
                 "Measured Depth": md,
                 "True Vertical Depth": col_val(r, "True Vertical Depth"),
-                "Offset in EW": col_val(r, "Offset in EW"),
-                "Offset in NS": col_val(r, "Offset in NS"),
+                "Longitude": col_val(r, "Longitude"),
+                "Latitude": col_val(r, "Latitude"),
                 "East": col_val(r, "East"),
                 "North": col_val(r, "North"),
                 "PAD": pad,

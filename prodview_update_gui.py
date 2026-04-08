@@ -16,75 +16,75 @@ _SF_QUERIES = {
     "ecf": (
         "GASIDREC",
         """
-        SELECT
-            IDRECPARENT AS GasIDREC,
+            SELECT
+                IDRECPARENT AS GasIDREC,
             CAST(DTTM AS DATE) AS ProdDate,
-            EFFLUENTFACTOR AS ECF_Ratio
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
+                EFFLUENTFACTOR AS ECF_Ratio
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
     "gaswh": (
         "GASIDREC",
         """
-        SELECT
-            IDRECPARENT AS GasIDREC,
-            CAST(DTTM AS DATE) AS ProdDate,
-            VOLENTERGAS AS GasWH_Production,
-            DURONOR AS OnProdHours
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
+            SELECT
+                IDRECPARENT AS GasIDREC,
+                CAST(DTTM AS DATE) AS ProdDate,
+                VOLENTERGAS AS GasWH_Production,
+                DURONOR AS OnProdHours
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
     "cgr_water": (
         "PRESSURESIDREC",
         """
-        SELECT
-            IDRECCOMP AS PressuresIDREC,
-            CAST(DTTM AS DATE) AS ProdDate,
-            CASE
-                WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
-                ELSE (RATEHCLIQ / RATEGAS)
+            SELECT
+                IDRECCOMP AS PressuresIDREC,
+                CAST(DTTM AS DATE) AS ProdDate,
+                CASE
+                    WHEN RATEGAS IS NULL OR RATEGAS = 0 THEN NULL
+                    ELSE (RATEHCLIQ / RATEGAS)
             END AS CGR_Ratio,
             VOLWATER AS AllocatedWater_Rate
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
     "wgr": (
         "PRESSURESIDREC",
         """
-        SELECT
-            IDRECPARENT AS PressuresIDREC,
-            CAST(DTTM AS DATE) AS ProdDate,
-            WGR AS WGR_Ratio
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
+            SELECT
+                IDRECPARENT AS PressuresIDREC,
+                CAST(DTTM AS DATE) AS ProdDate,
+                WGR AS WGR_Ratio
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
     "pressures": (
         "PRESSURESIDREC",
         """
-        SELECT
-            IDRECPARENT AS PressuresIDREC,
-            CAST(DTTM AS DATE) AS ProdDate,
-            PRESTUB AS TubingPressure,
-            PRESCAS AS CasingPressure,
-            SZCHOKE AS ChokeSize
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
+            SELECT
+                IDRECPARENT AS PressuresIDREC,
+                CAST(DTTM AS DATE) AS ProdDate,
+                PRESTUB AS TubingPressure,
+                PRESCAS AS CasingPressure,
+                SZCHOKE AS ChokeSize
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
     "alloc": (
         "PRESSURESIDREC",
         """
-        SELECT
-            IDRECCOMP AS PressuresIDREC,
-            CAST(DTTM AS DATE) AS ProdDate,
-            VOLPRODGATHGAS AS Gathered_Gas_Production,
-            VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
-            VOLNEWPRODALLOCNGL AS NGL_Production
-        FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
+            SELECT
+                IDRECCOMP AS PressuresIDREC,
+                CAST(DTTM AS DATE) AS ProdDate,
+                VOLPRODGATHGAS AS Gathered_Gas_Production,
+                VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
+                VOLNEWPRODALLOCNGL AS NGL_Production
+            FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
         WHERE DTTM >= %s AND DTTM <= %s
         """,
     ),
@@ -104,7 +104,7 @@ def _pull_all_snowflake_data(sf, start_date, end_date, log):
 
 def _fetch_well_mapping(cursor):
     """Fetch well mapping from PCE_WM (exclude exception wells)."""
-    cursor.execute("""
+            cursor.execute("""
         SELECT GasIDREC, PressuresIDREC, [Well Name],
                [Formation Producer], [Layer Producer], [Fault Block],
                [Pad Name], [Lateral Length], [Orient]
@@ -129,11 +129,11 @@ def _build_spine(mapping_df, date_range):
 
 def _prepare_sf_df(df, id_col, date_col, value_cols):
     """Clean and deduplicate a Snowflake result set."""
-    if df.empty:
-        return pd.DataFrame()
-
+                if df.empty:
+                    return pd.DataFrame()
+                
     col_map = {c.upper(): c for c in df.columns}
-    result = pd.DataFrame()
+                result = pd.DataFrame()
     result['_join_key'] = df[col_map.get(id_col.upper(), id_col)].astype(str).str.strip()
     result['ProdDate'] = pd.to_datetime(df[col_map.get(date_col.upper(), date_col)]).dt.date
 
@@ -168,7 +168,7 @@ def _merge_sf_data(spine_df, sf_data):
         if processed.empty:
             for vc in value_cols:
                 result[vc] = np.nan
-        else:
+                else:
             processed = processed.rename(columns={'_join_key': join_col})
             result = result.merge(processed, on=[join_col, 'ProdDate'], how='left')
 
@@ -195,17 +195,17 @@ def _df_to_insert_rows(df, columns):
 
 
 _CDA_INSERT_SQL = """
-INSERT INTO PCE_CDA (
-    [GasIDREC], [PressuresIDREC], [Well Name], [ProdDate],
-    [GasWH_Production], [Condensate_WH_Production],
-    [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
-    [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
-    [Gathered_Gas_Production], [Gathered_Condensate_Production],
-    [NGL_Production], [AllocatedWater_Rate],
-    [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
-    [Lateral Length], [Orient]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
+            INSERT INTO PCE_CDA (
+                [GasIDREC], [PressuresIDREC], [Well Name], [ProdDate],
+                [GasWH_Production], [Condensate_WH_Production],
+                [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
+                [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
+                [Gathered_Gas_Production], [Gathered_Condensate_Production],
+                [NGL_Production], [AllocatedWater_Rate],
+                [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
+                [Lateral Length], [Orient]
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
 
 _CDA_COLUMNS = [
     'GasIDREC', 'PressuresIDREC', 'Well Name', 'ProdDate',
@@ -219,14 +219,14 @@ _CDA_COLUMNS = [
 ]
 
 _PROD_INSERT_SQL = """
-INSERT INTO PCE_Production (
+                INSERT INTO PCE_Production (
     [Date], [Days Seq], [Day Seq UPRT], [Well Name],
-    [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-    [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
-    [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-    [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
+                    [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
+                    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
+                    [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
+                    [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+                    [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
+                    [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
     [Choke Size], [Gas WH Cumulative Production (10³m³)],
     [Gas S2 Cumulative Production (10³m³)],
     [Gas Sales Cumulative Production (10³m³)],
@@ -234,7 +234,7 @@ INSERT INTO PCE_Production (
     [Condensate WH Cumulative Production (m³)],
     [Gas Gathered Cumulative (e³m³)],
     [Condensate Gathered Cumulative (m³)],
-    [Formation Producer], [Layer Producer], [Fault Block],
+                    [Formation Producer], [Layer Producer], [Fault Block],
     [Pad Name], [Lateral Length], [Orientation],
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
@@ -350,14 +350,14 @@ def populate_wells_cda(mapping_df, start_date, end_date,
                 f" AND ProdDate BETWEEN ? AND ?",
                 batch + [start_date, end_date],
             )
-        conn.commit()
-
+            conn.commit()
+        
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
         _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
         conn.commit()
         conn.close()
         progress(100)
-
+        
         total_time = time.time() - total_start
         summary = {
             'wells': len(well_names),
@@ -370,7 +370,7 @@ def populate_wells_cda(mapping_df, start_date, end_date,
             "Duration": lf.elapsed(total_time),
         }))
         return summary
-
+        
     except Exception as e:
         log(lf.error(str(e)))
         import traceback
@@ -394,7 +394,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
     log(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
                    Range=f"{start_month} to {end_month}"))
     total_start = time.time()
-
+    
     try:
         start_date = datetime.strptime(start_month, "%b %Y")
         end_date = datetime.strptime(end_month, "%b %Y")
@@ -406,7 +406,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         cursor = conn.cursor()
         cursor.fast_executemany = True
         log(lf.success("Database connected"))
-
+        
         mapping_df = _fetch_well_mapping(cursor)
         log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
 
@@ -415,12 +415,12 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
         # Single Snowflake pull
         log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
-        sf = SnowflakeConnector()
+            sf = SnowflakeConnector()
         try:
             sf_data = _pull_all_snowflake_data(sf, overall_start, overall_end, log)
-        finally:
-            sf.close()
-
+            finally:
+                sf.close()
+            
         # Single-pass: one spine, one merge, one DELETE, one INSERT
         log(lf.step("Building full-range spine and merging data..."))
         full_range = pd.date_range(start=overall_start, end=overall_end, freq='D').date
@@ -439,10 +439,10 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                         overall_start, overall_end)
         cursor.execute("DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
                         overall_start, overall_end)
-        conn.commit()
+                conn.commit()
 
         # Insert CDA
-        log(lf.step("Inserting into PCE_CDA..."))
+            log(lf.step("Inserting into PCE_CDA..."))
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
         _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
         conn.commit()
@@ -479,7 +479,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             WHERE c.ProdDate BETWEEN ? AND ?
         """, overall_start, overall_end)
         total_prod = cursor.rowcount
-        conn.commit()
+                conn.commit()
         progress(70)
 
         # SQL-based sequence recalculation (replaces Python per-well loop)
@@ -537,30 +537,30 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 # ---------------------------------------------------------------------------
 
 _CDA_SELECT_SQL = """
-    SELECT
-        [Well Name] as Source_Well_Name,
-        ProdDate as [Date],
-        [GasWH_Production] as [Gas WH Production (10³m³)],
-        [Condensate_WH_Production] as [Condensate WH (m³/d)],
-        [Gas - S2 Production] as [Gas S2 Production (10³m³)],
-        [Gas - Sales Production] as [Gas Sales Production (10³m³)],
-        [Condensate - Sales Production] as [Condensate Sales (m³/d)],
-        [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
-        [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
-        [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
-        [CGR_Ratio] as [CGR (m³/e³m³)],
-        [WGR_Ratio] as [WGR (m³/e³m³)],
-        [ECF_Ratio] as [ECF],
-        [OnProdHours] as [Hours On],
-        [TubingPressure] as [Tubing Pressure (kPa)],
-        [CasingPressure] as [Casing Pressure (kPa)],
-        [ChokeSize] as [Choke Size],
-        [AllocatedWater_Rate] as [Alloc. Water Rate (m³)],
-        [NGL_Production] as [NGL (m³)],
+                SELECT 
+                    [Well Name] as Source_Well_Name,
+                    ProdDate as [Date],
+                    [GasWH_Production] as [Gas WH Production (10³m³)],
+                    [Condensate_WH_Production] as [Condensate WH (m³/d)],
+                    [Gas - S2 Production] as [Gas S2 Production (10³m³)],
+                    [Gas - Sales Production] as [Gas Sales Production (10³m³)],
+                    [Condensate - Sales Production] as [Condensate Sales (m³/d)],
+                    [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
+                    [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
+                    [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
+                    [CGR_Ratio] as [CGR (m³/e³m³)],
+                    [WGR_Ratio] as [WGR (m³/e³m³)],
+                    [ECF_Ratio] as [ECF],
+                    [OnProdHours] as [Hours On],
+                    [TubingPressure] as [Tubing Pressure (kPa)],
+                    [CasingPressure] as [Casing Pressure (kPa)],
+                    [ChokeSize] as [Choke Size],
+                    [AllocatedWater_Rate] as [Alloc. Water Rate (m³)],
+                    [NGL_Production] as [NGL (m³)],
         [Formation Producer], [Layer Producer], [Fault Block],
         [Pad Name], [Lateral Length],
-        [Orient] as [Orientation]
-    FROM PCE_CDA
+                    [Orient] as [Orientation]
+                FROM PCE_CDA
     ORDER BY [Well Name], ProdDate
 """
 
@@ -681,7 +681,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             conn.commit()
             total_wells = len(affected_well_names)
             total_prod = len(prod_rows)
-            log(lf.success(
+        log(lf.success(
                 f"Inserted {lf.num(total_prod)} records for {lf.num(total_wells)} wells"
             ))
         else:
@@ -690,7 +690,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
 
         progress(95)
         conn.close()
-
+        
         total_time = time.time() - total_start
         months_count = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
         summary = {
@@ -708,7 +708,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             "Duration": lf.elapsed(total_time),
         }))
         return summary
-
+        
     except Exception as e:
         log(lf.error(str(e)))
         import traceback
