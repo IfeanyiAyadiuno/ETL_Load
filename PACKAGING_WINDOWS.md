@@ -79,6 +79,7 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean ^
   --hidden-import prodview_update_gui ^
   --hidden-import cda ^
   --hidden-import sales_allocation_updates ^
+  --hidden-import accumap_unmatched_cli ^
   production_update_gui.py
 ```
 

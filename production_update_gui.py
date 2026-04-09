@@ -501,6 +501,11 @@ class ProductionUpdateGUI(QMainWindow):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--accumap-unmatched":
+        from accumap_unmatched_cli import main as run_accumap_unmatched_cli
+
+        sys.exit(run_accumap_unmatched_cli(sys.argv[2:]))
+
     app = QApplication(sys.argv)
     gui = ProductionUpdateGUI()
     gui.show()
