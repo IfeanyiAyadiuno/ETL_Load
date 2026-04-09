@@ -360,13 +360,6 @@ class SalesRatiosDialog(QDialog):
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
 
-        self.log_result(lf.header(
-            "SALES RATIOS UPDATE",
-            Started=lf.timestamp(),
-            From=from_month,
-            To=to_month,
-        ))
-
         self.worker = SalesRatiosWorker(from_month, to_month, accumap_path)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
@@ -380,26 +373,12 @@ class SalesRatiosDialog(QDialog):
         self.progress_bar.setValue(value)
 
     def update_finished(self, summary):
-        """Handle update completion"""
+        """Handle update completion (summary block already logged by run_sales_ratios_update)."""
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
-
-        metrics = {"Completed": lf.timestamp()}
-        if summary:
-            if summary.get("cancelled"):
-                metrics["Status"] = "Cancelled (partial)"
-            metrics.update({
-                "Months processed": summary.get('months_processed', 0),
-                "Wells updated": summary.get('wells_updated', 0),
-                "PCE_CDA records": summary.get('cda_records', 0),
-                "PCE_Production records": summary.get('production_records', 0),
-                "Duration": lf.elapsed(summary.get('duration', 0)),
-            })
-        title = "CANCELLED (partial)" if summary and summary.get("cancelled") else "COMPLETE"
-        self.log_result(lf.summary(title, metrics))
 
     def update_error(self, error_msg):
         """Handle update error"""

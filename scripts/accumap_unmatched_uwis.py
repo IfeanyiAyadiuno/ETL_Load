@@ -2,6 +2,8 @@
 """
 Thin launcher: same as production_update_gui.py --accumap-unmatched (terminal output).
 
+Prints matched (Accumap UWI -> PCE_WM well) and unmatched UWIs; optional -o CSV with both.
+
 From repo root (Accumap path from settings.ini if you omit -a):
   python scripts/accumap_unmatched_uwis.py -m "Aug 2025"
   python scripts/accumap_unmatched_uwis.py -m "Aug 2025" -a "I:/path/Accumap.xlsx" -o out.csv

@@ -106,13 +106,16 @@ def read_accumap_sales_by_uwi(accumap_path: str, month_start: datetime) -> Dict[
 
 def map_accumap_uwi_to_well_sales(
     accumap_by_uwi: Dict[str, float], pce_uwi_dict: Dict[str, str]
-) -> Tuple[Dict[str, float], List[str]]:
+) -> Tuple[Dict[str, float], List[str], List[Tuple[str, str, float]]]:
     """
-    Map Accumap UWIs to PCE_WM well names. Last UWI mapping wins per well.
-    Returns (well_name -> sales_gas, unmatched_uwis) using the same strings as in Accumap.
+    Map Accumap UWIs to PCE_WM well names. Last UWI mapping wins per well for ``well_sales``.
+    Returns (well_name -> sales_gas, unmatched_uwis, matched_rows) where ``matched_rows`` is
+    (accumap_uwi, pce_well_name, sales_gas) for every Accumap row that matched (including
+    multiple UWIs that map to the same well).
     """
     well_sales: Dict[str, float] = {}
     unmatched_uwis: List[str] = []
+    matched_rows: List[Tuple[str, str, float]] = []
     for uwi_str, sales_gas in accumap_by_uwi.items():
         uwi_str = str(uwi_str)
         matched = False
@@ -127,10 +130,12 @@ def map_accumap_uwi_to_well_sales(
                 well_name = pce_uwi_dict[try_uwi]
                 matched = True
         if matched and well_name:
-            well_sales[well_name] = float(sales_gas)
+            sg = float(sales_gas)
+            well_sales[well_name] = sg
+            matched_rows.append((uwi_str, well_name, sg))
         else:
             unmatched_uwis.append(uwi_str)
-    return well_sales, unmatched_uwis
+    return well_sales, unmatched_uwis, matched_rows
 
 
 def merge_accumap_into_allocation_factors(
@@ -159,13 +164,14 @@ def merge_accumap_into_allocation_factors(
     cursor = conn.cursor()
     pce_uwi_dict = fetch_pce_uwi_to_well_name(cursor)
     accumap_by_uwi = read_accumap_sales_by_uwi(accumap_path, ms_dt)
-    well_sales, unmatched_uwi_list = map_accumap_uwi_to_well_sales(
+    well_sales, unmatched_uwi_list, _matched_detail = map_accumap_uwi_to_well_sales(
         accumap_by_uwi, pce_uwi_dict
     )
+    n_matched_uwi = len(accumap_by_uwi) - len(unmatched_uwi_list)
     _log(
         lf.detail(
             f"Accumap: {lf.num(len(accumap_by_uwi))} UWIs read, "
-            f"{lf.num(len(well_sales))} matched to wells, "
+            f"{lf.num(n_matched_uwi)} matched to {lf.num(len(well_sales))} PCE_WM well(s), "
             f"{lf.num(len(unmatched_uwi_list))} unmatched UWIs"
         )
     )

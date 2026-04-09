@@ -101,7 +101,13 @@ def run_sales_ratios_update(
     def is_cancelled():
         return cancelled is not None and cancelled()
 
-    log(lf.header("SALES RATIOS UPDATE", Range=f"{start_month} to {end_month}"))
+    log(
+        lf.header(
+            "SALES RATIOS UPDATE",
+            Started=lf.timestamp(),
+            Range=f"{start_month} to {end_month}",
+        )
+    )
 
     from sales_allocation_updates import (
         merge_accumap_into_allocation_factors,
@@ -144,6 +150,18 @@ def run_sales_ratios_update(
             
             if len(all_months) == 0:
                 log(lf.detail("No allocation factors found in selected range"))
+                log(
+                    lf.summary(
+                        "COMPLETE",
+                        {
+                            "Months processed": 0,
+                            "Wells updated": 0,
+                            "PCE_CDA records": 0,
+                            "PCE_Production records": 0,
+                            "Duration": lf.elapsed(0),
+                        },
+                    )
+                )
                 return {
                     'months_processed': 0,
                     'wells_updated': 0,
@@ -164,6 +182,18 @@ def run_sales_ratios_update(
                         f"Cancelled by user after {lf.num(months_processed)} month(s) completed."
                     ))
                     total_time = time.time() - total_start
+                    log(
+                        lf.summary(
+                            "CANCELLED (partial)",
+                            {
+                                "Months processed": months_processed,
+                                "Wells updated": total_wells_updated,
+                                "PCE_CDA records": total_cda_records,
+                                "PCE_Production records": total_production_records,
+                                "Duration": lf.elapsed(total_time),
+                            },
+                        )
+                    )
                     return {
                         "months_processed": months_processed,
                         "wells_updated": total_wells_updated,
@@ -211,13 +241,19 @@ def run_sales_ratios_update(
                 'duration': total_time
             }
             
-            log(lf.summary("COMPLETE", {
-                "Months processed": months_processed,
-                "Wells updated": total_wells_updated,
-                "PCE_CDA records": total_cda_records,
-                "PCE_Production records": total_production_records,
-                "Duration": lf.elapsed(total_time),
-            }))
+            log(
+                lf.summary(
+                    "COMPLETE",
+                    {
+                        "Completed": lf.timestamp(),
+                        "Months processed": months_processed,
+                        "Wells updated": total_wells_updated,
+                        "PCE_CDA records": total_cda_records,
+                        "PCE_Production records": total_production_records,
+                        "Duration": lf.elapsed(total_time),
+                    },
+                )
+            )
             
             return summary
         finally:

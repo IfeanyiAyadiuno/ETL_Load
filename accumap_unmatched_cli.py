@@ -1,5 +1,5 @@
 """
-List Accumap UWIs that do not map to PCE_WM for a month. Prints to stdout (terminal).
+Accumap UWI audit vs PCE_WM: prints matched and unmatched rows to stdout (terminal).
 
 Uses the same Accumap sheet / filters / UWI rules as Public Sales (sales_allocation_updates).
 Accumap file path defaults to **Accumap Template** in settings.ini (same as the GUI).
@@ -47,7 +47,10 @@ def accumap_path_from_settings() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Print Accumap UWIs with no PCE_WM match (terminal output; uses app settings.ini for Accumap path unless -a is set).",
+        description=(
+            "Print Accumap UWIs matched to PCE_WM wells and unmatched UWIs "
+            "(terminal output; uses settings.ini Accumap path unless -a is set)."
+        ),
     )
     p.add_argument(
         "-m",
@@ -64,7 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "-o",
         "--output",
-        help="Optional CSV path (columns: uwi, prd_monthly_gas_e3m3).",
+        help=(
+            "Optional CSV path: columns match_status, accumap_uwi, pce_well_name, "
+            "prd_monthly_gas_e3m3 (matched|unmatched)."
+        ),
     )
     args = p.parse_args(argv)
 
@@ -98,14 +104,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Failed to read Accumap: {e}", file=sys.stderr)
         return 1
 
-    _well_sales, unmatched = map_accumap_uwi_to_well_sales(accumap_by_uwi, pce_uwi_dict)
+    _well_sales, unmatched, matched_rows = map_accumap_uwi_to_well_sales(
+        accumap_by_uwi, pce_uwi_dict
+    )
     unmatched_sorted = sorted(set(unmatched), key=lambda s: (len(s), s))
+    matched_sorted = sorted(matched_rows, key=lambda t: (t[1], t[0]))
+    n_matched_uwi = len(matched_sorted)
+    n_unmatched = len(unmatched_sorted)
+    n_distinct_wells = len({t[1] for t in matched_sorted})
 
     print(f"Accumap file: {accumap}")
     print(
-        f"Month {args.month}: {len(accumap_by_uwi)} UWIs in Accumap, "
-        f"{len(unmatched_sorted)} unmatched to PCE_WM."
+        f"Month {args.month}: {len(accumap_by_uwi)} UWIs in Accumap; "
+        f"{n_matched_uwi} matched to {n_distinct_wells} PCE_WM well(s); "
+        f"{n_unmatched} unmatched."
     )
+    print()
+    print("--- Matched (Accumap UWI -> PCE_WM [Well Name]) ---")
+    print("accumap_uwi\tpce_well_name\tprd_monthly_gas_e3m3")
+    for uwi, well, gas in matched_sorted:
+        print(f"{uwi}\t{well}\t{gas}")
+
+    print()
+    print("--- Unmatched (no PCE_WM [Value Navigator UWI] match) ---")
+    print("accumap_uwi\tprd_monthly_gas_e3m3")
     for uwi in unmatched_sorted:
         gas = accumap_by_uwi.get(uwi, 0.0)
         print(f"{uwi}\t{gas}")
@@ -113,10 +135,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.output:
         with open(args.output, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["uwi", "prd_monthly_gas_e3m3"])
+            w.writerow(
+                ["match_status", "accumap_uwi", "pce_well_name", "prd_monthly_gas_e3m3"]
+            )
+            for uwi, well, gas in matched_sorted:
+                w.writerow(["matched", uwi, well, gas])
             for uwi in unmatched_sorted:
-                w.writerow([uwi, accumap_by_uwi.get(uwi, "")])
-        print(f"Wrote {args.output}", file=sys.stderr)
+                w.writerow(
+                    ["unmatched", uwi, "", accumap_by_uwi.get(uwi, "")],
+                )
+        print(
+            f"Wrote {n_matched_uwi + n_unmatched} rows to {args.output}",
+            file=sys.stderr,
+        )
 
     return 0
 
