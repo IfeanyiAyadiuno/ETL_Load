@@ -606,7 +606,40 @@ Re_Main_Production	dbo	PCE_Production	Remarks	41	NULL	YES	nvarchar	500	1000	NULL
 ----------------------------------------------------------------
 
 
-pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "settings.ini;." --hidden-import pyodbc --hidden-import snowflake.connector --hidden-import dotenv --hidden-import openpyxl --hidden-import pandas --hidden-import numpy --hidden-import production_update --hidden-import prodview_update_gui --hidden-import cda production_update_gui.
+pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "settings.ini;." --hidden-import pyodbc --hidden-import snowflake.connector --hidden-import dotenv --hidden-import openpyxl --hidden-import pandas --hidden-import numpy --hidden-import production_update --hidden-import prodview_update_gui --hidden-import cda production_update_gui.py
+
+----------------------------------------------------------------
+  PA MONTHLY LOADER
+----------------------------------------------------------------
+  Started       2026-04-09 10:55:20
+  Month         Mar 2026
+----------------------------------------------------------------
+    Month selected: March 2026
+  ✗ 'Gas Actual Volume'
+Traceback (most recent call last):
+  File "C:\Users\iayadiuno\AppData\Local\Programs\Python\Python312\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'Gas Actual Volume'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\monthly_loader_gui.py", line 101, in run_monthly_loader
+    df_vn['Gas Actual Volume'] = pd.to_numeric(df_vn['Gas Actual Volume'], errors='coerce').fillna(0)
+                                               ~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\iayadiuno\AppData\Local\Programs\Python\Python312\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\iayadiuno\AppData\Local\Programs\Python\Python312\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'Gas Actual Volume'
+
+  ✗ 'Gas Actual Volume'
 
 
 
