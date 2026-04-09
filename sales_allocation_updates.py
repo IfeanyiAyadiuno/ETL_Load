@@ -2,8 +2,9 @@
 Shared allocation SQL for Production Accounting (ValNav) vs Public Sales (Accumap + CGR).
 
 PA writes ValNav-backed Allocation_Factors rows and applies S2 + condensate sales to
-PCE_CDA / PCE_Production only. Public Sales merges Accumap sales gas into Allocation_Factors
-then applies gas sales, CGR, and aligned Production columns.
+PCE_CDA / PCE_Production only. Public Sales merges Accumap sales gas into Allocation_Factors,
+updates only gas sales and Sales CGR on PCE_CDA, then syncs all four sales columns on
+PCE_Production from CDA.
 """
 
 from __future__ import annotations
@@ -266,8 +267,11 @@ def apply_full_sales_ratios_for_month(
     log: Optional[Callable[[str], None]] = None,
 ) -> Tuple[int, int, int]:
     """
-    Full Public Sales pass: Gas - S2, Gas - Sales, Condensate - Sales, Sales CGR on CDA;
-    then aligned columns on PCE_Production. Returns (cda_rows, production_rows, wells_count).
+    Public Sales pass: on PCE_CDA, only [Gas - Sales Production] (Accumap) and [Sales CGR Ratio]
+    (from current CDA gas sales and condensate sales, typically after PA). PCE_Production gets
+    a full four-column sync from PCE_CDA (S2, gas sales, condensate sales, CGR).
+    Returns (cda_rows, production_rows, wells_count); cda_rows is the rowcount of the gas-sales
+    UPDATE only.
     """
     def _log(msg: str) -> None:
         if log:
@@ -276,19 +280,15 @@ def apply_full_sales_ratios_for_month(
     month_start_date, month_end_date, days_in_month = calendar_month_bounds(month_start)
     cursor = conn.cursor()
 
-    _log(lf.detail("Updating PCE_CDA (all sales allocation fields + CGR)…"))
+    _log(lf.detail("Updating PCE_CDA ([Gas - Sales Production] from Accumap)…"))
     cursor.execute(
         """
         UPDATE c SET
-            c.[Gas - S2 Production] = ISNULL(a.WH_to_S2_AllocFactor, 1.0)
-                                      * c.[GasWH_Production],
             c.[Gas - Sales Production] = CASE
                 WHEN ISNULL(a.Sales_Gas, 0) > 0
                 THEN ISNULL(a.WH_to_Sales_AllocFactor, 1.0) * c.[GasWH_Production]
                 ELSE ISNULL(a.Sales_Gas, 0) / ?
-            END,
-            c.[Condensate - Sales Production] = ISNULL(a.WH_to_Sales_Cond_AllocFactor, 1.0)
-                                                * c.[Condensate_WH_Production]
+            END
         FROM PCE_CDA c
         INNER JOIN Allocation_Factors a
             ON c.[Well Name] = a.[Well Name]
@@ -302,6 +302,7 @@ def apply_full_sales_ratios_for_month(
     )
     cda_rows = cursor.rowcount
 
+    _log(lf.detail("Recalculating PCE_CDA [Sales CGR Ratio]…"))
     cursor.execute(
         """
         UPDATE c SET

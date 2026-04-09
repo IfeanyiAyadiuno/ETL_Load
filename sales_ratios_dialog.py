@@ -117,23 +117,23 @@ class SalesRatiosDialog(QDialog):
         layout.addWidget(accumap_group)
 
         # Info Group
-        info_group = self.create_group("ℹ️ This will update:")
+        info_group = self.create_group("Summary")
         info_layout = QVBoxLayout()
 
-        info_text = QLabel(
-            "Each month in the range:\n"
-            "  1. Merge Accumap (sales gas) into Allocation_Factors\n"
-            "  2. Recalculate all sales fields + CGR on PCE_CDA\n"
-            "  3. Sync matching columns on PCE_Production\n\n"
-            "Run PA (ValNav) for those months first so Allocation_Factors rows exist."
+        info_text = QLabel()
+        info_text.setTextFormat(Qt.RichText)
+        info_text.setText(
+            "Merges Accumap into allocation factors, updates gas sales and CGR on PCE_CDA, "
+            "then syncs production from CDA (four columns).<br><br>"
+            "<b>Run PA for the same months first.</b>"
         )
+        info_text.setWordWrap(True)
         info_text.setStyleSheet("""
             QLabel {
                 background-color: #e6f0fa;
                 border: 1px solid #d1d5db;
                 border-radius: 5px;
                 padding: 10px;
-                font-family: Consolas, monospace;
             }
         """)
         info_layout.addWidget(info_text)

@@ -218,11 +218,11 @@ This section is the **most important** if you want to know "where is the code th
 
 - **Logic files:**
   - **`sales_ratios_gui.py`** — **`run_sales_ratios_update`**: orchestrates each month (requires **`accumap_path`**).
-  - **`sales_allocation_updates.py`** — **`merge_accumap_into_allocation_factors`**, **`apply_full_sales_ratios_for_month`**: Accumap merge into **`Allocation_Factors`**, then full sales + CGR on **`PCE_CDA`** / **`PCE_Production`**.
+  - **`sales_allocation_updates.py`** — **`merge_accumap_into_allocation_factors`**, **`apply_full_sales_ratios_for_month`**: Accumap merge into **`Allocation_Factors`**, then gas sales + **`Sales CGR Ratio`** on **`PCE_CDA`**, and a four-column sync from CDA to **`PCE_Production`**.
 
 - **Accumap / public sales gas:**
   - The **Accumap** Excel (sheet **Sales Gas - to PRW**, **`PRD Monthly Mktbl GAS e3m3`**) is read **here** per calendar month; **`Sales_Gas`**, **`WH_to_Sales_AllocFactor`**, and **`Gathered_to_Sales`** are written onto existing **`Allocation_Factors`** rows for that month (PA must have created the rows first).
-  - Then **`apply_full_sales_ratios_for_month`** updates all sales allocation columns on **`PCE_CDA`** (including **`CASE`** on **`Sales_Gas / days_in_month`**), **`Sales CGR Ratio`**, and the four aligned columns on **`PCE_Production`**.
+  - Then **`apply_full_sales_ratios_for_month`** updates only **`[Gas - Sales Production]`** (Accumap-backed **`CASE`** on **`Sales_Gas` / **`days_in_month`**) and **`[Sales CGR Ratio]`** on **`PCE_CDA`**; S2 and condensate sales on CDA remain from **PA**. It still writes all four aligned sales columns on **`PCE_Production`** from **`PCE_CDA`**.
 
 > **Key point:** This module **does not pull from Snowflake**; it works on SQL Server **`PCE_CDA`**, **`Allocation_Factors`**, and **`PCE_Production`**. **Does not** replace PA: PA should have already written ValNav-side factors and S2/condensate sales fields on CDA/Production for the same months where applicable.
 

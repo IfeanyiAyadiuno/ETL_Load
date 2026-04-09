@@ -73,7 +73,8 @@ def run_sales_ratios_update(
     """
     Update sales ratios in PCE_CDA and PCE_Production for a range of months.
     Merges Accumap public sales gas into Allocation_Factors per month, then applies
-    full sales + CGR updates (see sales_allocation_updates).
+    gas sales and CGR on PCE_CDA and a four-column sync from CDA to PCE_Production
+    (see sales_allocation_updates).
 
     Args:
         start_month: Start month in format "MMM YYYY" (e.g., "Jan 2020")
