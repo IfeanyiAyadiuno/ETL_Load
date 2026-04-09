@@ -10,11 +10,29 @@ import traceback
 from db_connection import get_sql_conn
 
 
+_SUP_TO_DIGIT = str.maketrans(
+    {
+        "\u00b2": "2",
+        "\u00b3": "3",
+        "\u00b9": "1",
+        "\u2070": "0",
+        "\u2074": "4",
+        "\u2075": "5",
+        "\u2076": "6",
+        "\u2077": "7",
+        "\u2078": "8",
+        "\u2079": "9",
+    }
+)
+
+
 def _norm_header(s: str) -> str:
+    """Lowercase, trim; map Unicode superscript digits (e.g. ³ in e³m³) to ASCII for matching."""
     t = str(s).strip().replace("\xa0", " ")
     while "  " in t:
         t = t.replace("  ", " ")
-    return t.lower()
+    t = t.translate(_SUP_TO_DIGIT).lower()
+    return t
 
 
 def _strip_valnav_column_names(df: pd.DataFrame) -> None:
@@ -144,6 +162,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             "Gas Actual Volume (10³m³)",
             "Gas Actual Volume (103m3)",
             "Gas Actual Volume (e3m3)",
+            "Gas Actual Volume (e³m³)",  # ValNav template: superscript ³ in header
             "Gas Actual Volume e3m3",
         )
         col_cond = _resolve_valnav_column(
@@ -152,6 +171,9 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             "Allocation Disp Condensate Volume (m³)",
             "Allocation Disp Condensate Volume (m3)",
             "Allocation Disp Condensate Volume",
+            "Condensate Volume (m³)",
+            "Condensate Volume (m3)",
+            "Condensate Volume",
         )
         log(
             lf.detail(
