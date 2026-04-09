@@ -609,24 +609,46 @@ Re_Main_Production	dbo	PCE_Production	Remarks	41	NULL	YES	nvarchar	500	1000	NULL
 pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "settings.ini;." --hidden-import pyodbc --hidden-import snowflake.connector --hidden-import dotenv --hidden-import openpyxl --hidden-import pandas --hidden-import numpy --hidden-import production_update --hidden-import prodview_update_gui --hidden-import cda production_update_gui.py
 
 ----------------------------------------------------------------
-  PA MONTHLY LOADER
+  SALES RATIOS UPDATE
 ----------------------------------------------------------------
-  Started       2026-04-09 11:14:28
-  Month         Mar 2026
+  Started       2026-04-09 11:28:52
+  From          Aug 2025
+  To            Aug 2025
 ----------------------------------------------------------------
-    Month selected: March 2026
-  ✗ "S2 gas volume (was 'Gas Actual Volume'): no column matching ('Gas Actual Volume', 'Gas actual volume', 'Gas Actual Vol', 'Gas Actual Volume (10³m³)', 'Gas Actual Volume (103m3)', 'Gas Actual Volume (e3m3)', 'Gas Actual Volume e3m3'). Sheet columns (7): 'Well', 'McDaniel database', 'Production Date', 'Production Hours', 'Gas Actual Volume (e³m³)', 'Water Actual Volume (m³)', 'Condensate Volume (m³)'"
-Traceback (most recent call last):
-  File "I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\monthly_loader_gui.py", line 138, in run_monthly_loader
-    col_gas = _resolve_valnav_column(
-              ^^^^^^^^^^^^^^^^^^^^^^^
-  File "I:\ResEng\Tools\Programmers Paradise\mvp_cda_load\monthly_loader_gui.py", line 45, in _resolve_valnav_column
-    raise KeyError(
-KeyError: "S2 gas volume (was 'Gas Actual Volume'): no column matching ('Gas Actual Volume', 'Gas actual volume', 'Gas Actual Vol', 'Gas Actual Volume (10³m³)', 'Gas Actual Volume (103m3)', 'Gas Actual Volume (e3m3)', 'Gas Actual Volume e3m3'). Sheet columns (7): 'Well', 'McDaniel database', 'Production Date', 'Production Hours', 'Gas Actual Volume (e³m³)', 'Water Actual Volume (m³)', 'Condensate Volume (m³)'"
+----------------------------------------------------------------
+  SALES RATIOS UPDATE
+----------------------------------------------------------------
+  Range         Aug 2025 to Aug 2025
+----------------------------------------------------------------
+    Processing 1 months
 
-  ✗ "S2 gas volume (was 'Gas Actual Volume'): no column matching ('Gas Actual Volume', 'Gas actual volume', 'Gas Actual Vol', 'Gas Actual Volume (10³m³)', 'Gas Actual Volume (103m3)', 'Gas Actual Volume (e3m3)', 'Gas Actual Volume e3m3'). Sheet columns (7): 'Well', 'McDaniel database', 'Production Date', 'Production Hours', 'Gas Actual Volume (e³m³)', 'Water Actual Volume (m³)', 'Condensate Volume (m³)'"
+> Processing August 2025
+    Accumap: 216 UWIs read, 47 matched to wells, 169 unmatched UWIs
+    Updated Accumap fields on 264 Allocation_Factors rows
+    Updating PCE_CDA ([Gas - Sales Production] from Accumap)…
+    Recalculating PCE_CDA [Sales CGR Ratio]…
+    Updated 264 wells / 7,812 CDA rows, 8,370 Production records
 
+----------------------------------------------------------------
+  COMPLETE
+----------------------------------------------------------------
+  Months processed                                         1
+  Wells updated                                          264
+  PCE_CDA records                                      7,812
+  PCE_Production records                               8,370
+  Duration                                              2.4s
+----------------------------------------------------------------
 
+----------------------------------------------------------------
+  COMPLETE
+----------------------------------------------------------------
+  Completed                              2026-04-09 11:28:55
+  Months processed                                         1
+  Wells updated                                          264
+  PCE_CDA records                                      7,812
+  PCE_Production records                               8,370
+  Duration                                              2.4s
+----------------------------------------------------------------
 
 
 
