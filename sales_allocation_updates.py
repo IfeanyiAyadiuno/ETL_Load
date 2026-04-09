@@ -10,6 +10,7 @@ PCE_Production from CDA.
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -73,6 +74,45 @@ def normalize_uwi_for_matching(uwi_str: str) -> str:
     return normalized
 
 
+def _accumap_uwi_search_keys(raw: str) -> List[str]:
+    """
+    Distinct lookup keys for an Accumap UWI (after normalize_uwi_for_matching).
+
+    Accumap exports sometimes use a space where PCE_WM / ValNav use a slash, e.g.
+    ``200/a-002-H 094-B-08/0`` vs ``200/a-002-H/094-B-08/0``.
+    """
+    u = str(raw).strip()
+    variants = [u]
+    if re.search(r"\s", u):
+        variants.append(re.sub(r"\s+", "/", u))
+    out: List[str] = []
+    seen = set()
+    for v in variants:
+        k = normalize_uwi_for_matching(v)
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def resolve_accumap_uwi_to_well_name(
+    uwi_str: str, pce_uwi_dict: Dict[str, str]
+) -> Optional[str]:
+    """
+    Map one Accumap UWI string to PCE_WM [Well Name] using the same rules as Public Sales.
+    Returns None if no match.
+    """
+    for k in _accumap_uwi_search_keys(uwi_str):
+        if k in pce_uwi_dict:
+            return pce_uwi_dict[k]
+    u = str(uwi_str).strip()
+    if len(u) > 1 and u[0].isdigit():
+        for k in _accumap_uwi_search_keys(u[1:]):
+            if k in pce_uwi_dict:
+                return pce_uwi_dict[k]
+    return None
+
+
 def read_accumap_sales_by_uwi(accumap_path: str, month_start: datetime) -> Dict[str, float]:
     """
     Read Accumap 'Sales Gas - to PRW' sheet; return UWI string (as in file) -> PRD Monthly Mktbl GAS e3m3.
@@ -109,6 +149,8 @@ def map_accumap_uwi_to_well_sales(
 ) -> Tuple[Dict[str, float], List[str], List[Tuple[str, str, float]]]:
     """
     Map Accumap UWIs to PCE_WM well names. Last UWI mapping wins per well for ``well_sales``.
+    Matching tries whitespace collapsed to ``/`` (Accumap vs ValNav formatting) plus existing
+    leading-digit and ``/02`` normalization — see ``resolve_accumap_uwi_to_well_name``.
     Returns (well_name -> sales_gas, unmatched_uwis, matched_rows) where ``matched_rows`` is
     (accumap_uwi, pce_well_name, sales_gas) for every Accumap row that matched (including
     multiple UWIs that map to the same well).
@@ -118,18 +160,8 @@ def map_accumap_uwi_to_well_sales(
     matched_rows: List[Tuple[str, str, float]] = []
     for uwi_str, sales_gas in accumap_by_uwi.items():
         uwi_str = str(uwi_str)
-        matched = False
-        well_name = None
-        nu = normalize_uwi_for_matching(uwi_str)
-        if nu in pce_uwi_dict:
-            well_name = pce_uwi_dict[nu]
-            matched = True
-        if not matched and len(uwi_str) > 1 and uwi_str[0].isdigit():
-            try_uwi = uwi_str[1:].lower()
-            if try_uwi in pce_uwi_dict:
-                well_name = pce_uwi_dict[try_uwi]
-                matched = True
-        if matched and well_name:
+        well_name = resolve_accumap_uwi_to_well_name(uwi_str, pce_uwi_dict)
+        if well_name:
             sg = float(sales_gas)
             well_sales[well_name] = sg
             matched_rows.append((uwi_str, well_name, sg))
