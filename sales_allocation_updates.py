@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, timedelta
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -106,13 +106,13 @@ def read_accumap_sales_by_uwi(accumap_path: str, month_start: datetime) -> Dict[
 
 def map_accumap_uwi_to_well_sales(
     accumap_by_uwi: Dict[str, float], pce_uwi_dict: Dict[str, str]
-) -> Tuple[Dict[str, float], int]:
+) -> Tuple[Dict[str, float], List[str]]:
     """
     Map Accumap UWIs to PCE_WM well names. Last UWI mapping wins per well.
-    Returns (well_name -> sales_gas, unmatched_uwi_count).
+    Returns (well_name -> sales_gas, unmatched_uwis) using the same strings as in Accumap.
     """
     well_sales: Dict[str, float] = {}
-    unmatched = 0
+    unmatched_uwis: List[str] = []
     for uwi_str, sales_gas in accumap_by_uwi.items():
         uwi_str = str(uwi_str)
         matched = False
@@ -129,8 +129,8 @@ def map_accumap_uwi_to_well_sales(
         if matched and well_name:
             well_sales[well_name] = float(sales_gas)
         else:
-            unmatched += 1
-    return well_sales, unmatched
+            unmatched_uwis.append(uwi_str)
+    return well_sales, unmatched_uwis
 
 
 def merge_accumap_into_allocation_factors(
@@ -159,11 +159,14 @@ def merge_accumap_into_allocation_factors(
     cursor = conn.cursor()
     pce_uwi_dict = fetch_pce_uwi_to_well_name(cursor)
     accumap_by_uwi = read_accumap_sales_by_uwi(accumap_path, ms_dt)
-    well_sales, unmatched = map_accumap_uwi_to_well_sales(accumap_by_uwi, pce_uwi_dict)
+    well_sales, unmatched_uwi_list = map_accumap_uwi_to_well_sales(
+        accumap_by_uwi, pce_uwi_dict
+    )
     _log(
         lf.detail(
             f"Accumap: {lf.num(len(accumap_by_uwi))} UWIs read, "
-            f"{lf.num(len(well_sales))} matched to wells, {lf.num(unmatched)} unmatched UWIs"
+            f"{lf.num(len(well_sales))} matched to wells, "
+            f"{lf.num(len(unmatched_uwi_list))} unmatched UWIs"
         )
     )
 
@@ -203,7 +206,7 @@ def merge_accumap_into_allocation_factors(
 
     conn.commit()
     _log(lf.detail(f"Updated Accumap fields on {lf.num(updated)} Allocation_Factors rows"))
-    return {"rows_updated": updated, "unmatched_accumap_uwis": unmatched}
+    return {"rows_updated": updated, "unmatched_accumap_uwis": len(unmatched_uwi_list)}
 
 
 def apply_valnav_allocation_to_cda_and_production(
