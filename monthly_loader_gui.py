@@ -9,6 +9,45 @@ import os
 import traceback
 from db_connection import get_sql_conn
 
+
+def _norm_header(s: str) -> str:
+    t = str(s).strip().replace("\xa0", " ")
+    while "  " in t:
+        t = t.replace("  ", " ")
+    return t.lower()
+
+
+def _strip_valnav_column_names(df: pd.DataFrame) -> None:
+    """In-place: trim Excel headers (trailing spaces / NBSP break exact name matches)."""
+    df.columns = [str(c).strip().replace("\xa0", " ") for c in df.columns]
+
+
+def _resolve_valnav_column(df: pd.DataFrame, logical_name: str, *candidates: str) -> str:
+    """
+    Return the actual column name in df for the first matching candidate (exact, then
+    case-insensitive / normalized). Raises KeyError with column list if none match.
+    """
+    cols = list(df.columns)
+    for want in candidates:
+        if want in df.columns:
+            return want
+    by_norm = {}
+    for c in cols:
+        k = _norm_header(c)
+        if k not in by_norm:
+            by_norm[k] = c
+    for want in candidates:
+        k = _norm_header(want)
+        if k in by_norm:
+            return by_norm[k]
+    preview = ", ".join(repr(str(c)) for c in cols[:40])
+    more = f" … (+{len(cols) - 40} more)" if len(cols) > 40 else ""
+    raise KeyError(
+        f"{logical_name}: no column matching {candidates!r}. "
+        f"Sheet columns ({len(cols)}): {preview}{more}"
+    )
+
+
 def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callback=None, accumap_path=None):
     """
     Run the PA monthly loader (ValNav only). Accumap / public sales gas is applied from
@@ -88,26 +127,55 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         
         # Read ValNav data
         df_valnav = pd.read_excel(valnav_path, sheet_name=target_valnav_sheet)
-        
+        _strip_valnav_column_names(df_valnav)
+
+        col_uwi = _resolve_valnav_column(
+            df_valnav,
+            "UWI / McDaniel id",
+            "McDaniel database",
+            "McDaniel Database",
+        )
+        col_gas = _resolve_valnav_column(
+            df_valnav,
+            "S2 gas volume (was 'Gas Actual Volume')",
+            "Gas Actual Volume",
+            "Gas actual volume",
+            "Gas Actual Vol",
+            "Gas Actual Volume (10³m³)",
+            "Gas Actual Volume (103m3)",
+            "Gas Actual Volume (e3m3)",
+            "Gas Actual Volume e3m3",
+        )
+        col_cond = _resolve_valnav_column(
+            df_valnav,
+            "Allocation dispensed condensate",
+            "Allocation Disp Condensate Volume (m³)",
+            "Allocation Disp Condensate Volume (m3)",
+            "Allocation Disp Condensate Volume",
+        )
+        log(
+            lf.detail(
+                f"ValNav sheet {target_valnav_sheet!r}: UWI column {col_uwi!r}, "
+                f"S2 gas {col_gas!r}, condensate {col_cond!r}"
+            )
+        )
+
         # Clean ValNav UWI values
-        df_valnav['UWI_clean_valnav'] = df_valnav['McDaniel database'].astype(str).str.strip()
-        
+        df_valnav["UWI_clean_valnav"] = df_valnav[col_uwi].astype(str).str.strip()
+
         # Prepare ValNav data dictionary
         valnav_data = {}
         valnav_uwis = set()
-        
-        df_vn = df_valnav.dropna(subset=['UWI_clean_valnav']).copy()
-        df_vn['UWI_clean_valnav'] = df_vn['UWI_clean_valnav'].astype(str).str.strip()
-        df_vn['Gas Actual Volume'] = pd.to_numeric(df_vn['Gas Actual Volume'], errors='coerce').fillna(0)
-        df_vn['Allocation Disp Condensate Volume (m³)'] = pd.to_numeric(
-            df_vn['Allocation Disp Condensate Volume (m³)'], errors='coerce'
-        ).fillna(0)
-        df_vn = df_vn.drop_duplicates(subset=['UWI_clean_valnav'], keep='last')
-        valnav_uwis = set(df_vn['UWI_clean_valnav'])
-        _vn_idx = df_vn.set_index('UWI_clean_valnav')
+
+        df_vn = df_valnav.dropna(subset=["UWI_clean_valnav"]).copy()
+        df_vn["UWI_clean_valnav"] = df_vn["UWI_clean_valnav"].astype(str).str.strip()
+        df_vn["_S2_Gas"] = pd.to_numeric(df_vn[col_gas], errors="coerce").fillna(0)
+        df_vn["_Sales_Cond"] = pd.to_numeric(df_vn[col_cond], errors="coerce").fillna(0)
+        df_vn = df_vn.drop_duplicates(subset=["UWI_clean_valnav"], keep="last")
+        valnav_uwis = set(df_vn["UWI_clean_valnav"])
+        _vn_idx = df_vn.set_index("UWI_clean_valnav")
         valnav_data = {
-            uwi: {'S2_Gas': float(r['Gas Actual Volume']),
-                   'Sales_Cond': float(r['Allocation Disp Condensate Volume (m³)'])}
+            uwi: {"S2_Gas": float(r["_S2_Gas"]), "Sales_Cond": float(r["_Sales_Cond"])}
             for uwi, r in _vn_idx.iterrows()
         }
         
