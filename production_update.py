@@ -10,6 +10,58 @@ from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
+    """
+    Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
+    Allocation_Factors (same logic as PA + Public Sales ratio passes).
+
+    Runs every distinct month in Allocation_Factors. Returns False if cancelled
+    mid-loop; True otherwise (including when AF is empty).
+    """
+    from sales_allocation_updates import (
+        apply_full_sales_ratios_for_month,
+        apply_valnav_allocation_to_cda_and_production,
+    )
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    with get_sql_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT MonthStartDate FROM Allocation_Factors ORDER BY MonthStartDate"
+        )
+        months = [row[0] for row in cursor.fetchall()]
+
+    if not months:
+        log(
+            lf.warn(
+                "No Allocation_Factors rows; PCE_CDA Gas S2 / sales columns are unchanged."
+            )
+        )
+        return True
+
+    log(
+        lf.step(
+            f"Refreshing PCE_CDA from Allocation_Factors ({lf.num(len(months))} months: "
+            "Gas S2, gas sales, condensate sales, Sales CGR)…"
+        )
+    )
+
+    n = len(months)
+    with get_sql_conn() as conn:
+        for i, month_start in enumerate(months):
+            if aborted():
+                log(lf.warn("Cancelled during PCE_CDA sales refresh."))
+                return False
+            apply_valnav_allocation_to_cda_and_production(conn, month_start, log=log)
+            apply_full_sales_ratios_for_month(conn, month_start, log=log)
+            if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
+                log(lf.detail(f"CDA sales refresh progress: {i + 1}/{n} months"))
+
+    return True
+
+
 def clear_pce_production():
     """Clear all data from PCE_Production table"""
     with get_sql_conn() as conn:
@@ -364,8 +416,14 @@ def insert_pce_production(df):
 
 def main(cancel_event=None):
     """
-    Rebuild PCE_Production from PCE_CDA. Optional cancel_event (threading.Event):
-    checked between major steps for best-effort cooperative cancel.
+    Rebuild PCE_Production from PCE_CDA.
+
+    First repaints Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA
+    from Allocation_Factors (when AF rows exist), then clears and repopulates
+    PCE_Production from CDA.
+
+    Optional cancel_event (threading.Event): checked between major steps for
+    best-effort cooperative cancel.
     """
     t0 = time.time()
 
@@ -382,19 +440,27 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled before start."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 1: Clear existing data
+    # Step 1: Ensure CDA sales / S2 columns match Allocation_Factors before copying to Production
+    if not _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=cancel_event):
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+    if aborted():
+        print(lf.warn("Cancelled after PCE_CDA sales refresh."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+    # Step 2: Clear existing data
     clear_pce_production()
     if aborted():
         print(lf.warn("Cancelled after clearing PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 2: Fetch well name mappings
+    # Step 3: Fetch well name mappings
     composite_map, fallback_map = fetch_well_mapping()
     if aborted():
         print(lf.warn("Cancelled after loading well mappings."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 3: Fetch CDA data
+    # Step 4: Fetch CDA data
     df = fetch_cda_data()
 
     if df.empty:
@@ -406,7 +472,7 @@ def main(cancel_event=None):
             "duration_seconds": _duration(),
         }
 
-    # Step 4: Apply well name mappings (composite name with fallback to well name)
+    # Step 5: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
 
     if df.empty:
@@ -418,7 +484,7 @@ def main(cancel_event=None):
             "duration_seconds": _duration(),
         }
 
-    # Step 5: Filter to first production date for each well
+    # Step 6: Filter to first production date for each well
     df = filter_to_first_production(df)
 
     if df.empty:
@@ -434,30 +500,31 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled before sequence calculations."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 6: Calculate sequences with corrected Day Seq UPRT logic
+    # Step 7: Calculate sequences with corrected Day Seq UPRT logic
     df = calculate_sequences(df)
 
-    # Step 7: Calculate cumulatives
+    # Step 8: Calculate cumulatives
     df = calculate_cumulatives(df)
 
-    # Step 8: Calculate monthly averages
+    # Step 9: Calculate monthly averages
     df = calculate_monthly_averages(df)
 
-    # Step 9: Add On Production Year
+    # Step 10: Add On Production Year
     df = add_on_production_year(df)
 
     if aborted():
         print(lf.warn("Cancelled before inserting into PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 10: Insert into PCE_Production
+    # Step 11: Insert into PCE_Production
     rows_inserted = insert_pce_production(df)
 
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)
 
-    # Step 11: Final summary
+    # Step 12: Final summary
     print(lf.summary("Complete", {
+        "Completed": lf.timestamp(),
         "Wells processed": wells_processed,
         "Total records": total_records,
         "Records inserted": rows_inserted,

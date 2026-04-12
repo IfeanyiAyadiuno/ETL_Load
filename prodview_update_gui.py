@@ -701,6 +701,7 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             'duration': total_time,
         }
         log(lf.summary("QUICK UPDATE COMPLETE", {
+            "Completed": lf.timestamp(),
             "Months processed": months_count,
             "Wells updated": total_wells,
             "PCE_CDA records": total_cda,

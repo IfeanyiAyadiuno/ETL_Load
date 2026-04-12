@@ -256,9 +256,10 @@ class ProdviewUpdateDialog(QDialog):
         if self.mode_full_rebuild.isChecked():
             self.info_text.setText(
                 "  • Rebuild entire PCE_Production from all rows in PCE_CDA (full date span in CDA)\n"
-                "  • Clears PCE_Production first, then recalculates sequences/cumulatives/averages\n"
+                "  • First refreshes PCE_CDA Gas S2, gas sales, condensate sales, and Sales CGR from "
+                "Allocation_Factors (when present), then clears PCE_Production and rebuilds it\n"
                 "  • No new Snowflake pull in this step (refresh CDA with Quick Update first if needed)\n"
-                "  • ⚠️ Long run (often 5–10 minutes)"
+                "  • ⚠️ Long run (often 5–10 minutes; more months in Allocation_Factors take longer)"
             )
         else:
             self.info_text.setText(
@@ -333,8 +334,9 @@ class ProdviewUpdateDialog(QDialog):
             body = (
                 "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
                 f"  • Mode: {mode_label}\n\n"
-                "Full rebuild clears PCE_Production and rebuilds it from every row currently in "
-                "PCE_CDA (typically loaded from Snowflake using Quick Update earlier). "
+                "Full rebuild refreshes Gas S2, gas sales, condensate sales, and Sales CGR on "
+                "PCE_CDA from Allocation_Factors, then clears PCE_Production and rebuilds it from "
+                "every row in PCE_CDA (typically loaded from Snowflake using Quick Update earlier). "
                 "The Update Range (From/To) applies only to Quick Update.\n\n"
                 "Do you want to continue?"
             )
@@ -451,38 +453,34 @@ class ProdviewUpdateDialog(QDialog):
         self.run_btn.setEnabled(True)
         self.close_btn.setEnabled(True)
 
-        metrics = {"Completed": lf.timestamp()}
-        title = "COMPLETE"
-
         if summary.get("skipped"):
             self.status_label.setText("Skipped")
-            title = "SKIPPED"
-            metrics["Reason"] = summary.get("reason", "")
-            metrics["Duration"] = lf.elapsed(summary.get("duration_seconds", 0))
+            self.log_result(
+                lf.summary(
+                    "SKIPPED",
+                    {
+                        "Completed": lf.timestamp(),
+                        "Reason": summary.get("reason", ""),
+                        "Duration": lf.elapsed(summary.get("duration_seconds", 0)),
+                    },
+                )
+            )
         elif summary.get("cancelled"):
             self.status_label.setText("Cancelled")
-            title = "CANCELLED"
-            metrics["Status"] = "Stopped between steps (best effort)"
-            metrics["Duration"] = lf.elapsed(summary.get("duration_seconds", 0))
-        elif summary.get("mode") == "full_rebuild":
-            self.status_label.setText("Complete")
-            metrics.update({
-                "Wells processed": summary.get("wells_processed", 0),
-                "Total CDA records": summary.get("total_records", 0),
-                "Records inserted": summary.get("records_inserted", 0),
-                "Duration": lf.elapsed(summary.get("duration_seconds", 0)),
-            })
+            self.log_result(
+                lf.summary(
+                    "CANCELLED",
+                    {
+                        "Completed": lf.timestamp(),
+                        "Status": "Stopped between steps (best effort)",
+                        "Duration": lf.elapsed(summary.get("duration_seconds", 0)),
+                    },
+                )
+            )
         else:
             self.status_label.setText("Complete")
-            metrics.update({
-                "Months processed": summary.get('months_processed', 0),
-                "Wells updated": summary.get('wells_updated', 0),
-                "PCE_CDA records": summary.get('cda_records', 0),
-                "PCE_Production records": summary.get('production_records', 0),
-                "Duration": lf.elapsed(summary.get('duration', 0)),
-            })
-
-        self.log_result(lf.summary(title, metrics))
+            # Success: final summary already streamed from production_update (full rebuild)
+            # or run_quick_update (quick update); avoid duplicate COMPLETE blocks.
 
     def update_error(self, error_msg):
         """Handle update error"""
