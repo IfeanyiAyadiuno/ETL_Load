@@ -173,16 +173,16 @@ The application queues a background job to load daily data into **`PCE_CDA`** fo
 
 ### Update mode
 
-**Full Rebuild Mode** (default)
-
-- Invokes the full `production_update` pipeline: **`PCE_Production`** is cleared and rebuilt from **`PCE_CDA`** (sequences, cumulatives, monthly averages).  
-- Extended runtime (dialog indicates on the order of 30–40 minutes for a full database).  
-- **From/To** selectors do **not** bound this mode.
-
-**Quick Update Mode**
+**Quick Update Mode** (default selection in the dialog)
 
 - Processes the selected **From**–**To** range.  
 - Updates **`PCE_CDA`** for that span, then updates **`PCE_Production`** for affected wells (merge, sequences, cumulatives, averages) per the quick-update implementation.
+
+**Full Rebuild Mode**
+
+- Invokes the full `production_update` pipeline: **`PCE_Production`** is cleared and rebuilt from **all** rows in **`PCE_CDA`** (sequences, cumulatives, monthly averages). This step does **not** query Snowflake; it uses whatever date span is already in CDA (usually populated earlier via Quick Update).  
+- Extended runtime (dialog indicates on the order of 30–40 minutes for a full database).  
+- **From/To** selectors do **not** apply; in the app, **Update Range** is greyed out when Full rebuild is selected.
 
 Select **Run Update**, acknowledge the confirmation, monitor **Results** and the progress bar. **Close** exits the dialog; cancellation may be offered while a job is active.
 
@@ -311,8 +311,8 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 
 ## Operational considerations
 
-- **Full Rebuild** replaces the entire **`PCE_Production`** table and requires substantial elapsed time. Reserve it for full refresh scenarios, not incremental date corrections.  
-- **Quick Update** is the appropriate mode for routine month-range refreshes.  
+- **Full Rebuild** replaces the entire **`PCE_Production`** table from all **`PCE_CDA`** rows (no new Snowflake pull in that step) and requires substantial elapsed time. Reserve it for full refresh scenarios, not incremental date corrections.  
+- **Quick Update** is the appropriate mode for routine month-range refreshes from Snowflake.  
 - Avoid forced termination of the application during active jobs; use dialog **Close**/cancel paths where provided.  
 - Production database changes should follow company backup and change-control practices.
 
@@ -359,7 +359,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 | `Allocation_Factors` | Monthly allocation data: ValNav side from **PA**; Accumap (sales gas) from **Public Sales Data and Ratios**. |
 | GasIDREC / PressuresIDREC | Snowflake keys linking a well to meter/completion data. |
 | Composite Name | Production row naming derived from well master mapping where applicable. |
-| Quick Update vs Full Rebuild | Quick: month-bounded CDA and Production update. Full: complete `PCE_Production` rebuild from `PCE_CDA`. |
+| Quick Update vs Full Rebuild | Quick: Snowflake pull for a chosen From/To month range; updates CDA and Production for that span. Full: complete `PCE_Production` rebuild from all `PCE_CDA` (no Snowflake query in that step). |
 
 ---
 

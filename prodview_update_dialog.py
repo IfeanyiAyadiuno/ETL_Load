@@ -70,8 +70,8 @@ class ProdviewUpdateDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        # Month Range Selection
-        range_group = self.create_group("📅 Update Range")
+        # Month Range Selection (disabled when Full rebuild is selected — only Quick Update uses it)
+        self.range_group = self.create_group("📅 Update Range")
         range_layout = QVBoxLayout()
 
         from_layout = QHBoxLayout()
@@ -91,8 +91,8 @@ class ProdviewUpdateDialog(QDialog):
         to_layout.addStretch()
         range_layout.addLayout(to_layout)
 
-        range_group.layout().addLayout(range_layout)
-        layout.addWidget(range_group)
+        self.range_group.layout().addLayout(range_layout)
+        layout.addWidget(self.range_group)
 
         # Update Mode Selection
         mode_group = self.create_group("⚙️ Update Mode")
@@ -104,8 +104,8 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Clears and rebuilds the full PCE_Production table from current PCE_CDA\n"
-            "  • Does not pull Snowflake; use after CDA is correct\n"
+            "  • Clears and rebuilds the full PCE_Production table from all rows in PCE_CDA\n"
+            "  • This step does not query Snowflake; CDA is usually filled first via Quick Update\n"
             "  • Typically 30–40 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
@@ -248,12 +248,13 @@ class ProdviewUpdateDialog(QDialog):
         event.accept()
 
     def update_info_text(self):
-        """Update info text based on selected mode"""
+        """Update info text and range availability based on selected mode."""
+        self.range_group.setEnabled(self.mode_quick_update.isChecked())
         if self.mode_full_rebuild.isChecked():
             self.info_text.setText(
-                "  • Rebuild entire PCE_Production from all rows in PCE_CDA\n"
+                "  • Rebuild entire PCE_Production from all rows in PCE_CDA (full date span in CDA)\n"
                 "  • Clears PCE_Production first, then recalculates sequences/cumulatives/averages\n"
-                "  • No Snowflake pull in this mode\n"
+                "  • No new Snowflake pull in this step (refresh CDA with Quick Update first if needed)\n"
                 "  • ⚠️ Long run (often 30–40 minutes)"
             )
         else:
@@ -321,22 +322,32 @@ class ProdviewUpdateDialog(QDialog):
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
-        mode_label = "FULL REBUILD (all PCE_CDA → PCE_Production, no Snowflake)" if update_mode == "full_rebuild" else "QUICK UPDATE (Snowflake for selected range)"
-        full_warn = ""
         if update_mode == "full_rebuild":
-            full_warn = (
-                "\n\nFull rebuild clears the entire PCE_Production table and rebuilds it from "
-                "all rows in PCE_CDA. From/To above apply only to Quick Update, not to this mode.\n"
+            mode_label = (
+                "FULL REBUILD — rebuild PCE_Production from all PCE_CDA "
+                "(full date range in CDA; no Snowflake query in this step)"
+            )
+            body = (
+                "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
+                f"  • Mode: {mode_label}\n\n"
+                "Full rebuild clears PCE_Production and rebuilds it from every row currently in "
+                "PCE_CDA (typically loaded from Snowflake using Quick Update earlier). "
+                "The Update Range (From/To) applies only to Quick Update.\n\n"
+                "Do you want to continue?"
+            )
+        else:
+            mode_label = "QUICK UPDATE (Snowflake for selected From/To range)"
+            body = (
+                "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
+                f"  • Mode: {mode_label}\n"
+                f"  • From: {from_month}\n"
+                f"  • To:   {to_month}\n\n"
+                "Do you want to continue?"
             )
         reply = QMessageBox.question(
             self,
             "Confirm Prodview/Snowflake Update",
-            "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
-            f"  • Mode: {mode_label}\n"
-            f"  • From: {from_month}\n"
-            f"  • To:   {to_month}\n"
-            f"{full_warn}\n"
-            "Do you want to continue?",
+            body,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -359,13 +370,16 @@ class ProdviewUpdateDialog(QDialog):
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         mode_name = "FULL REBUILD" if update_mode == "full_rebuild" else "QUICK UPDATE"
 
-        self.log_result(lf.header(
-            "PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
-            Started=lf.timestamp(),
-            Mode=mode_name,
-            From=from_month,
-            To=to_month,
-        ))
+        hdr = {
+            "Started": lf.timestamp(),
+            "Mode": mode_name,
+        }
+        if update_mode == "quick_update":
+            hdr["From"] = from_month
+            hdr["To"] = to_month
+        else:
+            hdr["From/To"] = "N/A (full CDA span; not used in Full rebuild)"
+        self.log_result(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE", **hdr))
 
         self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
         self.worker.log_signal.connect(self.log_result)

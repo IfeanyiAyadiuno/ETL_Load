@@ -125,7 +125,7 @@ This section is the **most important** if you want to know "where is the code th
 - **Where the real logic is:**
   - **File:** `prodview_update_gui.py`
   - **Main function:** `run_quick_update(start_month, end_month, progress_callback=None, log_callback=None)`
-  - There is also a **full rebuild** path in the same file (long-running, clears/rebuilds more history).
+  - **Full rebuild** is started from the same dialog but runs `production_update.main` (clears/rebuilds `PCE_Production` from all SQL Server `PCE_CDA` rows; no Snowflake call in that step).
 
 - **What `run_quick_update` does (high-level):**
   1. Parse the month range (`"MMM YYYY"`) into actual dates.
@@ -312,8 +312,8 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
 
 - **Prodview Full Rebuild:**
   - Heavy operation; can take 30–40 minutes.
-  - Clears and rebuilds a large amount of data.
-  - Fully controlled through `prodview_update_gui.py` and `ProdviewUpdateDialog`.
+  - Clears and rebuilds `PCE_Production` from all `PCE_CDA` (no Snowflake query in that step; CDA refresh is Quick Update’s job).
+  - Orchestrated by `ProdviewUpdateDialog` calling `production_update.main` (Quick Update logic remains in `prodview_update_gui.py`).
 
 - **Type Curves Import:**
   - Explicitly deletes **all `YE2%` wells** from `PCE_Production` before inserting.
