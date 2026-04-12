@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Peek PCE_Production for a well identified by PCE_WM GasIDREC and PressuresIDREC.
+Peek PCE_Production ECF and Hours On for a well identified by PCE_WM GasIDREC
+and PressuresIDREC.
 
 Not attached to the GUI. Uses db_connection (.env / Trusted Connection).
 
@@ -74,7 +75,10 @@ def production_well_name(well_name, composite_name) -> str:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Print first N rows from PCE_Production for a GasIDREC / PressuresIDREC pair."
+        description=(
+            "Print first N rows (Date, ECF, Hours On) from PCE_Production for a "
+            "GasIDREC / PressuresIDREC pair."
+        )
     )
     p.add_argument("gas_idrec", help="GasIDREC value as stored in PCE_WM (string form is fine)")
     p.add_argument(
@@ -141,11 +145,15 @@ def main() -> int:
     print(f"PCE_WM: Well Name={well_name!r}  Composite Name={composite_name!r}")
     print(f"        GasIDREC={gas_db!r}  PressuresIDREC={pres_db!r}  Exception={exception!r}")
     print(f"PCE_Production filter: [Well Name] = {prod_name!r}")
-    print(f"TOP {args.limit} rows, ordered by [Date]\n")
+    print(
+        f"TOP {args.limit} rows: [Date], [ECF], [Hours On] only, ordered by [Date]\n"
+    )
 
     query = f"""
         SELECT TOP ({int(args.limit)})
-            *
+            [Date],
+            [ECF],
+            [Hours On]
         FROM PCE_Production
         WHERE [Well Name] = ?
         ORDER BY [Date]
@@ -172,10 +180,8 @@ def main() -> int:
         print("No rows in PCE_Production for that well key.")
         return 1
 
-    # Wide table; avoid truncation of middle columns
-    with pd.option_context("display.max_columns", None, "display.width", 240, "display.max_colwidth", 32):
-        print(df.to_string(index=False))
-    print(f"\nRows shown: {len(df)}  Columns: {len(df.columns)}")
+    print(df.to_string(index=False))
+    print(f"\nRows shown: {len(df)}")
     return 0
 
 
