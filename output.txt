@@ -651,5 +651,57 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "sett
 ----------------------------------------------------------------
 
 
+----------------------------------------------------------------
+  PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE
+----------------------------------------------------------------
+  Started       2026-04-12 05:29:23
+  Mode          FULL REBUILD
+  From/To       N/A (full CDA span; not used in Full rebuild)
+----------------------------------------------------------------
+----------------------------------------------------------------
+  PCE_PRODUCTION POPULATION
+----------------------------------------------------------------
+  Started       2026-04-12 05:29:24
+----------------------------------------------------------------
+  ✓ Cleared PCE_Production: 370,000 records deleted (identity reseeded where applicable)
+    Loaded 286 well name mappings
+    Loaded 716,705 rows from PCE_CDA
+  ✓ Well name mapping complete
+    Filtered to first production: 281 wells, 663,912 rows (52,793 removed)
+    Sequences calculated for 281 wells
+> Calculating monthly averages...
+    Monthly averages calculated for 281 wells (vectorized)
+    Insert progress: 50,000/663,912 rows
+    Insert progress: 100,000/663,912 rows
+    Insert progress: 150,000/663,912 rows
+    Insert progress: 200,000/663,912 rows
+    Insert progress: 250,000/663,912 rows
+    Insert progress: 300,000/663,912 rows
+    Insert progress: 350,000/663,912 rows
+    Insert progress: 400,000/663,912 rows
+    Insert progress: 450,000/663,912 rows
+    Insert progress: 500,000/663,912 rows
+    Insert progress: 550,000/663,912 rows
+    Insert progress: 600,000/663,912 rows
+    Insert progress: 650,000/663,912 rows
+    Insert progress: 663,912/663,912 rows
+  ✓ Inserted 663,912 rows into PCE_Production
+----------------------------------------------------------------
+  COMPLETE
+----------------------------------------------------------------
+  Wells processed                                        281
+  Total records                                      663,912
+  Records inserted                                   663,912
+  Destination   CALVMSQL02.Re_Main_Production.PCE_Production
+----------------------------------------------------------------
 
+----------------------------------------------------------------
+  COMPLETE
+----------------------------------------------------------------
+  Completed                              2026-04-12 05:35:32
+  Wells processed                                        281
+  Total CDA records                                  663,912
+  Records inserted                                   663,912
+  Duration                                             6m 8s
+----------------------------------------------------------------
 

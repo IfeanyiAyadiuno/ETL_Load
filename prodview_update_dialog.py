@@ -258,7 +258,7 @@ class ProdviewUpdateDialog(QDialog):
                 "  • Rebuild entire PCE_Production from all rows in PCE_CDA (full date span in CDA)\n"
                 "  • Clears PCE_Production first, then recalculates sequences/cumulatives/averages\n"
                 "  • No new Snowflake pull in this step (refresh CDA with Quick Update first if needed)\n"
-                "  • ⚠️ Long run (often 30–40 minutes)"
+                "  • ⚠️ Long run (often 5–10 minutes)"
             )
         else:
             self.info_text.setText(
