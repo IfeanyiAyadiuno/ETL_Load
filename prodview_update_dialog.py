@@ -1,6 +1,7 @@
 # prodview_update_dialog.py
 
 import threading
+import time
 from datetime import datetime, timedelta
 
 import log_format as lf
@@ -21,7 +22,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QRadioButton,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
@@ -39,6 +40,8 @@ class ProdviewUpdateDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
         self.worker = None
+        self._heartbeat_timer = None
+        self._run_start_ts = None
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
@@ -357,13 +360,7 @@ class ProdviewUpdateDialog(QDialog):
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
-        # Always use determinate 0–100 progress. For full rebuild, we approximate
-        # progress based on console log activity; for quick update we use
-        # callback-based progress values.
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
         self.results_text.clear()
-        self.status_label.setText("Initializing...")
 
         from_month = self.from_combo.currentText()
         to_month = self.to_combo.currentText()
@@ -384,10 +381,58 @@ class ProdviewUpdateDialog(QDialog):
         self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
-        self.worker.status_signal.connect(self.status_label.setText)
+        self.worker.status_signal.connect(self._on_worker_status)
         self.worker.finished_signal.connect(self.update_finished)
         self.worker.error_signal.connect(self.update_error)
+
+        if update_mode == "full_rebuild":
+            # Busy / indeterminate bar — long SQL steps often print nothing for many minutes.
+            self.progress_bar.setRange(0, 0)
+            self._start_full_rebuild_heartbeat()
+            self.status_label.setText("Running full rebuild… (0:00 elapsed)")
+        else:
+            self._stop_full_rebuild_heartbeat()
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.status_label.setText("Initializing…")
+
         self.worker.start()
+
+    def _start_full_rebuild_heartbeat(self):
+        self._stop_full_rebuild_heartbeat()
+        self._run_start_ts = time.monotonic()
+        self._heartbeat_timer = QTimer(self)
+        self._heartbeat_timer.timeout.connect(self._on_full_rebuild_heartbeat_tick)
+        self._heartbeat_timer.start(1000)
+
+    def _stop_full_rebuild_heartbeat(self):
+        if self._heartbeat_timer is not None:
+            self._heartbeat_timer.stop()
+            self._heartbeat_timer.deleteLater()
+            self._heartbeat_timer = None
+
+    def _on_full_rebuild_heartbeat_tick(self):
+        if self.worker is None or not self.worker.isRunning():
+            self._stop_full_rebuild_heartbeat()
+            return
+        if self._run_start_ts is None:
+            return
+        elapsed = int(time.monotonic() - self._run_start_ts)
+        m, s = divmod(elapsed, 60)
+        h, m = divmod(m, 60)
+        if h:
+            ts = f"{h}:{m:02d}:{s:02d}"
+        else:
+            ts = f"{m}:{s:02d}"
+        self.status_label.setText(
+            f"Running full rebuild… ({ts} elapsed — job is active; long steps may run without new log lines)"
+        )
+
+    def _on_worker_status(self, text: str):
+        """Worker status line; do not overwrite heartbeat during full rebuild."""
+        if self.worker and self.worker.update_mode == "full_rebuild" and self._heartbeat_timer is not None:
+            return
+        self.status_label.setText(text)
 
     def update_progress(self, value):
         """Update progress bar"""
@@ -397,6 +442,8 @@ class ProdviewUpdateDialog(QDialog):
 
     def update_finished(self, summary):
         """Handle update completion"""
+        self._stop_full_rebuild_heartbeat()
+        self._run_start_ts = None
         # Ensure progress bar is back in determinate mode and completed
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
@@ -439,6 +486,8 @@ class ProdviewUpdateDialog(QDialog):
 
     def update_error(self, error_msg):
         """Handle update error"""
+        self._stop_full_rebuild_heartbeat()
+        self._run_start_ts = None
         # Reset progress bar to determinate mode on error
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
