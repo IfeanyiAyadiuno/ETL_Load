@@ -52,3 +52,6 @@ LEFT JOIN (
     ON tc.[Production Well Name] = p.[Well Name]
    AND tc.rn = 1;
 */
+
+-- Stacked production-shaped export (production rows + TC rows as extra rows, same columns):
+-- dbo.vw_PCE_Production_with_TypeCurves in vw_PCE_Production_with_TypeCurves.sql.
