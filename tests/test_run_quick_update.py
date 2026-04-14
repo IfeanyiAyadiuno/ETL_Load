@@ -1,4 +1,4 @@
-"""run_quick_update entry: validation path (no DB).
+"""run_quick_update entry: validation path.
 
 Uses English month abbreviations (e.g. Dec 2024), same as the GUI and
 datetime.strptime(..., "%b %Y") on typical en-US Windows installs.
