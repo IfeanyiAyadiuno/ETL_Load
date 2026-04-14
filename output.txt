@@ -705,37 +705,6 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "sett
   Duration                                             6m 8s
 ----------------------------------------------------------------
 
-/* Simulated type-curve rows (replace values with whatever you want to test) */
-WITH SimTC AS (
-    SELECT v.[Well Name], v.[Date], v.[Gas WH Production (10³m³)], v.[Condensate WH (m³/d)]
-    FROM (VALUES
-        (N'YE2-TEST-001', CONVERT(date, '2025-01-01'), CONVERT(float, 0.10), CONVERT(float, 2.20)),
-        (N'YE2-TEST-001', CONVERT(date, '2025-01-02'), CONVERT(float, 0.20), CONVERT(float, 2.50))
-    ) AS v([Well Name], [Date], [Gas WH Production (10³m³)], [Condensate WH (m³/d)])
-)
-/* Branch 1: a few real production rows */
-SELECT
-    p.[Well Name],
-    p.[Date],
-    p.[Gas WH Production (10³m³)],
-    p.[Condensate WH (m³/d)],
-    CAST(N'PRODUCTION' AS NVARCHAR(16)) AS [Source]
-FROM (
-    SELECT TOP (5)
-        [Well Name],
-        [Date],
-        [Gas WH Production (10³m³)],
-        [Condensate WH (m³/d)]
-    FROM dbo.PCE_Production
-    ORDER BY [Well Name], [Date]
-) AS p
-UNION ALL
-/* Branch 2: same column list / order / types as branch 1 */
-SELECT
-    t.[Well Name],
-    t.[Date],
-    t.[Gas WH Production (10³m³)],
-    t.[Condensate WH (m³/d)],
-    CAST(N'TYPE_CURVE' AS NVARCHAR(16)) AS [Source]
-FROM SimTC AS t
-ORDER BY [Source], [Well Name], [Date];
+TC/Production	Date	Days Seq	Day Seq UPRT	Well Name	"Gas S1 Production
+103m3"	"Gas Sales Production
+103m3"	Condensate Sales m³/d	Sales CGRm³/e³m³	Gas WH Production mcf	Condensate WH bbl/d	Cum Gas (bcf)	Cum Condy (Mbbl)	Layer	Pad
