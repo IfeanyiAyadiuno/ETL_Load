@@ -1,4 +1,5 @@
 import time
+from functools import partial
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
@@ -6,6 +7,10 @@ from datetime import datetime, timedelta, date
 import log_format as lf
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
+
+
+def _emit_log(log_callback, msg):
+    (log_callback or print)(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -299,8 +304,7 @@ def populate_wells_cda(mapping_df, start_date, end_date,
 
     Returns dict with summary stats or {"error": ...}.
     """
-    def log(msg):
-        (log_callback or print)(msg)
+    log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
@@ -384,8 +388,7 @@ def populate_wells_cda(mapping_df, start_date, end_date,
 # ---------------------------------------------------------------------------
 
 def run_prodview_update(start_month, end_month, progress_callback=None, log_callback=None):
-    def log(msg):
-        (log_callback or print)(msg)
+    log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
@@ -566,8 +569,7 @@ _CDA_SELECT_SQL = """
 
 
 def run_quick_update(start_month, end_month, progress_callback=None, log_callback=None):
-    def log(msg):
-        (log_callback or print)(msg)
+    log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
