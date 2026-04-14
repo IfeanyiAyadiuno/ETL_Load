@@ -223,6 +223,55 @@ def read_typecurve_excel(excel_path: str) -> pd.DataFrame:
     return pd.read_excel(excel_path, sheet_name=0, header=0, dtype=object)
 
 
+_TC_SCENARIO = re.compile(r"-(?i)([TC]\d+)$")
+_PNP_SUFFIX = re.compile(r"-(?i)pnp$")
+
+
+def _trailing_typecurve_vendor_trim_variants(s: str) -> List[str]:
+    """
+    Type-curve vendor labels often append ``… - T3 - PnP`` / ``… - C5 - PnP`` after the
+    Well Master name. We strip trailing ``-PnP`` first, then optional ``-T#`` / ``-C#`` **only
+    after** a ``PnP`` was removed, so legitimate composites ending in ``-C5`` (without ``PnP``)
+    are not shortened. DLS-style ids are never split on arbitrary hyphens.
+    """
+    variants: List[str] = []
+    seen: Set[str] = set()
+    cur = str(s).strip()
+    stripped_pnp = False
+    while cur:
+        if cur not in seen:
+            seen.add(cur)
+            variants.append(cur)
+        m_pnp = _PNP_SUFFIX.search(cur)
+        if m_pnp:
+            cur = cur[: m_pnp.start()]
+            stripped_pnp = True
+            continue
+        if stripped_pnp:
+            m2 = _TC_SCENARIO.search(cur)
+            if m2:
+                cur = cur[: m2.start()]
+                continue
+        break
+    return variants
+
+
+def _typecurve_well_lookup_candidates(cleaned: str) -> List[str]:
+    """
+    Survey-style leading-word trims, plus trailing ``-`` segment trims for type-curve well labels.
+    """
+    out: List[str] = []
+    seen: Set[str] = set()
+    if not isinstance(cleaned, str) or not cleaned.strip():
+        return out
+    for lead in _well_name_lookup_trim_candidates(cleaned):
+        for v in _trailing_typecurve_vendor_trim_variants(lead):
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+    return out
+
+
 def _keys_for_wm_label(label: str) -> List[str]:
     out: List[str] = []
     cleaned = clean_well_name(label)
@@ -278,7 +327,7 @@ def resolve_well_to_production_name(
     cleaned = clean_well_name(raw)
     if not isinstance(cleaned, str) or not cleaned.strip():
         return None
-    for cand in _well_name_lookup_trim_candidates(cleaned):
+    for cand in _typecurve_well_lookup_candidates(cleaned):
         k = well_name_match_key(cand)
         if not k:
             continue
