@@ -23,59 +23,12 @@ import pandas as pd
 import log_format as lf
 from db_connection import get_sql_conn
 
-# After _tc_clean_well_string, strip last two hyphen-separated segments only when there are
-# this many segments (avoids truncating bare DLS/NTS ids like A2-01-85-26W6M).
+# Hyphen tail strip: drop last two segments only when there are this many segments
+# (avoids truncating bare DLS/NTS ids like A2-01-85-26W6M).
 _MIN_HYPHEN_PARTS_FOR_TAIL_STRIP = 6
 
 TC_SUFFIX = " - TC"  # stored [Well Name] = mapped + TC_SUFFIX (5 chars)
 
-
-def _tc_clean_well_string(name) -> Optional[str]:
-    """Collapse whitespace and space-around-hyphen patterns (type-curve local; no survey_import)."""
-    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
-        return None
-    if not isinstance(name, str):
-        name = str(name).strip()
-    cleaned = name.strip()
-    if not cleaned:
-        return None
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    cleaned = re.sub(r"\s*-\s*", "-", cleaned)
-    return cleaned
-
-
-def _tc_collapse_digit_runs(s: str) -> str:
-    """Normalize each contiguous digit block via int() so 094→94, 05→5."""
-
-    def norm_digits(m: re.Match) -> str:
-        block = m.group(0)
-        try:
-            return str(int(block, 10))
-        except ValueError:
-            return block
-
-    return re.sub(r"\d+", norm_digits, s)
-
-
-def _tc_well_match_key(name) -> str:
-    """
-    Normalized key for matching Excel text to PCE_WM.[Well Name].
-    Case-insensitive; slash/backslash to hyphen; hyphen runs collapsed; leading zeros
-    removed in digit runs (same rules as legacy survey helper, inlined here).
-    """
-    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
-        return ""
-    if not isinstance(name, str):
-        name = str(name).strip()
-    cleaned = _tc_clean_well_string(name)
-    if not cleaned:
-        return ""
-    s = cleaned.casefold()
-    s = s.replace("\\", "-").replace("/", "-")
-    s = re.sub(r"\s*-\s*", "-", s)
-    s = re.sub(r"-+", "-", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return _tc_collapse_digit_runs(s)
 M3_PER_BBL = 6.29287017808823
 E3M3_PER_MCF = 35.4937299999999
 
@@ -89,6 +42,45 @@ INSERT INTO dbo.PCE_TC (
     [Layer Producer], [Pad Name], [SourceFileName]
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+
+def _tc_clean_well_string(name) -> Optional[str]:
+    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
+        return None
+    if not isinstance(name, str):
+        name = str(name).strip()
+    cleaned = name.strip()
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s*-\s*", "-", cleaned)
+    return cleaned
+
+
+def _tc_well_match_key(name) -> str:
+    """Key for matching file text to PCE_WM.[Well Name] (case, hyphens, digit zeros, optional W#M→W#)."""
+    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
+        return ""
+    if not isinstance(name, str):
+        name = str(name).strip()
+    cleaned = _tc_clean_well_string(name)
+    if not cleaned:
+        return ""
+    s = cleaned.casefold()
+    s = s.replace("\\", "-").replace("/", "-")
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"-+", "-", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    def _dig(m: re.Match) -> str:
+        try:
+            return str(int(m.group(0), 10))
+        except ValueError:
+            return m.group(0)
+
+    s = re.sub(r"\d+", _dig, s)
+    # Excel/vendor often has …W6M; WM may store …W6
+    return re.sub(r"(?i)(w\d+)m$", r"\1", s)
 
 
 def safe_float(value) -> Optional[float]:

@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QAbstractItemView,
+    QButtonGroup,
+    QRadioButton,
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
@@ -46,8 +48,6 @@ from styles import (
 
 
 class AppendTypeCurvesWorker(QThread):
-    """Append / refresh type curves into dbo.PCE_TC from Excel."""
-
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(dict)
@@ -94,8 +94,6 @@ class AppendTypeCurvesWorker(QThread):
 
 
 class DeleteTypeCurvesWorker(QThread):
-    """Remove type curve rows from dbo.PCE_TC by stored [Well Name] (with ' - TC' suffix)."""
-
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(int)
     error_signal = pyqtSignal(str)
@@ -124,13 +122,14 @@ class TypeCurvesImportDialog(QDialog):
         self.settings_section = settings_section
         self.append_worker = None
         self.delete_worker = None
-        self.setWindowTitle("Type Curves (PCE_TC)")
+        self.setWindowTitle("Type curves")
         self.setModal(True)
-        self.setMinimumWidth(780)
-        self.setMinimumHeight(640)
+        self.setMinimumWidth(720)
+        self.setMinimumHeight(580)
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
+        self._on_mode_changed()
         self.validate_inputs()
 
     def initUI(self):
@@ -144,109 +143,105 @@ class TypeCurvesImportDialog(QDialog):
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(scroll_content)
-        layout.setSpacing(15)
+        layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Type Curves (PCE_TC)")
+        title = QLabel("Type curves")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         intro = QLabel(
-            "Type curve data is stored only in <b>dbo.PCE_TC</b>. "
-            "It is never written to <b>PCE_Production</b>. "
-            "Each row uses <b>PCE_WM.[Well Name]</b> (physical well, not composite) "
-            "plus the suffix <code> - TC</code> on <code>[Well Name]</code> so type curves stay distinct."
+            "Loads dbo.PCE_TC only (not production). Row key = WM well name + ' - TC' suffix."
         )
         intro.setWordWrap(True)
-        intro.setTextFormat(Qt.RichText)
         layout.addWidget(intro)
 
-        file_group = self.create_group("Excel file (from Settings)")
+        mode_row = QHBoxLayout()
+        self.mode_group = QButtonGroup(self)
+        self.radio_append = QRadioButton("Append from Excel")
+        self.radio_delete = QRadioButton("Delete from PCE_TC")
+        self.mode_group.addButton(self.radio_append, 0)
+        self.mode_group.addButton(self.radio_delete, 1)
+        self.radio_append.setChecked(True)
+        self.radio_append.toggled.connect(self._on_mode_changed)
+        self.radio_delete.toggled.connect(self._on_mode_changed)
+        mode_row.addWidget(self.radio_append)
+        mode_row.addWidget(self.radio_delete)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
+
+        self.append_panel = QWidget()
+        al = QVBoxLayout(self.append_panel)
+        al.setContentsMargins(0, 0, 0, 0)
+
+        file_group = self.create_group("File (Settings path)")
         file_layout = QHBoxLayout()
         file_layout.addWidget(QLabel("Path:"))
         self.file_label = QLabel()
-        type_curves_path = self.settings_section.get("type_curves_file", "Not configured in Settings")
-        self.file_label.setText(type_curves_path)
+        tc_path = self.settings_section.get("type_curves_file", "Not configured in Settings")
+        self.file_label.setText(tc_path)
         self.file_label.setStyleSheet(file_path_label_style())
         self.file_label.setWordWrap(True)
         file_layout.addWidget(self.file_label, 1)
         file_group.layout().addLayout(file_layout)
-        layout.addWidget(file_group)
+        al.addWidget(file_group)
 
-        append_group = self.create_group("Append or refresh (from Excel)")
-        ag = QVBoxLayout()
-        ag.addWidget(
-            QLabel(
-                "Uses the first worksheet, row 1 as headers. "
-                "Well names in the file are matched to <b>PCE_WM.[Well Name]</b> (see user guide for the base-name rule). "
-                "Optional well selection: leave none selected to import <b>all</b> wells that appear "
-                "in the file after mapping. "
-                "Vendor column labelled Gas S1 (10³m³) is stored as <b>Gas S2</b> in PCE_TC."
-            )
+        al.addWidget(
+            QLabel("First sheet, row 1 = headers. No selection = all mapped wells in file.")
         )
-        last = ag.itemAt(ag.count() - 1).widget()
-        last.setWordWrap(True)
 
         self.append_list = QListWidget()
         self.append_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.append_list.setMinimumHeight(140)
+        self.append_list.setMinimumHeight(120)
+        al.addWidget(self.append_list)
 
-        btn_row = QHBoxLayout()
-        self.scan_append_btn = QPushButton("Load wells from Excel")
+        ab = QHBoxLayout()
+        self.scan_append_btn = QPushButton("Load from file")
         self.scan_append_btn.setStyleSheet(btn_neutral())
         self.scan_append_btn.clicked.connect(self.scan_append_wells)
-        btn_row.addWidget(self.scan_append_btn)
+        ab.addWidget(self.scan_append_btn)
         self.select_all_append_btn = QPushButton("Select all")
         self.select_all_append_btn.setStyleSheet(btn_neutral())
         self.select_all_append_btn.clicked.connect(self.append_list.selectAll)
-        btn_row.addWidget(self.select_all_append_btn)
-        self.clear_append_btn = QPushButton("Clear selection")
+        ab.addWidget(self.select_all_append_btn)
+        self.clear_append_btn = QPushButton("Clear")
         self.clear_append_btn.setStyleSheet(btn_neutral())
         self.clear_append_btn.clicked.connect(self.append_list.clearSelection)
-        btn_row.addWidget(self.clear_append_btn)
-        btn_row.addStretch()
-        ag.addLayout(btn_row)
+        ab.addWidget(self.clear_append_btn)
+        ab.addStretch()
+        al.addLayout(ab)
 
-        ag.addWidget(self.append_list)
-
-        self.append_btn = QPushButton("Append / refresh selected")
+        self.append_btn = QPushButton("Run")
         self.append_btn.setStyleSheet(btn_brand())
         self.append_btn.clicked.connect(self.run_append)
-        ag.addWidget(self.append_btn)
-        append_group.layout().addLayout(ag)
-        layout.addWidget(append_group)
+        al.addWidget(self.append_btn)
 
-        delete_group = self.create_group("Delete from PCE_TC (no Excel)")
-        dg = QVBoxLayout()
-        dg.addWidget(
-            QLabel(
-                "Loads wells that currently have rows in <b>PCE_TC</b>. "
-                "The list shows <b>PCE_WM.[Well Name]</b> text (without <code> - TC</code>); "
-                "the database delete uses the full stored key including the suffix."
-            )
-        )
-        lw = dg.itemAt(dg.count() - 1).widget()
-        lw.setWordWrap(True)
+        layout.addWidget(self.append_panel)
 
-        dr = QHBoxLayout()
-        self.load_delete_btn = QPushButton("Load wells with type curves")
+        self.delete_panel = QWidget()
+        dl = QVBoxLayout(self.delete_panel)
+        dl.setContentsMargins(0, 0, 0, 0)
+        dl.addWidget(QLabel("List shows WM name (suffix hidden). Delete uses full stored key."))
+
+        db = QHBoxLayout()
+        self.load_delete_btn = QPushButton("Load from DB")
         self.load_delete_btn.setStyleSheet(btn_neutral())
         self.load_delete_btn.clicked.connect(self.load_delete_wells)
-        dr.addWidget(self.load_delete_btn)
-        dr.addStretch()
-        dg.addLayout(dr)
+        db.addWidget(self.load_delete_btn)
+        db.addStretch()
+        dl.addLayout(db)
 
         self.delete_list = QListWidget()
         self.delete_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.delete_list.setMinimumHeight(140)
-        dg.addWidget(self.delete_list)
+        self.delete_list.setMinimumHeight(120)
+        dl.addWidget(self.delete_list)
 
-        self.delete_btn = QPushButton("Delete selected from PCE_TC")
+        self.delete_btn = QPushButton("Delete")
         self.delete_btn.setStyleSheet(btn_danger())
         self.delete_btn.clicked.connect(self.run_delete)
-        dg.addWidget(self.delete_btn)
-        delete_group.layout().addLayout(dg)
-        layout.addWidget(delete_group)
+        dl.addWidget(self.delete_btn)
+
+        layout.addWidget(self.delete_panel)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -259,7 +254,7 @@ class TypeCurvesImportDialog(QDialog):
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(results_area_style())
-        self.log_output.setMinimumHeight(220)
+        self.log_output.setMinimumHeight(200)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
@@ -279,32 +274,47 @@ class TypeCurvesImportDialog(QDialog):
         group = QFrame()
         group.setFrameShape(QFrame.StyledPanel)
         group.setStyleSheet(card_style())
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
+        gl = QVBoxLayout(group)
+        gl.setContentsMargins(14, 12, 14, 12)
+        gl.setSpacing(8)
         title_label = QLabel(title)
         title_label.setStyleSheet(section_title_style())
-        layout.addWidget(title_label)
+        gl.addWidget(title_label)
         return group
 
+    def _on_mode_changed(self):
+        use_append = self.radio_append.isChecked()
+        self.append_panel.setVisible(use_append)
+        self.delete_panel.setVisible(not use_append)
+        self.validate_inputs()
+
     def validate_inputs(self):
-        file_path = self.file_label.text()
-        has_file = (
-            file_path != "Not configured in Settings" and file_path and os.path.exists(file_path)
-        )
-        self.scan_append_btn.setEnabled(has_file)
-        self.append_btn.setEnabled(has_file and self.append_worker is None and self.delete_worker is None)
+        fp = self.file_label.text()
+        has_file = fp and fp != "Not configured in Settings" and os.path.exists(fp)
+        idle = self.append_worker is None and self.delete_worker is None
+        use_append = self.radio_append.isChecked()
+        self.scan_append_btn.setEnabled(idle and use_append and has_file)
+        self.select_all_append_btn.setEnabled(idle and use_append)
+        self.clear_append_btn.setEnabled(idle and use_append)
+        self.append_list.setEnabled(idle and use_append)
+        self.append_btn.setEnabled(idle and use_append and has_file)
+        self.load_delete_btn.setEnabled(idle and not use_append)
+        self.delete_list.setEnabled(idle and not use_append)
+        self.delete_btn.setEnabled(idle and not use_append)
+        self.radio_append.setEnabled(idle)
+        self.radio_delete.setEnabled(idle)
+        self.close_btn.setEnabled(idle)
 
     def scan_append_wells(self):
         file_path = self.file_label.text()
         if not file_path or file_path == "Not configured in Settings" or not os.path.exists(file_path):
-            QMessageBox.warning(self, "File", "Configure a valid Type Curves File in Settings.")
+            QMessageBox.warning(self, "Type curves", "Set a valid file in Settings.")
             return
         self.append_list.clear()
         try:
             matched, unmatched = scan_typecurve_wells(file_path)
         except Exception as e:
-            QMessageBox.critical(self, "Scan failed", str(e))
+            QMessageBox.critical(self, "Type curves", str(e))
             return
         for name in matched:
             it = QListWidgetItem(name)
@@ -312,57 +322,55 @@ class TypeCurvesImportDialog(QDialog):
             self.append_list.addItem(it)
         self.log_output.append(
             lf.detail(
-                f"Excel scan: {lf.num(len(matched))} mapped well(s), "
-                f"{lf.num(len(unmatched))} unmatched file name(s)."
+                f"Scan: {lf.num(len(matched))} matched, {lf.num(len(unmatched))} unmatched names."
             )
         )
         if unmatched:
-            self.log_output.append(lf.warn("See unmatched_type_curve_wells_*.csv after an append run."))
+            self.log_output.append(lf.warn("Unmatched list → unmatched_type_curve_wells_*.csv on import."))
 
     def load_delete_wells(self):
         self.delete_list.clear()
         try:
             stored = fetch_distinct_tc_well_names()
         except Exception as e:
-            QMessageBox.critical(self, "Database", str(e))
+            QMessageBox.critical(self, "Type curves", str(e))
             return
         for full in stored:
             base = strip_tc_suffix(full)
             it = QListWidgetItem(base)
             it.setData(Qt.UserRole, full)
             self.delete_list.addItem(it)
-        self.log_output.append(lf.detail(f"PCE_TC: {lf.num(len(stored))} distinct well key(s) loaded."))
+        self.log_output.append(lf.detail(f"Loaded {lf.num(len(stored))} well key(s)."))
 
     def run_append(self):
         file_path = self.file_label.text()
         if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "File", "Type curves file is missing or not configured.")
+            QMessageBox.warning(self, "Type curves", "File missing or not configured.")
             return
 
         selected = self.append_list.selectedItems()
         if len(selected) == 0:
             sel_bases = None
-            scope_msg = "all wells found in the file after mapping."
+            scope_msg = "all wells in file"
         else:
             sel_bases = [it.data(Qt.UserRole) for it in selected]
-            scope_msg = f"{len(sel_bases)} selected well(s)."
+            scope_msg = f"{len(sel_bases)} selected"
 
-        reply = QMessageBox.question(
-            self,
-            "Append / refresh PCE_TC",
-            f"This will delete existing PCE_TC rows for the chosen wells, then insert rows from:\n"
-            f"{os.path.basename(file_path)}\n\n"
-            f"Scope: {scope_msg}\n\n"
-            f"Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
+        if (
+            QMessageBox.question(
+                self,
+                "Confirm import",
+                f"Replace PCE_TC rows for scope: {scope_msg}\nFile: {os.path.basename(file_path)}",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
             return
 
         self.log_output.clear()
         self.log_output.append(
-            lf.header("PCE_TC APPEND", File=os.path.basename(file_path), Wells=scope_msg)
+            lf.header("APPEND", File=os.path.basename(file_path), Wells=scope_msg)
         )
         self.log_output.append("")
 
@@ -389,21 +397,17 @@ class TypeCurvesImportDialog(QDialog):
         self.append_worker = None
         self.validate_inputs()
         self.log("")
-        self.log(lf.summary("APPEND COMPLETE", {}))
+        self.log(lf.summary("DONE", {}))
         if result.get("ok"):
             QMessageBox.information(
                 self,
-                "PCE_TC",
-                f"Wells updated: {result.get('wells_updated', 0)}\n"
-                f"Rows inserted: {result.get('rows_inserted', 0)}\n"
-                f"Unmatched file wells (skipped): {len(result.get('unmatched') or [])}",
+                "Type curves",
+                f"Wells: {result.get('wells_updated', 0)}\n"
+                f"Rows: {result.get('rows_inserted', 0)}\n"
+                f"Unmatched: {len(result.get('unmatched') or [])}",
             )
         else:
-            QMessageBox.warning(
-                self,
-                "PCE_TC",
-                "Append did not complete successfully. Review the log.",
-            )
+            QMessageBox.warning(self, "Type curves", "Import did not finish OK — see log.")
 
     def append_error(self, error_msg):
         self.set_busy(False)
@@ -413,26 +417,27 @@ class TypeCurvesImportDialog(QDialog):
         self.validate_inputs()
         self.log("")
         self.log(lf.error(error_msg))
-        QMessageBox.critical(self, "Error", error_msg)
+        QMessageBox.critical(self, "Type curves", error_msg)
 
     def run_delete(self):
         items = self.delete_list.selectedItems()
         if not items:
-            QMessageBox.information(self, "Delete", "Select one or more wells to delete.")
+            QMessageBox.information(self, "Type curves", "Select well(s) to delete.")
             return
         stored = [it.data(Qt.UserRole) for it in items]
-        reply = QMessageBox.warning(
-            self,
-            "Delete from PCE_TC",
-            f"Remove all type-curve rows for {len(stored)} well key(s)?\n"
-            "This does not change PCE_Production.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
+        if (
+            QMessageBox.warning(
+                self,
+                "Confirm delete",
+                f"Remove all TC rows for {len(stored)} key(s)?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            != QMessageBox.Yes
+        ):
             return
 
-        self.log_output.append(lf.header("PCE_TC DELETE", Wells=str(len(stored))))
+        self.log_output.append(lf.header("DELETE", Wells=str(len(stored))))
         self.set_busy(True)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -455,7 +460,7 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_worker = None
         self.validate_inputs()
         self.load_delete_wells()
-        QMessageBox.information(self, "PCE_TC", f"Deleted {deleted_rows} row(s).")
+        QMessageBox.information(self, "Type curves", f"Deleted {deleted_rows} row(s).")
 
     def delete_error(self, error_msg):
         self.set_busy(False)
@@ -465,21 +470,22 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_worker = None
         self.validate_inputs()
         self.log(lf.error(error_msg))
-        QMessageBox.critical(self, "Error", error_msg)
+        QMessageBox.critical(self, "Type curves", error_msg)
 
     def set_busy(self, busy: bool):
+        self.radio_append.setEnabled(not busy)
+        self.radio_delete.setEnabled(not busy)
         fp = self.file_label.text()
-        has_file = (
-            fp and fp != "Not configured in Settings" and os.path.exists(fp)
-        )
-        self.scan_append_btn.setEnabled(not busy and has_file)
-        self.load_delete_btn.setEnabled(not busy)
-        self.select_all_append_btn.setEnabled(not busy)
-        self.clear_append_btn.setEnabled(not busy)
-        self.append_list.setEnabled(not busy)
-        self.delete_list.setEnabled(not busy)
-        self.append_btn.setEnabled(not busy and has_file)
-        self.delete_btn.setEnabled(not busy)
+        has_file = fp and fp != "Not configured in Settings" and os.path.exists(fp)
+        use_append = self.radio_append.isChecked()
+        self.scan_append_btn.setEnabled(not busy and use_append and has_file)
+        self.select_all_append_btn.setEnabled(not busy and use_append)
+        self.clear_append_btn.setEnabled(not busy and use_append)
+        self.append_list.setEnabled(not busy and use_append)
+        self.append_btn.setEnabled(not busy and use_append and has_file)
+        self.load_delete_btn.setEnabled(not busy and not use_append)
+        self.delete_list.setEnabled(not busy and not use_append)
+        self.delete_btn.setEnabled(not busy and not use_append)
         self.close_btn.setEnabled(not busy)
 
     def log(self, message):
@@ -490,31 +496,37 @@ class TypeCurvesImportDialog(QDialog):
 
     def handle_close(self):
         if self.append_worker and self.append_worker.isRunning():
-            if QMessageBox.question(
-                self,
-                "Cancel?",
-                "Append is running. Cancel?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            ) == QMessageBox.Yes:
+            if (
+                QMessageBox.question(
+                    self,
+                    "Cancel?",
+                    "Import running. Cancel?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                == QMessageBox.Yes
+            ):
                 self.append_worker.cancel()
                 self.append_worker.wait(8000)
                 self.append_error("Cancelled.")
             return
         if self.delete_worker and self.delete_worker.isRunning():
-            QMessageBox.information(self, "Busy", "Wait for delete to finish.")
+            QMessageBox.information(self, "Type curves", "Wait for delete to finish.")
             return
         self.close()
 
     def closeEvent(self, event):
         if self.append_worker and self.append_worker.isRunning():
-            if QMessageBox.question(
-                self,
-                "Cancel?",
-                "Append is running. Cancel and close?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            ) == QMessageBox.Yes:
+            if (
+                QMessageBox.question(
+                    self,
+                    "Cancel?",
+                    "Import running. Close anyway?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                == QMessageBox.Yes
+            ):
                 self.append_worker.cancel()
                 self.append_worker.wait(8000)
                 event.accept()

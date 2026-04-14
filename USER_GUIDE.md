@@ -267,28 +267,26 @@ Execute **Run Import**; review the **Import Log**.
 
 ## Type Curves Import
 
-**Objective:** Load or remove type-curve metrics in **`dbo.PCE_TC`** from the workbook path set as **Type Curves File** in **Settings**. Nothing in this dialog writes **`PCE_Production`**.
+**Settings:** **Type Curves File** path; the dialog shows it read-only.
 
-**Path** is read-only in the dialog; change it in **Settings** if the file moves.
+**Modes:** **Append from Excel** (**Load from file**, optional multi-select, **Run**) or **Delete from PCE_TC** (**Load from DB**, **Delete**). Only **`dbo.PCE_TC`** is written; **`PCE_Production`** is unchanged.
 
-**Excel layout:** First worksheet only; **row 1** is the header row. File columns **TC/Production**, **Date**, **Days Seq**, and **Day Seq UPRT** are ignored. **`[ImportDate]`** on inserted rows is the **run date** (import day), not the Excel date column.
+**Sheet:** First worksheet, **row 1** = headers. Ignored columns include **TC/Production**, **Date**, **Days Seq**, **Day Seq UPRT**. **`[ImportDate]`** is the import run date.
 
-**Gas S1 vs S2:** If the vendor labels a column as **Gas S1 Production (10³m³)**, the app still stores it in **`[Gas S2 Production (10³m³)]`** in **`PCE_TC`** (single Gas S2 column in the table).
+**Gas S1 → S2:** Vendor **Gas S1 Production (10³m³)** maps to **`[Gas S2 Production (10³m³)]`** (single gas column in the table).
 
-**Units (metric storage):** **Gas WH** from **mcf/d** → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** from **bbl/d** → **`[Condensate WH (m³/d)]`**; **Cum Gas** from **bcf** → **`[Cum Gas (e³m³)]`** (via mcf and the documented conversion factor); **Cum Condy** from **Mbbl** → **`[Cum Condy (m³)]`**.
+**Units:** **Gas WH** mcf/d → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** bbl/d → **`[Condensate WH (m³/d)]`**; **Cum Gas** bcf → **`[Cum Gas (e³m³)]`**; **Cum Condy** Mbbl → **`[Cum Condy (m³)]`**.
 
-**Well names:** The Excel **Well Name** cell is normalized inside the type-curve module (spaces, hyphens, casefold, slash vs hyphen, leading zeros in digit runs), then a **base id** is derived: if there are **at least six** hyphen-separated segments, the last **two** segments are dropped (e.g. `A2-01-85-26W6M - T3 - PnP` → `A2-01-85-26W6M`); otherwise the full normalized string is used (so short DLS/NTS ids are not truncated). That base is matched to **`PCE_WM.[Well Name]`** only using the same inlined key logic. The list in the dialog shows the matched **`[Well Name]`** from Well Master. Each inserted row stores that exact **`[Well Name]`** plus the suffix **` - TC`**.
+**Well matching:** Normalized text (spaces, hyphens, case, slashes, digit runs). With **≥ six** hyphen parts, the last **two** are dropped for the base id (e.g. `…-26W6M - T3 - PnP` → `…-26W6M`); shorter ids stay intact. **Meridian `M`:** an optional trailing **`M`** after **`W` + digits** at the **end** of the match key (e.g. Excel **`26W6M`**) is ignored so it can align with WM **`26W6`**. Matched WM **`[Well Name]`** is stored plus **` - TC`**.
 
-**Joining to `PCE_Production`:** Daily production often uses **composite** well names from the CDA pipeline, while **`PCE_TC`** is keyed by **physical** **`PCE_WM.[Well Name]`**. Stripping **` - TC`** alone may not equal **`PCE_Production.[Well Name]`**; use Well Master to relate physical name to composite, or adjust reporting joins accordingly. See **`sql/vw_PCE_TC_with_Production_Well.sql`** for the strip helper and example SQL.
+**Production joins:** **`PCE_TC`** uses physical WM names; production may use composites — see **`sql/vw_PCE_TC_with_Production_Well.sql`**.
 
-**Append / refresh:** Optionally **Load wells from Excel**, multi-select wells (or leave none selected = **all** wells that appear in the file after mapping), then **Append / refresh selected**. For each well in scope, existing **`PCE_TC`** rows for that stored key are **deleted**, then file rows are **inserted**. Unmatched file well names are listed in **`unmatched_type_curve_wells_<timestamp>.csv`** beside the Excel file when applicable.
+**Append:** No selection = all mapped wells in file. Per well in scope, existing TC rows for that key are replaced from the file. Unmatched names → **`unmatched_type_curve_wells_<timestamp>.csv`** next to the workbook when applicable.
 
-**Delete:** **Load wells with type curves**, select one or more, then **Delete selected from PCE_TC**. No Excel read.
-
-Monitor the **Log** area for counts, warnings, and errors.
+**Log:** Counts, warnings, and errors appear in the dialog log.
 
 > **Figure 10 — Type Curves Import**  
-> *[Insert screenshot: Type Curves dialog with Path, Import Log, Run Import. Red arrow: Path. Red arrow: Run Import.]*
+> *[Insert screenshot: Append from Excel / Delete from PCE_TC radios, path, list, Run / Delete, Log.]*
 
 <!-- Image: assets/user-guide/figure-10-type-curves.png -->
 
@@ -358,7 +356,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 | 7 | `figure-07-public-sales.png` | Public Sales dialog | From; To; Run Update |
 | 8 | `figure-08-survey-import.png` | Survey import | Path; Run Import |
 | 9 | `figure-09-whitson.png` | Whitson+ dialog | Load Sheets; Sheet; Post Data |
-| 10 | `figure-10-type-curves.png` | Type Curves import | Path; Run Import |
+| 10 | `figure-10-type-curves.png` | Type Curves import | Mode radios; Run / Delete |
 
 ---
 
