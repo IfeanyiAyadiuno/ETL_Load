@@ -151,7 +151,7 @@ class TypeCurvesImportDialog(QDialog):
         layout.addWidget(title)
 
         intro = QLabel(
-            "Loads dbo.PCE_TC only (not production). Row key = WM well name + ' - TC' suffix."
+            "Loads into dbo.PCE_TC. Row key = WM well name + ' - TC' suffix."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
