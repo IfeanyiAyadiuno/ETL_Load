@@ -705,3 +705,5 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "sett
   Duration                                             6m 8s
 ----------------------------------------------------------------
 
+-ECF
+-Hours On
