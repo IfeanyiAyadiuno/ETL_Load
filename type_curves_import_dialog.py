@@ -187,11 +187,14 @@ class TypeCurvesImportDialog(QDialog):
         al.addWidget(file_group)
 
         al.addWidget(
-            QLabel("First sheet, row 1 = headers. No selection = all mapped wells in file.")
+            QLabel(
+                "First sheet, row 1 = headers. Check wells to limit import; "
+                "leave all unchecked to import every matched well in the file."
+            )
         )
 
         self.append_list = QListWidget()
-        self.append_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.append_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.append_list.setMinimumHeight(120)
         al.addWidget(self.append_list)
 
@@ -202,11 +205,11 @@ class TypeCurvesImportDialog(QDialog):
         ab.addWidget(self.scan_append_btn)
         self.select_all_append_btn = QPushButton("Select all")
         self.select_all_append_btn.setStyleSheet(btn_neutral())
-        self.select_all_append_btn.clicked.connect(self.append_list.selectAll)
+        self.select_all_append_btn.clicked.connect(self._append_check_all)
         ab.addWidget(self.select_all_append_btn)
         self.clear_append_btn = QPushButton("Clear")
         self.clear_append_btn.setStyleSheet(btn_neutral())
-        self.clear_append_btn.clicked.connect(self.append_list.clearSelection)
+        self.clear_append_btn.clicked.connect(self._append_uncheck_all)
         ab.addWidget(self.clear_append_btn)
         ab.addStretch()
         al.addLayout(ab)
@@ -221,7 +224,12 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_panel = QWidget()
         dl = QVBoxLayout(self.delete_panel)
         dl.setContentsMargins(0, 0, 0, 0)
-        dl.addWidget(QLabel("List shows WM name (suffix hidden). Delete uses full stored key."))
+        dl.addWidget(
+            QLabel(
+                "List shows WM name (suffix hidden). Check one or more wells, then Delete "
+                "(full stored key is used)."
+            )
+        )
 
         db = QHBoxLayout()
         self.load_delete_btn = QPushButton("Load from DB")
@@ -232,9 +240,21 @@ class TypeCurvesImportDialog(QDialog):
         dl.addLayout(db)
 
         self.delete_list = QListWidget()
-        self.delete_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.delete_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.delete_list.setMinimumHeight(120)
         dl.addWidget(self.delete_list)
+
+        db2 = QHBoxLayout()
+        self.select_all_delete_btn = QPushButton("Select all")
+        self.select_all_delete_btn.setStyleSheet(btn_neutral())
+        self.select_all_delete_btn.clicked.connect(self._delete_check_all)
+        db2.addWidget(self.select_all_delete_btn)
+        self.clear_delete_btn = QPushButton("Clear")
+        self.clear_delete_btn.setStyleSheet(btn_neutral())
+        self.clear_delete_btn.clicked.connect(self._delete_uncheck_all)
+        db2.addWidget(self.clear_delete_btn)
+        db2.addStretch()
+        dl.addLayout(db2)
 
         self.delete_btn = QPushButton("Delete")
         self.delete_btn.setStyleSheet(btn_danger())
@@ -288,6 +308,46 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_panel.setVisible(not use_append)
         self.validate_inputs()
 
+    @staticmethod
+    def _make_checkable_item(label: str, user_data) -> QListWidgetItem:
+        it = QListWidgetItem(label)
+        it.setData(Qt.UserRole, user_data)
+        it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+        it.setCheckState(Qt.Unchecked)
+        return it
+
+    def _append_check_all(self):
+        for i in range(self.append_list.count()):
+            self.append_list.item(i).setCheckState(Qt.Checked)
+
+    def _append_uncheck_all(self):
+        for i in range(self.append_list.count()):
+            self.append_list.item(i).setCheckState(Qt.Unchecked)
+
+    def _delete_check_all(self):
+        for i in range(self.delete_list.count()):
+            self.delete_list.item(i).setCheckState(Qt.Checked)
+
+    def _delete_uncheck_all(self):
+        for i in range(self.delete_list.count()):
+            self.delete_list.item(i).setCheckState(Qt.Unchecked)
+
+    def _append_checked_wm_names(self):
+        out = []
+        for i in range(self.append_list.count()):
+            it = self.append_list.item(i)
+            if it.checkState() == Qt.Checked:
+                out.append(it.data(Qt.UserRole))
+        return out
+
+    def _delete_checked_stored_keys(self):
+        out = []
+        for i in range(self.delete_list.count()):
+            it = self.delete_list.item(i)
+            if it.checkState() == Qt.Checked:
+                out.append(it.data(Qt.UserRole))
+        return out
+
     def validate_inputs(self):
         fp = self.file_label.text()
         has_file = fp and fp != "Not configured in Settings" and os.path.exists(fp)
@@ -299,6 +359,8 @@ class TypeCurvesImportDialog(QDialog):
         self.append_list.setEnabled(idle and use_append)
         self.append_btn.setEnabled(idle and use_append and has_file)
         self.load_delete_btn.setEnabled(idle and not use_append)
+        self.select_all_delete_btn.setEnabled(idle and not use_append)
+        self.clear_delete_btn.setEnabled(idle and not use_append)
         self.delete_list.setEnabled(idle and not use_append)
         self.delete_btn.setEnabled(idle and not use_append)
         self.radio_append.setEnabled(idle)
@@ -317,9 +379,7 @@ class TypeCurvesImportDialog(QDialog):
             QMessageBox.critical(self, "Type curves", str(e))
             return
         for name in matched:
-            it = QListWidgetItem(name)
-            it.setData(Qt.UserRole, name)
-            self.append_list.addItem(it)
+            self.append_list.addItem(self._make_checkable_item(name, name))
         self.log_output.append(
             lf.detail(
                 f"Scan: {lf.num(len(matched))} matched, {lf.num(len(unmatched))} unmatched names."
@@ -337,9 +397,7 @@ class TypeCurvesImportDialog(QDialog):
             return
         for full in stored:
             base = strip_tc_suffix(full)
-            it = QListWidgetItem(base)
-            it.setData(Qt.UserRole, full)
-            self.delete_list.addItem(it)
+            self.delete_list.addItem(self._make_checkable_item(base, full))
         self.log_output.append(lf.detail(f"Loaded {lf.num(len(stored))} well key(s)."))
 
     def run_append(self):
@@ -348,12 +406,12 @@ class TypeCurvesImportDialog(QDialog):
             QMessageBox.warning(self, "Type curves", "File missing or not configured.")
             return
 
-        selected = self.append_list.selectedItems()
-        if len(selected) == 0:
+        checked = self._append_checked_wm_names()
+        if len(checked) == 0:
             sel_bases = None
             scope_msg = "all wells in file"
         else:
-            sel_bases = [it.data(Qt.UserRole) for it in selected]
+            sel_bases = checked
             scope_msg = f"{len(sel_bases)} selected"
 
         if (
@@ -420,11 +478,10 @@ class TypeCurvesImportDialog(QDialog):
         QMessageBox.critical(self, "Type curves", error_msg)
 
     def run_delete(self):
-        items = self.delete_list.selectedItems()
-        if not items:
-            QMessageBox.information(self, "Type curves", "Select well(s) to delete.")
+        stored = self._delete_checked_stored_keys()
+        if not stored:
+            QMessageBox.information(self, "Type curves", "Check one or more wells to delete.")
             return
-        stored = [it.data(Qt.UserRole) for it in items]
         if (
             QMessageBox.warning(
                 self,
@@ -484,6 +541,8 @@ class TypeCurvesImportDialog(QDialog):
         self.append_list.setEnabled(not busy and use_append)
         self.append_btn.setEnabled(not busy and use_append and has_file)
         self.load_delete_btn.setEnabled(not busy and not use_append)
+        self.select_all_delete_btn.setEnabled(not busy and not use_append)
+        self.clear_delete_btn.setEnabled(not busy and not use_append)
         self.delete_list.setEnabled(not busy and not use_append)
         self.delete_btn.setEnabled(not busy and not use_append)
         self.close_btn.setEnabled(not busy)

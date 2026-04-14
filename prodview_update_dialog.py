@@ -109,7 +109,7 @@ class ProdviewUpdateDialog(QDialog):
         full_rebuild_desc = QLabel(
             "  • Clears and rebuilds the full PCE_Production table from all rows in PCE_CDA\n"
             "  • This step does not query Snowflake; CDA is usually filled first via Quick Update\n"
-            "  • Typically 30–40 minutes"
+            "  • Typically 10 - 20 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
