@@ -186,6 +186,10 @@ class TypeCurvesImportDialog(QDialog):
         last = ag.itemAt(ag.count() - 1).widget()
         last.setWordWrap(True)
 
+        self.append_list = QListWidget()
+        self.append_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.append_list.setMinimumHeight(140)
+
         btn_row = QHBoxLayout()
         self.scan_append_btn = QPushButton("Load wells from Excel")
         self.scan_append_btn.setStyleSheet(btn_neutral())
@@ -202,9 +206,6 @@ class TypeCurvesImportDialog(QDialog):
         btn_row.addStretch()
         ag.addLayout(btn_row)
 
-        self.append_list = QListWidget()
-        self.append_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.append_list.setMinimumHeight(140)
         ag.addWidget(self.append_list)
 
         self.append_btn = QPushButton("Append / refresh selected")
