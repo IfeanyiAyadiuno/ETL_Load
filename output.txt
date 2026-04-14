@@ -643,6 +643,8 @@ TC/Production	Date	Days Seq	Day Seq UPRT	Well Name	"Gas S1 Production
 103m3"	"Gas Sales Production
 103m3"	Condensate Sales m³/d	Sales CGRm³/e³m³	Gas WH Production mcf	Condensate WH bbl/d	Cum Gas (bcf)	Cum Condy (Mbbl)	Layer	Pad
 
+
+Base Composite 
 2-01-85-26W6M - T3 - PnP
 A2-01-85-26W6M - T3 - PnP
 a-30-H/94-B-8 - C4 - PnP
@@ -696,3 +698,576 @@ E2-01-85-26W6M - T3 - PnP
 E8-6-85-25W6M - C4 - PnP
 F8-6-85-25W6M - C4 - PnP
 
+15-12-84-26W6 - C4 - PnP 
+c-C64-H/94-B-8 - C4 - PnP 
+c-V98-D/94-A-5 - C4a - PnP 
+b-95-H/94-B-8 - C4 - NCS 
+c-H4-H/94-B-8 - T2 - NCS 
+c-44-H/94-B-8 - C4 - PnP 
+c-4-H/94-B-8 - C4 - PnP 
+G16-32-084-25 - C4 - PnP 
+c-E23-H/94-B-8 - C4 - NCS 
+b-H74-A/94-B-8 - C4 - NCS 
+J2-1-85-26W6 - T2 - PnP 
+NULL
+C-J7-H/094-B-08 - T3 - PnP 
+a-30-H/94-B-8 - C4 - PnP 
+c-18-I/94-B-1 - C3 - PnP 
+c-A23-H/94-B-8 - C4 - PnP 
+NULL
+G15-1-85-26W6 - T2 - NCS 
+C-K7-H/094-B-08 - T2 - PnP 
+c-C14-H/94-B-8 - C4 - PnP 
+d-A99-D/94-A-05 - T2 - PnP 
+A16-32-084-25 - T2 - PnP 
+NULL
+c-C23-H/94-B-8 - T2 - PnP 
+NULL
+c-N98-D/94-A-05 - T2 - PnP 
+b-B34-H/94-B-8 - T2 - PnP 
+c-G84-A/94-B-8 - C4 - NCS 
+c-17-H/94-B-8 - C2 - PnP 
+B8-6-85-25W6M - C4 - PnP 
+c-B98-D/94-A-5 - T2 - PnP 
+a-98-A/94-B-8 - C4 - NCS 
+c-A4-H/94-B-8 - C2 - PnP 
+a-C98-A/94-B-8 - C3o - PnP 
+C2-01-85-26W6M - T3 - PnP 
+c-B29-A/94-B-8 - T2 - PnP 
+c-84-A/94-B-8 - C2 - PnP 
+H7-1-85-26W6 - C4 - PnP 
+A15-1-85-26W6 - C4 - PnP 
+c-K98-D/94-A-05 - C4a - PnP 
+d-B4-H/94-B-8 - C5 - PnP 
+d-B30-H/94-B-8 - C5 - PnP 
+c-D74-A/94-B-8 - C2 - PnP 
+c-C4-H/94-B-8 - T3 - PnP 
+c-E17-H/94-B-8 - T3 - PnP 
+c-L98-D/94-A-05 - C4 - PnP 
+M16-32-084-25 - C4a - PnP 
+c-H98-D/94-A-05 - C2 - PnP 
+NULL
+NULL
+d-A30-H/94-B-8 - C2 - PnP 
+K2-1-85-26W6 - T3 - PnP 
+a-A40-H/94-B-8 - C4 - PnP 
+c-E98-D/94-A-05 - C4 - PnP 
+c-H84-A/94-B-8 - C5 - PnP 
+I16-32-084-25 - C4a - PnP 
+c-W98-D/94-A-5 - C2 - PnP 
+c-C98-D/94-A-5 - T2 - PnP 
+c-X98-D/94-A-5 - C4 - PnP 
+C-Q7-H/094-B-08 - T2 - PnP 
+c-F4-H/94-B-8 - C2 - NCS 
+d-E4-H/94-B-8 - T2 - PnP 
+c-P98-D/94-A-5 - C4a - PnP 
+b-A97-A/94-B-8 - C3 - PnP 
+NULL
+d-D4-H/94-B-8 - T3 - PnP 
+E15-1-85-26W6 - C4 - NCS 
+d-A4-H/94-B-8 - C4 - PnP 
+b-D34-H/94-B-8 - T2 - PnP 
+c-B54-A/94-B-8 - C4 - PnP 
+c-B84-A/94-B-8 - T2 - PnP 
+C7-1-85-26W6 - C4a - PnP 
+d-88-A/94-B-8 - Gt - PnP 
+L2-1-85-26W6 - T2 - PnP 
+a-40-H/94-B-8 - C2 - PnP 
+c-Q98-D/94-A-5 - C2 - PnP 
+c-D7-H/94-B-8 - C5 - PnP 
+c-A44-H/94-B-8 - T3 - PnP 
+NULL
+c-B17-H/94-B-8 - C3 - PnP 
+d-53-A/94-B-8 - C4 - PnP 
+a-A98-A/94-B-8 - C3o - NCS 
+c-U98-D/94-A-5 - C4 - PnP 
+D2-01-85-26W6M - T2 - PnP 
+b-74-A/94-B-8 - Gt - PnP
+NULL
+c-23-H/94-B-8 - C4 - PnP 
+c-A29-G/94-B-9 - Suncor - PnP 
+c-C27-H/94-B-8 - M - PnP 
+C-M7-H/094-B-08 - T2 - PnP 
+NULL
+E7-1-85-26W6 - C4 - PnP 
+d-B53-A/94-B-8 - Gt - PnP 
+S7-1-85-26W6 - C2 - PnP 
+N7-1-85-26W6 - C4 - PnP 
+C16-32-084-25 - C4a - PnP 
+F16-32-084-25 - C2 - PnP 
+D-064-A/094-B-08 Gething - Gt - PnP 
+c-29-A/94-B-8 - C4 - PnP 
+C-L7-H/094-B-08 - T3 - PnP 
+c-G7-H/94-B-8 - C5 - PnP 
+d-A76-H/94-B-8 - T2 - NCS 
+c-C44-H/94-B-8 - T2 - PnP 
+c-O98-D/94-A-05 - T3 - PnP 
+d-30-H/94-B-8 - C4 - PnP 
+c-29-I/94-B-8 - Suncor - PnP 
+b-A95-H/94-B-8 - C2 - NCS 
+c-37-H/94-B-8 - C2 - NCS-PnP 
+C-O7-H/094-B-08 - T2 - PnP 
+C-E27-H/94-B-8 - C4 - NCS 
+c-B44-H/94-B-8 - C4 - PnP 
+c-G4-H/94-B-8 - C4 - NCS 
+c-27-H/94-B-8 - C4 - PnP 
+b-C34-H/94-B-8 - C2 - NCS 
+b-B24-H/94-B-8 - C4 - PnP 
+B2-01-85-26W6M - T2 - PnP 
+7-1-85-26W6 - C4a - PnP 
+c-A37-H/94-B-8 - C4 - NCS 
+NULL
+b-C97-A/94-B-8 - C3 - PnP 
+c-D98-D/94-A-05 - C4a - PnP 
+b-97-A/94-B-8 - T2 - PnP 
+NULL
+b-B97-A/94-B-8 - C5 - PnP 
+c-64-H/94-B-8 - C4 - PnP
+c-K84-A/94-B-8 - T3 - PnP 
+c-A64-H/94-B-8 - C4 - PnP 
+c-B64-H/94-B-8 - C4 - PnP 
+c-C17-H/94-B-8 - C5 - PnP 
+c-E54-A/94-B-8 - C4 - PnP 
+c-H17-H/94-B-8 - T2 - PnP 
+P7-1-85-26W6 - C2 - PnP
+c-E44-H/94-B-8 - C4 - NCS 
+c-C84-A/94-B-8 - C2 - PnP 
+K16-32-084-25 - C4 - PnP 
+c-G17-H/94-B-8 - T3 - PnP 
+D8-6-85-25W6M - C2 - PnP 
+a-C40-H/94-B-8 - C4 - PnP 
+E2-01-85-26W6M - T3 - PnP 
+b-E95-H/94-B-8 - C4 - PnP 
+c-45-I/94-B-1 - C4 - PnP 
+G7-1-85-26W6 - C4a - PnP 
+c-G37-H/94-B-8 - T2 - PnP 
+d-4-H/94-B-8 - C5 - PnP 
+d-A63-A/94-B-8 - C4 - NCS 
+D7-1-85-26W6 - C2 - PnP 
+R7-1-85-26W6 - C4a - PnP 
+b-G74-A/94-B-8 - C2 - NCS 
+c-C7-H/94-B-8 - C4 - PnP 
+d-D76-H/94-B-8 - C2 - PnP 
+NULL
+c-J98-D/94-A-05 - C2 - PnP 
+NULL
+J16-32-084-25 - C2 - PnP 
+b-E34-H/94-B-8 - C4 - NCS 
+b-C74-A/94-B-8 - C3 - PnP 
+B16-32-084-25 - C4a - PnP 
+c-F7-H/94-B-8 - C4 - PnP 
+c-F27-H/94-B-8 - C2 - NCS 
+d-C4-H/94-B-8 - C4 - PnP 
+c-I27-H/94-B-8 - C4 - NCS 
+NULL
+F8-6-85-25W6M - C4 - PnP 
+b-B95-H/94-B-8 - C4 - PnP 
+I7-1-85-26W6 - T3 - PnP 
+c-E74-A/94-B-8 - C5 - PnP 
+c-B4-H/94-B-8 - T2 - PnP 
+D15-1-85-26W6 - C4 - OH 
+c-A27-H/94-B-8 - T2 - PnP 
+L7-1-85-26W6 - C4a - PnP 
+c-A7-H/94-B-8 - C4 - PnP 
+c-A29-A/94-B-8 - C5 - PnP 
+c-63-B/94-B-9 - Suncor - PnP 
+c-A84-A/94-B-8 - C4 - PnP 
+c-D23-H/94-B-8 - C2 - PnP 
+c-E84-A/94-B-8 - C2 - NCS 
+b-I74-A/94-B-8 - C2 - NCS 
+d-F4-H/94-B-8 - T3 - PnP 
+d-C76-H/94-B-8 - C4 - PnP 
+c-B29-G/94-B-9 - Suncor - PnP 
+G2-1-85-26W6 - T3 - PnP 
+b-F34-H/94-B-8 - C2 - PnP 
+c-I17-H/94-B-8 - T3 - PnP 
+c-F23-H/94-B-8 - C2 - PnP 
+d-D30-H/94-B-8 - C5 - PnP 
+b-A24-H/94-B-8 - C4 - PnP 
+C-N7-H/094-B-08 - T3 - PnP 
+a-B98-A/94-B-8 - C4 - PnP 
+c-J17-H/94-B-8 - T2 - PnP 
+c-C37-H/94-B-8 - C2 - PnP 
+A7-1-85-26W6 - C4 - PnP 
+c-F37-H/94-B-8 - T3 - PnP 
+c-T98-D/94-A-5 - C2 - PnP 
+c-I84-A/94-B-8 - C4 - PnP 
+A2-01-85-26W6M - T3 - PnP 
+b-43-A/94-B-8 - Gt - PnP 
+b-34-H/94-B-8 - C4 - PnP 
+H16-32-084-25 - T2 - PnP 
+c-E37-H/94-B-8 - T2 - PnP 
+d-63-A/94-B-8 - T2 - NCS 
+d-C30-H/94-B-8 - C4 - PnP 
+c-D27-H/94-B-8 - T2 - PnP 
+a-E40-H/94-B-8 - C2 - PnP 
+d-B76-H/94-B-8 - C2 - NCS 
+F7-1-85-26W6 - C2 - PnP 
+c-C74-A/94-B-8 - C5 - PnP 
+c-H27-H/94-B-8 - T3 - NCS 
+a-B40-H/94-B-8 - C5 - PnP 
+c-D17-H/94-B-8 - T2 - PnP 
+E8-6-85-25W6M - C4 - PnP 
+c-B27-H/94-B-8 - C4 - PnP 
+c-D44-H/94-B-8 - C2 - NCS 
+c-74-A/94-B-8 - C2 - PnP 
+NULL
+c-54-A/94-B-8 - T2 - PnP 
+b-D74-A/94-B-8 - C5 - PnP 
+15-1-85-26W6 - C4 - PnP 
+c-A54-A/94-B-8 - C5 - PnP 
+a-A30-H/94-B-8 - C2 - PnP 
+c-D54-A/94-B-8 - C5 - NCS 
+b-E74-A/94-B-8 - T2 - NCS 
+c-E7-H/94-B-8 - C5 - PnP 
+L16-32-084-25 - T2 - PnP 
+NULL
+c-R98-D/94-A-5 - C4 - PnP 
+C8-6-85-25W6M - T3 - PnP 
+C-P7-H/094-B-08 - T3 - PnP 
+c-A17-H/94-B-8 - C5 - PnP 
+O7-1-85-26W6 - C4a - PnP 
+D16-32-084-25 - T2 - PnP 
+c-D84-A/94-B-8 - C4 - NCS 
+NULL
+F15-1-85-26W6 - T2 - NCS 
+C-R7-H/094-B-08 - T3 - PnP 
+b-17-I/94-B-1 - T3 - PnP 
+C15-1-85-26W6 - T2 - NCS 
+b-C95-H/94-B-8 - C2 - PnP 
+b-B74-A/94-B-8 - C5 - PnP 
+10-1-85-26W6 - T2 - NCS 
+c-B74-A/94-B-8 - C4 - PnP 
+B7-1-85-26W6 - C2 - PnP 
+NULL
+16-32-084-25 - T3 - PnP 
+Q7-1-85-26W6 - C4 - PnP 
+d-E76-H/94-B-8 - C4 - PnP 
+c-I98-D/94-A-05 - C4 - PnP 
+NULL
+d-99-D/94-A-05 - T2 - PnP 
+c-H7-H/94-B-8 - C2 - PnP 
+c-F98-D/94-A-05 - C2 - PnP 
+c-A48-I/94-B-1 - M - PnP 
+c-F84-A/94-B-8 - C4 - NCS 
+c-A98-D/94-A-5 - T2 - PnP 
+b-D95-H/94-B-8 - C4 - PnP 
+c-C54-A/94-B-8 - C2 - PnP 
+c-E4-H/94-B-8 - C4 - NCS 
+A8-6-85-25W6M - T2 - PnP 
+c-J84-A/94-B-8 - T2 - PnP 
+d-55-A/94-B-8 - Gt - PnP
+c-G27-H/94-B-8 - C4 - NCS 
+H15-1-85-26W6 - T2 - NCS 
+c-B23-H/94-B-8 - C4 - PnP 
+b-A34-H/94-B-8 - M - PnP 
+c-D4-H/94-B-8 - C4 - NCS 
+8-6-85-25W6M - T2 - PnP 
+M7-1-85-26W6 - C2 - PnP 
+E16-32-084-25 - T3 - PnP 
+c-D37-H/94-B-8 - C4 - NCS 
+c-B37-H/94-B-8 - C4 - NCS 
+c-F17-H/94-B-8 - T2 - PnP 
+NULL
+d-A2-G/94-B-9 - Suncor - PnP 
+c-I7-H/94-B-8 - C4 - PnP 
+d-F76-H/94-B-8 - C2 - PnP 
+2-01-85-26W6M - T3 - PnP
+NULL
+c-B18-I/94-B-1 - C3 - PnP 
+F2-1-85-26W6 - T2 - PnP 
+c-G98-D/94-A-05 - C4a - PnP 
+b-A74-A/94-B-8 - T2 - PnP 
+c-B7-H/94-B-8 - C5 - PnP 
+c-98-D/94-A-5 - T3 - PnP 
+d-B99-D/94-A-05 - T3 - PnP 
+c-S98-D/94-A-5 - C4a - PnP 
+a-D40-H/94-B-8 - C5 - PnP 
+b-F95-H/94-B-8 - C2 - PnP 
+
+15-12-084-26W6 - C4 - PnP - N
+C-C064-H/094-B-08 - C4 - PnP - N
+C-V098-D/094-A-05 - C4a - PnP - N
+B-095-H/094-B-08 - C4 - NCS - S
+C-H004-H/094-B-08 - T2 - NCS - N
+C-044-H/094-B-08 - C4 - PnP - N
+C-004-H/094-B-08 - C4 - PnP - S
+G16-32-084-25W6 - C4 - PnP - N
+C-E023-H/094-B-08 - C4 - NCS - S
+B-H074-A/094-B-08 - C4 - NCS - S
+J02-01-085-26W6 - T2 - PnP - N
+D-079-A/094-B-09 - CHLK - V - V
+C-J007-H/094-B-08 - T3 - PnP - N
+A-030-H/094-B-08 - C4 - PnP - N
+c-18-I/94-B-1 - C3 - PnP - N
+C-A023-H/094-B-08 - C4 - PnP - N
+D-A068-A/094-B-09 - CHLK - V - V
+G15-01-085-26W6 - T2 - NCS - N
+C-K007-H/094-B-08 - T2 - PnP - N
+C-C014-H/094-B-08 - C4 - PnP - S
+D-A099-D/094-A-05 - T2 - PnP - N
+A16-32-084-25W6 - T2 - PnP - S
+D-015-A/094-B-09 - HLFY - V - V
+C-C023-H/094-B-08 - T2 - PnP - S
+C-A056-A/094-B-09 - CHLK - V - V
+C-N098-D/094-A-05 - T2 - PnP - N
+B-B034-H/094-B-08 - T2 - PnP - S
+C-G084-A/094-B-08 - C4 - NCS - S
+C-017-H/094-B-08 - C2 - PnP - N
+B08-06-085-25W6 - C4 - PnP - N
+C-B098-D/094-A-05 - T2 - PnP - S
+A-098-A/094-B-08 - C4 - NCS - N
+C-A004-H/094-B-08 - C2 - PnP - S
+A-C098-A/094-B-08 - C3o - PnP - N
+C02-01-085-26W6 - T3 - PnP - S
+C-B029-A/094-B-08 - T2 - PnP - N
+C-084-A/094-B-08 - C2 - PnP - N
+H07-01-085-26W6 - C4 - PnP - S
+A15-01-085-26W6 - C4 - PnP - N
+C-K098-D/094-A-05 - C4a - PnP - S
+D-B004-H/094-B-08 - C5 - PnP - S
+D-B030-H/094-B-08 - C5 - PnP - N
+C-D074-A/094-B-08 - C2 - PnP - N
+C-C004-H/094-B-08 - T3 - PnP - S
+C-E017-H/094-B-08 - T3 - PnP - S
+C-L098-D/094-A-05 - C4 - PnP - S
+M16-32-084-25W6 - C4a - PnP - S
+C-H098-D/094-A-05 - C2 - PnP - S
+C-A015-I/094-B-08 - C5 - V - V
+B-062-I/094-B-08 - CHLK - PnP - N
+D-A030-H/094-B-08 - C2 - PnP - N
+K02-01-085-26W6 - T3 - PnP - N
+A-A040-H/094-B-08 - C4 - PnP - N
+C-E098-D/094-A-05 - C4 - PnP - S
+C-H084-A/094-B-08 - C5 - PnP - N
+I16-32-084-25W6 - C4a - PnP - N
+C-W098-D/094-A-05 - C2 - PnP - N
+C-C098-D/094-A-05 - T2 - PnP - S
+C-X098-D/094-A-05 - C4 - PnP - N
+C-Q007-H/094-B-08 - T2 - PnP - S
+C-F004-H/094-B-08 - C2 - NCS - N
+D-E004-H/094-B-08 - T2 - PnP - N
+C-P098-D/094-A-05 - C4a - PnP - N
+B-A097-A/094-B-08 - C3 - PnP - S
+D-013-G/094-B-09 - HLFY - V - V
+D-D004-H/094-B-08 - T3 - PnP - N
+E15-1-85-26W6 - C4 - NCS - N
+D-A004-H/094-B-08 - C4 - PnP - S
+B-D034-H/094-B-08 - T2 - PnP - S
+C-B054-A/094-B-08 - C4 - PnP - S
+C-B084-A/094-B-08 - T2 - PnP - N
+C07-01-085-26W6 - C4a - PnP - S
+D-088-A/094-B-08 Gething - Gt - PnP - V
+L02-01-085-26W6 - T2 - PnP - N
+A-040-H/094-B-08 - C2 - PnP - N
+C-Q098-D/094-A-05 - C2 - PnP - N
+C-D007-H/094-B-08 - C5 - PnP - N
+C-A044-H/094-B-08 - T3 - PnP - N
+B-019-H/094-B-09 - CHLK - V - V
+C-B017-H/094-B-08 - C3 - PnP - N
+d-53-A/94-B-8 - C4 - PnP - N
+A-A098-A/094-B-08 - C3o - NCS - N
+C-U098-D/094-A-05 - C4 - PnP - N
+D02-01-085-26W6 - T2 - PnP - S
+b-74-A/94-B-8 - Gt - PnP - V
+B-051-I/094-B-08 - CHLK - V - V
+C-023-H/094-B-08 - C4 - PnP - S
+C-A029-G/094-B-09 - Suncor - PnP - N
+C-C027-H/094-B-08 - M - PnP - N
+C-M007-H/094-B-08 - T2 - PnP - S
+NULL
+E07-01-085-26W6 - C4 - PnP - S
+d-B53-A/94-B-8 - Gt - PnP - V
+S07-01-085-26W6 - C2 - PnP - N
+N07-01-085-26W6 - C4 - PnP - N
+C16-32-084-25W6 - C4a - PnP - S
+F16-32-084-25W6 - C2 - PnP - N
+D-064-A/094-B-08 Gething - Gt - PnP - V
+C-029-A/094-B-08 - C4 - PnP - S
+C-L007-H/094-B-08 - T3 - PnP - N
+C-G007-H/094-B-08 - C5 - PnP - S
+D-A076-H/094-B-08 - T2 - NCS - S
+C-C044-H/094-B-08 - T2 - PnP - N
+C-O098-D/094-A-05 - T3 - PnP - N
+D-030-H/094-B-08 - C4 - PnP - N
+C-029-I/094-B-08 - Suncor - PnP - N
+B-A095-H/094-B-08 - C2 - NCS - S
+C-037-H/094-B-08 - C2 - NCS-PnP - S
+C-O007-H/094-B-08 - T2 - PnP - S
+C-E027-H/094-B-08 - C4 - NCS - N
+C-B044-H/094-B-08 - C4 - PnP - N
+C-G004-H/094-B-08 - C4 - NCS - N
+C-027-H/094-B-08 - C4 - PnP - N
+B-C034-H/094-B-08 - C2 - NCS - S
+B-B024-H/094-B-08 - C4 - PnP - N
+B02-01-085-26W6 - T2 - PnP - S
+07-01-085-26W6 - C4a - PnP - S
+C-A037-H/094-B-08 - C4 - NCS - S
+B-G095-H/094-B-08 - T3 - PnP - N
+B-C097-A/094-B-08 - C3 - PnP - S
+C-D098-D/094-A-05 - C4a - PnP - S
+B-097-A/094-B-08 - T2 - PnP - N
+A-094-I/094-B-08 - Suncor - V - V
+B-B097-A/094-B-08 - C5 - PnP - S
+c-64-H/94-B-8 - C4 - PnP - N
+C-K084-A/094-B-08 - T3 - PnP - S
+C-A064-H/094-B-08 - C4 - PnP - S
+C-B064-H/094-B-08 - C4 - PnP - S
+C-C017-H/094-B-08 - C5 - PnP - N
+C-E054-A/094-B-08 - C4 - PnP - S
+C-H017-H/094-B-08 - T2 - PnP - S
+P7-1-85-26W6 - C2 - PnP - N
+C-E044-H/094-B-08 - C4 - NCS - N
+C-C084-A/094-B-08 - C2 - PnP - N
+K16-32-084-25W6 - C4 - PnP - S
+C-G017-H/094-B-08 - T3 - PnP - S
+D08-06-085-25W6 - C2 - PnP - N
+A-C040-H/094-B-08 - C4 - PnP - N
+E02-01-085-26W6 - T3 - PnP - S
+B-E095-H/094-B-08 - C4 - PnP - N
+c-45-I/94-B-1 - C4 - PnP - N
+G07-01-085-26W6 - C4a - PnP - S
+C-G037-H/094-B-08 - T2 - PnP - S
+D-004-H/094-B-08 - C5 - PnP - S
+D-A063-A/094-B-08 - C4 - NCS - S
+D07-01-085-26W6 - C2 - PnP - S
+R07-01-085-26W6 - C4a - PnP - N
+B-G074-A/094-B-08 - C2 - NCS - S
+C-C007-H/094-B-08 - C4 - PnP - N
+D-D076-H/094-B-08 - C2 - PnP - N
+B-035-A/094-B-09 - CHLK - V - V
+C-J098-D/094-A-05 - C2 - PnP - S
+A-099-A/094-B-09 - CHLK - V - V
+J16-32-084-25W6 - C2 - PnP - S
+B-E034-H/094-B-08 - C4 - NCS - S
+B-C074-A/094-B-08 - C3 - PnP - S
+B16-32-084-25W6 - C4a - PnP - N
+C-F007-H/094-B-08 - C4 - PnP - S
+C-F027-H/094-B-08 - C2 - NCS - N
+D-C004-H/094-B-08 - C4 - PnP - S
+C-I027-H/094-B-08 - C4 - NCS - S
+D-021-G/094-B-09 - CHLK - V - V
+F08-06-085-25W6 - C4 - PnP - N
+B-B095-H/094-B-08 - C4 - PnP - N
+I07-01-085-26W6 - T3 - PnP - N
+C-E074-A/094-B-08 - C5 - PnP - N
+C-B004-H/094-B-08 - T2 - PnP - S
+D15-1-85-26W6 - C4 - OH - S
+C-A027-H/094-B-08 - T2 - PnP - N
+L07-01-085-26W6 - C4a - PnP - N
+C-A007-H/094-B-08 - C4 - PnP - N
+C-A029-A/094-B-08 - C5 - PnP - N
+C-063-B/094-B-09 - Suncor - PnP - S
+C-A084-A/094-B-08 - C4 - PnP - N
+C-D023-H/094-B-08 - C2 - PnP - S
+C-E084-A/094-B-08 - C2 - NCS - S
+B-I074-A/094-B-08 - C2 - NCS - S
+D-F004-H/094-B-08 - T3 - PnP - N
+D-C076-H/094-B-08 - C4 - PnP - N
+C-B029-G/094-B-09 - Suncor - PnP - N
+G02-01-085-26W6 - T3 - PnP - N
+B-F034-H/094-B-08 - C2 - PnP - S
+C-I017-H/094-B-08 - T3 - PnP - N
+C-F023-H/094-B-08 - C2 - PnP - S
+D-D030-H/094-B-08 - C5 - PnP - N
+B-A024-H/094-B-08 - C4 - PnP - N
+C-N007-H/094-B-08 - T3 - PnP - S
+A-B098-A/094-B-08 - C4 - PnP - N
+C-J017-H/094-B-08 - T2 - PnP - N
+C-C037-H/094-B-08 - C2 - PnP - S
+A07-01-085-26W6 - C4 - PnP - S
+C-F037-H/094-B-08 - T3 - PnP - S
+C-T098-D/094-A-05 - C2 - PnP - N
+C-I084-A/094-B-08 - C4 - PnP - N
+A02-01-085-26W6 - T3 - PnP - S
+b-43-A/94-B-8 - Gt - PnP - V
+B-034-H/094-B-08 - C4 - PnP - S
+H16-32-084-25W6 - T2 - PnP - N
+C-E037-H/094-B-08 - T2 - PnP - S
+D-063-A/094-B-08 - T2 - NCS - S
+D-C030-H/094-B-08 - C4 - PnP - N
+C-D027-H/094-B-08 - T2 - PnP - N
+A-E040-H/094-B-08 - C2 - PnP - N
+D-B076-H/094-B-08 - C2 - NCS - S
+F07-01-085-26W6 - C2 - PnP - S
+C-C074-A/094-B-08 - C5 - PnP - N
+C-H027-H/094-B-08 - T3 - NCS - S
+A-B040-H/094-B-08 - C5 - PnP - N
+C-D017-H/094-B-08 - T2 - PnP - S
+E08-06-085-25W6 - C4 - PnP - N
+C-B027-H/094-B-08 - C4 - PnP - S
+C-D044-H/094-B-08 - C2 - NCS - N
+C-074-A/094-B-08 - C2 - PnP - N
+B-046-A/094-B-09 - CHLK - V - V
+C-054-A/094-B-08 - T2 - PnP - S
+B-D074-A/094-B-08 - C5 - PnP - S
+15-01-085-26W6 - C4 - PnP - S
+C-A054-A/094-B-08 - C5 - PnP - S
+A-A030-H/094-B-08 - C2 - PnP - N
+C-D054-A/094-B-08 - C5 - NCS - S
+B-E074-A/094-B-08 - T2 - NCS - S
+C-E007-H/094-B-08 - C5 - PnP - S
+L16-32-084-25W6 - T2 - PnP - S
+C-096-G/094-B-09 - HLFY - V - V
+C-R098-D/094-A-05 - C4 - PnP - N
+C08-06-085-25W6 - T3 - PnP - N
+C-P007-H/094-B-08 - T3 - PnP - S
+C-A017-H/094-B-08 - C5 - PnP - N
+O07-01-085-26W6 - C4a - PnP - N
+D16-32-084-25W6 - T2 - PnP - N
+C-D084-A/094-B-08 - C4 - NCS - S
+C-057-I/094-B-08 - M - V - V
+F15-01-085-26W6 - T2 - NCS - N
+C-R007-H/094-B-08 - T3 - PnP - S
+B-017-I/094-B-01 - T3 - PnP - N
+C15-01-085-26W6 - T2 - NCS - S
+B-C095-H/094-B-08 - C2 - PnP - N
+B-B074-A/094-B-08 - C5 - PnP - S
+10-01-085-26W6 - T2 - NCS - S
+C-B074-A/094-B-08 - C4 - PnP - N
+B07-01-085-26W6 - C2 - PnP - S
+C-020-H/094-B-09 - BLSK - V - V
+16-32-084-25W6 - T3 - PnP - N
+Q07-01-085-26W6 - C4 - PnP - N
+D-E076-H/094-B-08 - C4 - PnP - N
+C-I098-D/094-A-05 - C4 - PnP - S
+B-098-A/094-B-09 - HLFY - V - V
+D-099-D/094-A-05 - T2 - PnP - N
+C-H007-H/094-B-08 - C2 - PnP - S
+C-F098-D/094-A-05 - C2 - PnP - S
+c-A48-I/94-B-1 - M - PnP - N
+C-F084-A/094-B-08 - C4 - NCS - S
+C-A098-D/094-A-05 - T2 - PnP - S
+B-D095-H/094-B-08 - C4 - PnP - N
+C-C054-A/094-B-08 - C2 - PnP - S
+C-E004-H/094-B-08 - C4 - NCS - N
+A08-06-085-25W6 - T2 - PnP - N
+C-J084-A/094-B-08 - T2 - PnP - S
+d-55-A/94-B-8 - Gt - PnP - V
+C-G027-H/094-B-08 - C4 - NCS - S
+H15-01-085-26W6 - T2 - NCS - S
+C-B023-H/094-B-08 - C4 - PnP - N
+B-A034-H/094-B-08 - M - PnP - S
+C-D004-H/094-B-08 - C4 - NCS - N
+08-06-085-25W6 - T2 - PnP - N
+M07-01-085-26W6 - C2 - PnP - N
+E16-32-084-25W6 - T3 - PnP - S
+C-D037-H/094-B-08 - C4 - NCS - S
+C-B037-H/094-B-08 - C4 - NCS - S
+C-F017-H/094-B-08 - T2 - PnP - S
+D-090-A/094-B-09 - CHLK - V - V
+D-A002-G/094-B-09 - Suncor - PnP - N
+C-I007-H/094-B-08 - C4 - PnP - S
+D-F076-H/094-B-08 - C2 - PnP - N
+2-01-85-26W6M - T3 - PnP - S
+B-024-A/094-B-09 - CDMN - V - V
+c-B18-I/94-B-1 - C3 - PnP - N
+F02-01-085-26W6 - T2 - PnP - N
+C-G098-D/094-A-05 - C4a - PnP - S
+B-A074-A/094-B-08 - T2 - PnP - S
+C-B007-H/094-B-08 - C5 - PnP - N
+C-098-D/094-A-05 - T3 - PnP - S
+D-B099-D/094-A-05 - T3 - PnP - N
+C-S098-D/094-A-05 - C4a - PnP - N
+A-D040-H/094-B-08 - C5 - PnP - N
+B-F095-H/094-B-08 - C2 - PnP - N
