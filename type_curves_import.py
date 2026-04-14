@@ -22,13 +22,60 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
-from survey_import import clean_well_name, well_name_match_key
 
-# After clean_well_name, strip last two hyphen-separated segments only when there are
+# After _tc_clean_well_string, strip last two hyphen-separated segments only when there are
 # this many segments (avoids truncating bare DLS/NTS ids like A2-01-85-26W6M).
 _MIN_HYPHEN_PARTS_FOR_TAIL_STRIP = 6
 
 TC_SUFFIX = " - TC"  # stored [Well Name] = mapped + TC_SUFFIX (5 chars)
+
+
+def _tc_clean_well_string(name) -> Optional[str]:
+    """Collapse whitespace and space-around-hyphen patterns (type-curve local; no survey_import)."""
+    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
+        return None
+    if not isinstance(name, str):
+        name = str(name).strip()
+    cleaned = name.strip()
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s*-\s*", "-", cleaned)
+    return cleaned
+
+
+def _tc_collapse_digit_runs(s: str) -> str:
+    """Normalize each contiguous digit block via int() so 094→94, 05→5."""
+
+    def norm_digits(m: re.Match) -> str:
+        block = m.group(0)
+        try:
+            return str(int(block, 10))
+        except ValueError:
+            return block
+
+    return re.sub(r"\d+", norm_digits, s)
+
+
+def _tc_well_match_key(name) -> str:
+    """
+    Normalized key for matching Excel text to PCE_WM.[Well Name].
+    Case-insensitive; slash/backslash to hyphen; hyphen runs collapsed; leading zeros
+    removed in digit runs (same rules as legacy survey helper, inlined here).
+    """
+    if name is None or (isinstance(name, float) and np.isnan(name)) or pd.isna(name):
+        return ""
+    if not isinstance(name, str):
+        name = str(name).strip()
+    cleaned = _tc_clean_well_string(name)
+    if not cleaned:
+        return ""
+    s = cleaned.casefold()
+    s = s.replace("\\", "-").replace("/", "-")
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"-+", "-", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return _tc_collapse_digit_runs(s)
 M3_PER_BBL = 6.29287017808823
 E3M3_PER_MCF = 35.4937299999999
 
@@ -226,7 +273,7 @@ def read_typecurve_excel(excel_path: str) -> pd.DataFrame:
 def _excel_base_for_wm_match(cleaned: str) -> str:
     """
     Type-curve Excel well cells often append extra hyphen-separated trailer segments.
-    After ``clean_well_name`` (spaces collapsed, `` - `` merged to ``-``), if there are at
+    After ``_tc_clean_well_string`` (spaces collapsed, `` - `` merged to ``-``), if there are at
     least ``_MIN_HYPHEN_PARTS_FOR_TAIL_STRIP`` segments, keep all but the last two
     (same as removing from the second-to-last hyphen onward). Otherwise use the full string.
     """
@@ -241,7 +288,7 @@ def _excel_base_for_wm_match(cleaned: str) -> str:
 
 def _build_wm_well_name_key_map() -> Dict[str, str]:
     """
-    ``well_name_match_key(PCE_WM.[Well Name])`` -> exact ``[Well Name]`` from SQL.
+    ``_tc_well_match_key(PCE_WM.[Well Name])`` -> exact ``[Well Name]`` from SQL.
     Last row wins if two WM wells normalize to the same key (should be rare).
     """
     query = """
@@ -258,7 +305,7 @@ def _build_wm_well_name_key_map() -> Dict[str, str]:
         wn = get_string_value(row.get("Well Name"))
         if not wn:
             continue
-        k = well_name_match_key(wn)
+        k = _tc_well_match_key(wn)
         if k:
             key_to_wn[k] = wn
     return key_to_wn
@@ -270,18 +317,18 @@ def resolve_file_well_to_wm_well_name(
 ) -> Optional[str]:
     """
     Map Excel well cell to the exact ``PCE_WM.[Well Name]`` string (not composite).
-    Compare using ``well_name_match_key`` (case, slash/hyphen, leading zeros in digit runs).
+    Compare using ``_tc_well_match_key`` (case, slash/hyphen, leading zeros in digit runs).
     """
     if file_well_cell is None or (isinstance(file_well_cell, float) and np.isnan(file_well_cell)):
         return None
     raw = str(file_well_cell).strip()
     if not raw or raw.lower() == "null":
         return None
-    cleaned = clean_well_name(raw)
-    if not isinstance(cleaned, str) or not cleaned.strip():
+    cleaned = _tc_clean_well_string(raw)
+    if not cleaned or not cleaned.strip():
         return None
     base = _excel_base_for_wm_match(cleaned)
-    k = well_name_match_key(base)
+    k = _tc_well_match_key(base)
     if not k:
         return None
     return wm_key_to_well_name.get(k)
