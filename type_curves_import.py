@@ -1,0 +1,557 @@
+"""
+Type curves: Excel (sheet 1, header row 1) -> dbo.PCE_TC only.
+Does not write PCE_Production.
+
+Vincent conversion constants (imperial -> metric):
+  m³/d from bbl/d: divide by M3_PER_BBL (m³ per bbl factor as specified)
+  e³m³/d from mcf/d: divide mcf/d by E3M3_PER_MCF
+  bcf cumulative -> e³m³: 1 bcf = 1_000_000 mcf; e³m³ = mcf / E3M3_PER_MCF
+  Mbbl cumulative -> m³: Mbbl * 1000 bbl, then m³ = bbl / M3_PER_BBL
+"""
+
+from __future__ import annotations
+
+import csv
+import os
+import re
+from datetime import date, datetime
+from typing import Callable, Dict, List, Optional, Set, Tuple
+
+import numpy as np
+import pandas as pd
+
+import log_format as lf
+from db_connection import get_sql_conn
+from survey_import import (
+    _well_name_lookup_trim_candidates,
+    clean_well_name,
+    well_name_match_key,
+)
+
+TC_SUFFIX = " - TC"  # stored [Well Name] = mapped + TC_SUFFIX (5 chars)
+M3_PER_BBL = 6.29287017808823
+E3M3_PER_MCF = 35.4937299999999
+
+INSERT_SQL = """
+INSERT INTO dbo.PCE_TC (
+    [Well Name], [ImportDate],
+    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
+    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)],
+    [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
+    [Cum Gas (e³m³)], [Cum Condy (m³)],
+    [Layer Producer], [Pad Name], [SourceFileName]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def safe_float(value) -> Optional[float]:
+    if value is None or (isinstance(value, float) and np.isnan(value)) or pd.isna(value):
+        return None
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", "")
+            if value.lower() in ("", "nan", "null", "none", "-", "n/a", "na"):
+                return None
+        result = float(value)
+        if np.isinf(result) or np.isnan(result):
+            return None
+        return round(result, 6)
+    except (ValueError, TypeError):
+        return None
+
+
+def get_string_value(val) -> Optional[str]:
+    if val is None or pd.isna(val):
+        return None
+    if isinstance(val, float) and np.isnan(val):
+        return None
+    s = str(val).strip()
+    if s.lower() in ("", "nan", "null", "none", "-", "n/a", "na"):
+        return None
+    return s
+
+
+def normalize_header(h) -> str:
+    if h is None or (isinstance(h, float) and pd.isna(h)):
+        return ""
+    s = str(h).replace("\n", " ").replace("\r", " ")
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    s = s.replace("³", "3").replace("²", "2")
+    return s
+
+
+def with_tc_suffix(mapped_production_name: str) -> str:
+    b = str(mapped_production_name).rstrip()
+    if b.endswith(TC_SUFFIX):
+        return b
+    return b + TC_SUFFIX
+
+
+def strip_tc_suffix(stored_name: str) -> str:
+    s = str(stored_name).rstrip()
+    if s.endswith(TC_SUFFIX):
+        return s[: len(s) - len(TC_SUFFIX)].rstrip()
+    return s
+
+
+def _bcf_to_cum_e3m3(bcf: Optional[float]) -> Optional[float]:
+    if bcf is None:
+        return None
+    mcf_total = float(bcf) * 1_000_000.0
+    return mcf_total / E3M3_PER_MCF
+
+
+def _mbbl_to_cum_m3(mbbl: Optional[float]) -> Optional[float]:
+    if mbbl is None:
+        return None
+    bbl_total = float(mbbl) * 1000.0
+    return bbl_total / M3_PER_BBL
+
+
+def _mcf_d_to_e3m3_d(mcf_d: Optional[float]) -> Optional[float]:
+    if mcf_d is None:
+        return None
+    return float(mcf_d) / E3M3_PER_MCF
+
+
+def _bbl_d_to_m3_d(bbl_d: Optional[float]) -> Optional[float]:
+    if bbl_d is None:
+        return None
+    return float(bbl_d) / M3_PER_BBL
+
+
+def _assign_column_roles(columns: List) -> Dict[str, int]:
+    """Map logical role -> column index. First matching unused column wins per rule order."""
+    norms = [(i, normalize_header(c)) for i, c in enumerate(columns)]
+    used: Set[int] = set()
+    roles: Dict[str, int] = {}
+
+    def take(match_fn):
+        for i, n in norms:
+            if i in used or not n:
+                continue
+            if match_fn(n):
+                used.add(i)
+                return i
+        return None
+
+    # Well name (exclude TC/Production style)
+    idx = take(
+        lambda n: "well" in n
+        and "name" in n
+        and "tc" not in n
+        and "production" not in n
+    )
+    if idx is not None:
+        roles["well"] = idx
+
+    # Cum gas / cum cond before other "gas"/"cond" columns
+    idx = take(lambda n: "cum" in n and "gas" in n and "bcf" in n)
+    if idx is not None:
+        roles["cum_gas_bcf"] = idx
+
+    idx = take(
+        lambda n: "cum" in n
+        and ("condy" in n or ("cond" in n and "mbbl" in n))
+        and "bcf" not in n
+    )
+    if idx is not None:
+        roles["cum_cond_mbbl"] = idx
+
+    idx = take(
+        lambda n: "gas" in n
+        and ("s1" in n or "s2" in n)
+        and "sales" not in n
+        and "wh" not in n
+        and "cum" not in n
+    )
+    if idx is not None:
+        roles["gas_s2_10e3"] = idx
+
+    idx = take(lambda n: "gas" in n and "sales" in n and "cum" not in n)
+    if idx is not None:
+        roles["gas_sales_10e3"] = idx
+
+    idx = take(
+        lambda n: "condensate" in n
+        and "sales" in n
+        and "cum" not in n
+        and "cgr" not in n
+    )
+    if idx is not None:
+        roles["cond_sales"] = idx
+
+    idx = take(lambda n: "cgr" in n and "sales" in n)
+    if idx is None:
+        idx = take(lambda n: "cgr" in n)
+    if idx is not None:
+        roles["sales_cgr"] = idx
+
+    idx = take(
+        lambda n: "gas" in n and "wh" in n and "mcf" in n and "cum" not in n
+    )
+    if idx is not None:
+        roles["gas_wh_mcf"] = idx
+
+    idx = take(
+        lambda n: "condensate" in n
+        and "wh" in n
+        and "bbl" in n
+        and "cum" not in n
+    )
+    if idx is not None:
+        roles["cond_wh_bbl"] = idx
+
+    idx = take(
+        lambda n: "layer" in n
+        and "pad" not in n
+        and "sales" not in n
+        and "wh" not in n
+        and "cum" not in n
+    )
+    if idx is not None:
+        roles["layer"] = idx
+
+    idx = take(lambda n: "pad" in n and "name" not in n)
+    if idx is not None:
+        roles["pad"] = idx
+
+    return roles
+
+
+def read_typecurve_excel(excel_path: str) -> pd.DataFrame:
+    return pd.read_excel(excel_path, sheet_name=0, header=0, dtype=object)
+
+
+def _keys_for_wm_label(label: str) -> List[str]:
+    out: List[str] = []
+    cleaned = clean_well_name(label)
+    if not isinstance(cleaned, str) or not cleaned.strip():
+        return out
+    for cand in _well_name_lookup_trim_candidates(cleaned):
+        k = well_name_match_key(cand)
+        if k:
+            out.append(k)
+    return out
+
+
+def _build_wm_composite_and_well_maps() -> Tuple[Dict[str, str], Dict[str, str]]:
+    """
+    Composite-first WM resolution (same production key as apply_well_names).
+    Returns (composite_key -> production_name, well_key -> production_name).
+    """
+    query = """
+        SELECT [Well Name], [Composite Name]
+        FROM PCE_WM
+        WHERE [Well Name] IS NOT NULL
+          AND LTRIM(RTRIM([Well Name])) <> ''
+          AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
+    """
+    with get_sql_conn() as conn:
+        df = pd.read_sql(query, conn)
+    composite_keys: Dict[str, str] = {}
+    well_keys: Dict[str, str] = {}
+    for _, row in df.iterrows():
+        wn = get_string_value(row.get("Well Name"))
+        if not wn:
+            continue
+        comp = get_string_value(row.get("Composite Name"))
+        pname = comp if comp else wn
+        if comp:
+            for k in _keys_for_wm_label(comp):
+                composite_keys[k] = pname
+        for k in _keys_for_wm_label(wn):
+            well_keys[k] = pname
+    return composite_keys, well_keys
+
+
+def resolve_well_to_production_name(
+    file_well_cell: object,
+    composite_keys: Dict[str, str],
+    well_keys: Dict[str, str],
+) -> Optional[str]:
+    if file_well_cell is None or (isinstance(file_well_cell, float) and np.isnan(file_well_cell)):
+        return None
+    raw = str(file_well_cell).strip()
+    if not raw or raw.lower() == "null":
+        return None
+    cleaned = clean_well_name(raw)
+    if not isinstance(cleaned, str) or not cleaned.strip():
+        return None
+    for cand in _well_name_lookup_trim_candidates(cleaned):
+        k = well_name_match_key(cand)
+        if not k:
+            continue
+        if k in composite_keys:
+            return composite_keys[k]
+        if k in well_keys:
+            return well_keys[k]
+    return None
+
+
+def _dataframe_from_excel(excel_path: str, log: Callable[[str], None]) -> Tuple[pd.DataFrame, Dict[str, int]]:
+    df = read_typecurve_excel(excel_path)
+    roles = _assign_column_roles(list(df.columns))
+    if "well" not in roles:
+        raise ValueError(
+            "Could not find a Well Name column (header row 1). Check the Excel headers."
+        )
+    log(lf.detail(f"Column mapping: {roles}"))
+    return df, roles
+
+
+def scan_typecurve_wells(excel_path: str) -> Tuple[List[str], List[str]]:
+    """
+    Return (matched_production_names, unmatched_file_well_texts).
+    Production names do NOT include the - TC suffix.
+    """
+    def log(_):
+        pass
+
+    df, roles = _dataframe_from_excel(excel_path, log)
+    col_well = roles["well"]
+    composite_keys, well_keys = _build_wm_composite_and_well_maps()
+    matched: Set[str] = set()
+    unmatched: List[str] = []
+    seen_unmatched: Set[str] = set()
+    for _, row in df.iterrows():
+        cell = row.iloc[col_well]
+        pname = resolve_well_to_production_name(cell, composite_keys, well_keys)
+        if pname:
+            matched.add(pname)
+        else:
+            u = get_string_value(cell)
+            if u and u not in seen_unmatched:
+                seen_unmatched.add(u)
+                unmatched.append(u)
+    return sorted(matched), unmatched
+
+
+def append_typecurves_from_excel(
+    excel_path: str,
+    log_callback: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[int], None]] = None,
+    selected_production_names: Optional[List[str]] = None,
+    cancel_event: Optional[object] = None,
+) -> dict:
+    """
+    For each target well: DELETE PCE_TC rows where [Well Name] = mapped + ' - TC', then INSERT from file.
+
+    selected_production_names: mapped production-style names WITHOUT suffix.
+      None or empty list => all wells in the file that resolve to WM.
+    """
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
+    def progress(p: int):
+        if progress_callback:
+            progress_callback(p)
+
+    import_date = date.today()
+    source_name = os.path.basename(excel_path)
+    def aborted() -> bool:
+        if cancel_event is None:
+            return False
+        fn = getattr(cancel_event, "is_set", None)
+        return bool(fn()) if callable(fn) else False
+
+    result = {
+        "ok": False,
+        "wells_updated": 0,
+        "rows_inserted": 0,
+        "wells_skipped_no_file_rows": 0,
+        "wells_skipped_selection_not_in_file": 0,
+        "unmatched": [],
+    }
+
+    log(lf.step("Reading type curve Excel (sheet 1, header row 1)"))
+    progress(5)
+    df, roles = _dataframe_from_excel(excel_path, log)
+    composite_keys, well_keys = _build_wm_composite_and_well_maps()
+    progress(15)
+
+    col_well = roles["well"]
+
+    def col(role: str, row) -> Optional[float]:
+        if role not in roles:
+            return None
+        return safe_float(row.iloc[roles[role]])
+
+    def col_str(role: str, row) -> Optional[str]:
+        if role not in roles:
+            return None
+        return get_string_value(row.iloc[roles[role]])
+
+    rows_out: List[Tuple] = []
+    unmatched: List[str] = []
+    seen_um: Set[str] = set()
+
+    for _, row in df.iterrows():
+        pname = resolve_well_to_production_name(
+            row.iloc[col_well], composite_keys, well_keys
+        )
+        raw_well = get_string_value(row.iloc[col_well])
+        if not pname:
+            if raw_well and raw_well not in seen_um:
+                seen_um.add(raw_well)
+                unmatched.append(raw_well)
+            continue
+
+        gas_s2 = col("gas_s2_10e3", row)
+        gas_sales = col("gas_sales_10e3", row)
+        cond_sales = col("cond_sales", row)
+        sales_cgr = col("sales_cgr", row)
+        gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
+        cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
+        cum_gas_e3 = _bcf_to_cum_e3m3(col("cum_gas_bcf", row))
+        cum_cond_m3 = _mbbl_to_cum_m3(col("cum_cond_mbbl", row))
+        layer = col_str("layer", row)
+        pad = col_str("pad", row)
+
+        w_tc = with_tc_suffix(pname)
+        rows_out.append(
+            (
+                w_tc,
+                import_date,
+                gas_s2,
+                gas_sales,
+                cond_sales,
+                sales_cgr,
+                gas_wh_e3,
+                cond_wh_m3,
+                cum_gas_e3,
+                cum_cond_m3,
+                layer,
+                pad,
+                source_name,
+            )
+        )
+
+    result["unmatched"] = unmatched
+    if unmatched:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_csv = os.path.join(os.path.dirname(excel_path) or ".", f"unmatched_type_curve_wells_{ts}.csv")
+        try:
+            with open(out_csv, "w", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(["Well Name (file)"])
+                for u in unmatched:
+                    w.writerow([u])
+            log(lf.warn(f"Unmatched wells written to: {out_csv}"))
+        except OSError as e:
+            log(lf.warn(f"Could not write unmatched CSV: {e}"))
+
+    if not rows_out:
+        log(lf.warn("No rows to import after WM matching."))
+        return result
+
+    by_well: Dict[str, List[Tuple]] = {}
+    for tup in rows_out:
+        by_well.setdefault(tup[0], []).append(tup)
+
+    all_wells_in_file = list(by_well.keys())
+    in_file_tc = set(all_wells_in_file)
+    if selected_production_names:
+        bases = {
+            strip_tc_suffix(str(n).strip())
+            for n in selected_production_names
+            if str(n).strip()
+        }
+        want_tc = {with_tc_suffix(b) for b in bases}
+        targets = [w for w in want_tc if w in in_file_tc]
+        missing = want_tc - in_file_tc
+        result["wells_skipped_selection_not_in_file"] = len(missing)
+        if missing:
+            log(
+                lf.detail(
+                    f"{lf.num(len(missing))} selected well(s) have no mapped rows in this file "
+                    "(skipped)."
+                )
+            )
+    else:
+        targets = all_wells_in_file
+
+    if not targets:
+        log(lf.warn("No wells to apply after selection filter."))
+        return result
+
+    log(lf.step(f"Writing to PCE_TC for {lf.num(len(targets))} well(s)"))
+    progress(40)
+
+    with get_sql_conn() as conn:
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.fast_executemany = True
+        total_inserted = 0
+        n = len(targets)
+        for i, w_tc in enumerate(targets):
+            if aborted():
+                conn.rollback()
+                log(lf.warn("Import cancelled before completion."))
+                return result
+            batch = by_well.get(w_tc, [])
+            if not batch:
+                result["wells_skipped_no_file_rows"] += 1
+                continue
+            cur.execute("DELETE FROM dbo.PCE_TC WHERE [Well Name] = ?", w_tc)
+            cur.executemany(INSERT_SQL, batch)
+            total_inserted += len(batch)
+            result["wells_updated"] += 1
+            progress(40 + int((i + 1) / max(n, 1) * 55))
+        conn.commit()
+
+    progress(100)
+    result["ok"] = True
+    result["rows_inserted"] = total_inserted
+    log(
+        lf.success(
+            f"PCE_TC import complete: {lf.num(result['wells_updated'])} wells, "
+            f"{lf.num(total_inserted)} row(s), import date {import_date}"
+        )
+    )
+    return result
+
+
+def delete_typecurves_from_tc(
+    stored_well_names_with_suffix: List[str],
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> int:
+    """DELETE all PCE_TC rows for given stored [Well Name] values (must include ' - TC' suffix as stored)."""
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
+    if not stored_well_names_with_suffix:
+        return 0
+    names = list({str(n).strip() for n in stored_well_names_with_suffix if str(n).strip()})
+    if not names:
+        return 0
+    total = 0
+    with get_sql_conn() as conn:
+        cur = conn.cursor()
+        batch_size = 50
+        for i in range(0, len(names), batch_size):
+            chunk = names[i : i + batch_size]
+            ph = ",".join("?" * len(chunk))
+            cur.execute(f"DELETE FROM dbo.PCE_TC WHERE [Well Name] IN ({ph})", chunk)
+            total += cur.rowcount
+        conn.commit()
+    log(lf.detail(f"Deleted {lf.num(total)} PCE_TC row(s) for {lf.num(len(names))} well key(s)"))
+    return total
+
+
+def fetch_distinct_tc_well_names() -> List[str]:
+    """Stored [Well Name] values (with ' - TC' suffix), sorted."""
+    with get_sql_conn() as conn:
+        df = pd.read_sql(
+            "SELECT DISTINCT [Well Name] FROM dbo.PCE_TC ORDER BY [Well Name]",
+            conn,
+        )
+    if df.empty:
+        return []
+    return [str(x) for x in df["Well Name"].tolist() if pd.notna(x)]

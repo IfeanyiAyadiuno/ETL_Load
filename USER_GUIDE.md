@@ -59,6 +59,7 @@ Credential, VPN, and ODBC driver requirements are managed by IT; obtain confirma
 | `PCE_WM` | Well master: well list and linkage to Snowflake identifiers (**GasIDREC**, **PressuresIDREC**). Wells absent or excluded here may be omitted from daily loads. |
 | `PCE_CDA` | Daily-style production rows sourced from Snowflake (and related processing). |
 | `PCE_Production` | Production history for reporting; sequences, cumulatives, and averages derived from CDA according to the job executed. |
+| `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import only. Well keys match production after Well Master mapping, with a fixed **` - TC`** suffix on `[Well Name]` so they never collide with `PCE_Production`. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
 **Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors).
@@ -266,13 +267,23 @@ Execute **Run Import**; review the **Import Log**.
 
 ## Type Curves Import
 
-**Objective:** Import type curve data from the workbook defined as **Type Curves File** in **Settings**.
+**Objective:** Load or remove type-curve metrics in **`dbo.PCE_TC`** from the workbook path set as **Type Curves File** in **Settings**. Nothing in this dialog writes **`PCE_Production`**.
 
-**Path** is read-only in the dialog; update **Settings** if the file location changes.
+**Path** is read-only in the dialog; change it in **Settings** if the file moves.
 
-**Run Import** displays a warning: existing type-curve records for wells whose names begin with **`YE2`** are deleted before load. Confirm only after review.
+**Excel layout:** First worksheet only; **row 1** is the header row. File columns **TC/Production**, **Date**, **Days Seq**, and **Day Seq UPRT** are ignored. **`[ImportDate]`** on inserted rows is the **run date** (import day), not the Excel date column.
 
-Monitor **Import Log** for completion and errors.
+**Gas S1 vs S2:** If the vendor labels a column as **Gas S1 Production (10³m³)**, the app still stores it in **`[Gas S2 Production (10³m³)]`** in **`PCE_TC`** (single Gas S2 column in the table).
+
+**Units (metric storage):** **Gas WH** from **mcf/d** → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** from **bbl/d** → **`[Condensate WH (m³/d)]`**; **Cum Gas** from **bcf** → **`[Cum Gas (e³m³)]`** (via mcf and the documented conversion factor); **Cum Condy** from **Mbbl** → **`[Cum Condy (m³)]`**.
+
+**Well names:** File text is matched to **`PCE_WM`** using the same style of keys as survey import (**composite-first**, then well name). The value saved on each row is the mapped production-style name **plus** the literal suffix **` - TC`** (space, hyphen, space, `TC`). Joining to **`PCE_Production`** uses that production name without the suffix (see **`sql/vw_PCE_TC_with_Production_Well.sql`** in the repo).
+
+**Append / refresh:** Optionally **Load wells from Excel**, multi-select wells (or leave none selected = **all** wells that appear in the file after mapping), then **Append / refresh selected**. For each well in scope, existing **`PCE_TC`** rows for that stored key are **deleted**, then file rows are **inserted**. Unmatched file well names are listed in **`unmatched_type_curve_wells_<timestamp>.csv`** beside the Excel file when applicable.
+
+**Delete:** **Load wells with type curves**, select one or more, then **Delete selected from PCE_TC**. No Excel read.
+
+Monitor the **Log** area for counts, warnings, and errors.
 
 > **Figure 10 — Type Curves Import**  
 > *[Insert screenshot: Type Curves dialog with Path, Import Log, Run Import. Red arrow: Path. Red arrow: Run Import.]*

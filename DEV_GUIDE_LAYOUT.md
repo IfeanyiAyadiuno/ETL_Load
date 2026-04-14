@@ -65,7 +65,7 @@ You can paste this into ChatGPT with a prompt such as:
   - `prodview_update_gui.py` – **Prodview/Snowflake update logic** (quick update + full rebuild).
   - `monthly_loader_gui.py` – **Production Accounting monthly loader** core logic.
   - `survey_import.py` – **Survey ETL** logic.
-  - `type.py` – **Type Curves** ETL logic.
+  - `type_curves_import.py` – **Type Curves** ETL logic (`PCE_TC`); `type.py` exposes a thin `import_typecurves` wrapper.
   - `sales_ratios_gui.py` – **Sales ratios** ETL logic.
   - `production_update.py` – Older / alternate CDA pipeline (legacy/backup).
   
@@ -92,7 +92,7 @@ You can paste this into ChatGPT with a prompt such as:
   3. **📊 Production Accounting Allocations (PA)** – monthly PA allocations.
   4. **📈 Public Sales Data and Ratios** – sales ratios update.
   5. **📐 Survey Data Import** – survey data loader.
-  6. **📊 Type Curves Import** – type curve loader (YE2 wells).
+  6. **📊 Type Curves Import** – type curve loader into **`PCE_TC`**.
   7. **📁 Exports / Reports** – placeholder for future reporting.
 
 
@@ -190,23 +190,25 @@ This section is the **most important** if you want to know "where is the code th
 
 ---
 
-### 4.4 Type Curves Import (YE2 wells)
+### 4.4 Type Curves Import (`PCE_TC`)
 
 - **User path:**
   - Button: **📊 Type Curves Import**.
   - Dialog: `TypeCurvesImportDialog` (`type_curves_import_dialog.py`).
 
-- **Logic file:**
-  - **File:** `type.py`
-  - **Main function:** `import_typecurves(excel_path, progress_callback=None, log_callback=None)`
+- **Logic files:**
+  - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, WM composite-first mapping (same key helpers as surveys), Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
+  - **`type.py`** — **`import_typecurves`**: thin wrapper around **`append_typecurves_from_excel`** for callers that still import from `type`.
 
 - **What it does:**
-  - Reads type curves Excel file.
-  - Connects to SQL Server.
-  - **Deletes** all rows in `PCE_Production` where Well Name starts with `"YE2"`.
-  - Inserts new YE2 rows from Excel in batches.
+  - Reads the type-curve workbook (**first sheet**, **row 1 = headers**), maps columns by normalized header text (vendor “Gas S1” column is stored as **Gas S2** in SQL).
+  - **Does not** write **`PCE_Production`**. Stored **`[Well Name]`** = Well Master–resolved production key + literal **` - TC`** suffix.
+  - **Append:** per well, `DELETE` then `INSERT` for rows in scope (all mapped wells in the file, or a user-selected subset).
+  - **Delete:** `DELETE FROM PCE_TC` for selected stored well keys (no Excel).
 
-> **Manager summary:** This is a **destructive but controlled** operation; the dialog shows a clear warning before running. The logic is isolated in `type.py`.
+- **SQL:** `sql/PCE_TC_create.sql`, `sql/vw_PCE_TC_with_Production_Well.sql`.
+
+> **Manager summary:** Operators confirm scope in the dialog; unmatched file wells can produce **`unmatched_type_curve_wells_*.csv`** next to the Excel file after a run.
 
 ---
 
@@ -316,8 +318,8 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
   - Orchestrated by `ProdviewUpdateDialog` calling `production_update.main` (Quick Update logic remains in `prodview_update_gui.py`).
 
 - **Type Curves Import:**
-  - Explicitly deletes **all `YE2%` wells** from `PCE_Production` before inserting.
-  - Guarded by a clear warning dialog.
+  - **Append** deletes and re-inserts rows in **`PCE_TC`** per well in scope; **Delete** removes selected wells from **`PCE_TC`** only.
+  - Guarded by confirmation dialogs.
 
 - **Survey Overwrite Mode:**
   - Deletes existing survey data before import.
@@ -327,7 +329,7 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
 
 - **Batch inserts** with `fast_executemany` enabled in:
   - `prodview_update_gui.py` (Prodview updates).
-  - `type.py` (type curves).
+  - `type_curves_import.py` (type curves).
 - **Per-month processing** for quick updates to keep data volumes smaller.
 
 ### 7.3 How to Add New Functionality
@@ -363,8 +365,8 @@ Provide a **simple table** like this in the final document:
 
 - **Type Curves Import**  
   - UI: `type_curves_import_dialog.py` (`TypeCurvesImportDialog`)  
-  - Logic: `type.py` (`import_typecurves`)  
-  - Data: Excel → `PCE_Production` (YE2 wells)
+  - Logic: `type_curves_import.py` (`append_typecurves_from_excel`, `delete_typecurves_from_tc`); `type.py` (`import_typecurves`) for legacy imports  
+  - Data: Excel → **`PCE_TC`** (not `PCE_Production`)
 
 - **Sales Ratios**  
   - UI: `sales_ratios_dialog.py` (`SalesRatiosDialog`)  
