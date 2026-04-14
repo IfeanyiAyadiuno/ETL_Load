@@ -708,3 +708,57 @@ pyinstaller --name ProductionUpdate --windowed --onedir --clean --add-data "sett
 TC/Production	Date	Days Seq	Day Seq UPRT	Well Name	"Gas S1 Production
 103m3"	"Gas Sales Production
 103m3"	Condensate Sales m³/d	Sales CGRm³/e³m³	Gas WH Production mcf	Condensate WH bbl/d	Cum Gas (bcf)	Cum Condy (Mbbl)	Layer	Pad
+
+2-01-85-26W6M - T3 - PnP
+A2-01-85-26W6M - T3 - PnP
+a-30-H/94-B-8 - C4 - PnP
+a-40-H/94-B-8 - C2 - PnP
+a-A30-H/94-B-8 - C2 - PnP
+a-A40-H/94-B-8 - C4 - PnP
+a-B40-H/94-B-8 - C5 - PnP
+a-C40-H/94-B-8 - C4 - PnP
+a-D40-H/94-B-8 - C5 - PnP
+a-E40-H/94-B-8 - C2 - PnP
+B2-01-85-26W6M - T2 - PnP
+b-B95-H/94-B-8 - C4 - PnP
+b-C95-H/94-B-8 - C2 - PnP
+b-D95-H/94-B-8 - C4 - PnP
+b-E95-H/94-B-8 - C4 - PnP
+b-F95-H/94-B-8 - C2 - PnP
+C2-01-85-26W6M - T3 - PnP
+C8-6-85-25W6M - T3 - PnP
+c-98-D/94-A-5 - T3 - PnP
+c-A98-D/94-A-5 - T2 - PnP
+c-B98-D/94-A-5 - T2 - PnP
+c-C98-D/94-A-5 - T2 - PnP
+c-D17-H/94-B-8 - T2 - PnP
+c-E17-H/94-B-8 - T3 - PnP
+c-E7-H/94-B-8 - C5 - PnP
+c-F17-H/94-B-8 - T2 - PnP
+c-F7-H/94-B-8 - C4 - PnP
+c-G17-H/94-B-8 - T3 - PnP
+c-G7-H/94-B-8 - C5 - PnP
+c-H17-H/94-B-8 - T2 - PnP
+c-H7-H/94-B-8 - C2 - PnP
+c-I7-H/94-B-8 - C4 - PnP
+c-J84-A/94-B-8 - T2 - PnP
+c-K84-A/94-B-8 - T3 - PnP
+D2-01-85-26W6M - T2 - PnP
+d-30-H/94-B-8 - C4 - PnP
+d-4-H/94-B-8 - C5 - PnP
+D8-6-85-25W6M - C2 - PnP
+d-A30-H/94-B-8 - C2 - PnP
+d-A4-H/94-B-8 - C4 - PnP
+d-B30-H/94-B-8 - C5 - PnP
+d-B4-H/94-B-8 - C5 - PnP
+d-C30-H/94-B-8 - C4 - PnP
+d-C4-H/94-B-8 - C4 - PnP
+d-C76-H/94-B-8 - C4 - PnP
+d-D30-H/94-B-8 - C5 - PnP
+d-D76-H/94-B-8 - C2 - PnP
+d-E76-H/94-B-8 - C4 - PnP
+d-F76-H/94-B-8 - C2 - PnP
+E2-01-85-26W6M - T3 - PnP
+E8-6-85-25W6M - C4 - PnP
+F8-6-85-25W6M - C4 - PnP
+
