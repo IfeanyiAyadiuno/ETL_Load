@@ -5,51 +5,24 @@ pyinstaller --name "ProductionUpdate" --windowed production_update_gui.py
 
 
 
-TABLE_CATALOG	TABLE_SCHEMA	TABLE_NAME	COLUMN_NAME	ORDINAL_POSITION	COLUMN_DEFAULT	IS_NULLABLE	DATA_TYPE	CHARACTER_MAXIMUM_LENGTH	CHARACTER_OCTET_LENGTH	NUMERIC_PRECISION	NUMERIC_PRECISION_RADIX	NUMERIC_SCALE	DATETIME_PRECISION	CHARACTER_SET_CATALOG	CHARACTER_SET_SCHEMA	CHARACTER_SET_NAME	COLLATION_CATALOG	COLLATION_SCHEMA	COLLATION_NAME	DOMAIN_CATALOG	DOMAIN_SCHEMA	DOMAIN_NAME
-Re_Main_Production	dbo	PCE_Surveys	SurveyID	1	NULL	NO	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	UWI	2	NULL	NO	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Subsea Elevation	4	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Inclination	5	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Azimuth Angle	6	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Measured Depth	7	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	True Vertical Depth	8	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Offset in EW	9	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	Offset in NS	10	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	East	11	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	North	12	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	PAD	13	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	ImportedAt	14	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_Surveys	SourceFile	15	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	GasIDREC	1	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	PressuresIDREC	2	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Well Name_AF	4	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Formation Producer	5	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Layer Producer	6	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Fault Block	7	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Pad Name	8	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Completions Technology	9	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Lateral Length	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Value Navigator UWI	11	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Orient	12	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Composite name	13	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	CreatedAt	14	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	UpdatedAt	15	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Horizontal Distance Right	16	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Horizontal Distance Left	17	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Vertical Distance Above	18	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Vertical Distance Below	19	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Exception	20	NULL	YES	char	1	1	NULL	NULL	NULL	NULL	NULL	NULL	iso_1	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Base Composite Name	21	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Surface Location Latitude (NAD83)	22	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Surface Location Longitude (NAD83)	23	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Surface Location Easting (NAD83)	24	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Surface Location Northing (NAD83)	25	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Bottom Location Latitude (NAD83)	26	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Bottom Location Longitude (NAD83)	27	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Bottom Location Easting (NAD83)	28	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	PCE_WM	Bottom Location Northing (NAD83)	29	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Allocation_ID	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	MonthStartDate	2	NULL	NO	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Prodview_WH_Gas	4	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	S2_Gas	5	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	WH_to_S2_AllocFactor	6	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Sales_Gas	7	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	WH_to_Sales_AllocFactor	8	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Prodview_WH_Cond	9	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Sales_Condensate	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	WH_to_Sales_Cond_AllocFactor	11	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Gathered_Gas_Production	12	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Gathered_Condensate_Production	13	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Gathered_to_S2_Gas	14	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Gathered_to_Sales	15	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	Gathered_to_Sales_Condensate	16	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	SourceFile	17	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	Allocation_Factors	LoadedAt	18	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_CDA	CDA_ID	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_CDA	GasIDREC	2	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_CDA	PressuresIDREC	3	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
@@ -81,39 +54,6 @@ Re_Main_Production	dbo	PCE_CDA	Pad Name	28	NULL	YES	nvarchar	100	200	NULL	NULL	N
 Re_Main_Production	dbo	PCE_CDA	Lateral Length	29	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_CDA	Orient	30	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_CDA	Composite Name	31	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Allocation_ID	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	MonthStartDate	2	NULL	NO	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Prodview_WH_Gas	4	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	S2_Gas	5	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	WH_to_S2_AllocFactor	6	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Sales_Gas	7	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	WH_to_Sales_AllocFactor	8	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Prodview_WH_Cond	9	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Sales_Condensate	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	WH_to_Sales_Cond_AllocFactor	11	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Gathered_Gas_Production	12	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Gathered_Condensate_Production	13	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Gathered_to_S2_Gas	14	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Gathered_to_Sales	15	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	Gathered_to_Sales_Condensate	16	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	SourceFile	17	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	dbo	Allocation_Factors	LoadedAt	18	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	GasIDREC	1	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	PressuresIDREC	2	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Well Name_AF	4	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Formation Producer	5	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Layer Producer	6	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Fault Block	7	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Pad Name	8	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Completions Technology	9	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Lateral Length	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Value Navigator UWI	11	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Orient	12	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Composite name	13	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	CreatedAt	14	NULL	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
-Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	UpdatedAt	15	NULL	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Production_ID	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Date	2	NULL	YES	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Days Seq	3	NULL	NO	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
@@ -155,6 +95,133 @@ Re_Main_Production	dbo	PCE_Production	Gas S2 Avg (10³m³)	38	NULL	YES	float	NUL
 Re_Main_Production	dbo	PCE_Production	Gas Gathered Avg (e³m³/d)	39	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Condensate Gathered Avg (m³/d)	40	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 Re_Main_Production	dbo	PCE_Production	Remarks	41	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	SurveyID	1	NULL	NO	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	UWI	2	NULL	NO	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Subsea Elevation	4	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Inclination	5	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Azimuth Angle	6	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Measured Depth	7	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	True Vertical Depth	8	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	East	9	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	North	10	NULL	NO	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	PAD	11	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	ImportedAt	12	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	SourceFile	13	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Latitude	14	NULL	YES	decimal	NULL	NULL	10	10	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_Surveys	Longitude	15	NULL	YES	decimal	NULL	NULL	10	10	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	PCE_TCId	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Well Name	2	NULL	NO	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	ImportDate	3	NULL	NO	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Gas S2 Production (10³m³)	4	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Gas Sales Production (10³m³)	5	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Condensate Sales (m³/d)	6	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Sales CGR (m³/e³m³)	7	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Gas WH Production (e³m³/d)	8	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Condensate WH (m³/d)	9	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Cum Gas (e³m³)	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Cum Condy (m³)	11	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Layer Producer	12	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	Pad Name	13	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_TC	SourceFileName	14	NULL	YES	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	GasIDREC	1	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	PressuresIDREC	2	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Well Name_AF	4	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Formation Producer	5	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Layer Producer	6	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Fault Block	7	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Pad Name	8	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Completions Technology	9	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Lateral Length	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Value Navigator UWI	11	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Orient	12	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Composite name	13	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	CreatedAt	14	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	UpdatedAt	15	(getdate())	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Horizontal Distance Right	16	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Horizontal Distance Left	17	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Vertical Distance Above	18	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Vertical Distance Below	19	NULL	YES	real	NULL	NULL	24	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Exception	20	NULL	YES	char	1	1	NULL	NULL	NULL	NULL	NULL	NULL	iso_1	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Base Composite Name	21	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Surface Location Latitude (NAD83)	22	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Surface Location Longitude (NAD83)	23	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Surface Location Easting (NAD83)	24	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Surface Location Northing (NAD83)	25	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Bottom Location Latitude (NAD83)	26	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Bottom Location Longitude (NAD83)	27	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Bottom Location Easting (NAD83)	28	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	PCE_WM	Bottom Location Northing (NAD83)	29	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Date	1	NULL	YES	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Days Seq	2	NULL	YES	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Day Seq UPRT	3	NULL	YES	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Well Name	4	NULL	NO	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas WH Production (10³m³)	5	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate WH (m³/d)	6	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas S2 Production (10³m³)	7	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas Sales Production (10³m³)	8	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate Sales (m³/d)	9	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gathered Gas (e³m³/d)	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gathered Condensate (m³/d)	11	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Sales CGR (m³/e³m³)	12	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	CGR (m³/e³m³)	13	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	WGR (m³/e³m³)	14	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	ECF	15	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Hours On	16	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Tubing Pressure (kPa)	17	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Casing Pressure (kPa)	18	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Choke Size	19	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas WH Cumulative Production (10³m³)	20	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas S2 Cumulative Production (10³m³)	21	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas Sales Cumulative Production (10³m³)	22	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate Sales Cumulative Production (m³)	23	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate WH Cumulative Production (m³)	24	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas Gathered Cumulative (e³m³)	25	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate Gathered Cumulative (m³)	26	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Formation Producer	27	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Layer Producer	28	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Fault Block	29	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Pad Name	30	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Lateral Length	31	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Orientation	32	NULL	YES	nvarchar	200	400	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	On Production Year	33	NULL	YES	int	NULL	NULL	10	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Alloc. Water Rate (m³)	34	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	NGL (m³)	35	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas WH Avg (10³m³)	36	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas S2 Avg (10³m³)	37	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Gas Gathered Avg (e³m³/d)	38	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_Production_with_TypeCurves	Condensate Gathered Avg (m³/d)	39	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	PCE_TCId	1	NULL	NO	bigint	NULL	NULL	19	10	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	TypeCurve Well Name	2	NULL	NO	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Production Well Name	3	NULL	YES	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	ImportDate	4	NULL	NO	date	NULL	NULL	NULL	NULL	NULL	0	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Gas S2 Production (10³m³)	5	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Gas Sales Production (10³m³)	6	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Condensate Sales (m³/d)	7	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Sales CGR (m³/e³m³)	8	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Gas WH Production (e³m³/d)	9	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Condensate WH (m³/d)	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Cum Gas (e³m³)	11	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Cum Condy (m³)	12	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Layer Producer	13	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	Pad Name	14	NULL	YES	nvarchar	500	1000	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	dbo	vw_PCE_TC_with_Production_Well	SourceFileName	15	NULL	YES	nvarchar	400	800	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	GasIDREC	1	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	PressuresIDREC	2	NULL	NO	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Well Name	3	NULL	NO	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Well Name_AF	4	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Formation Producer	5	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Layer Producer	6	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Fault Block	7	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Pad Name	8	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Completions Technology	9	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Lateral Length	10	NULL	YES	float	NULL	NULL	53	2	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Value Navigator UWI	11	NULL	YES	nvarchar	100	200	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Orient	12	NULL	YES	nvarchar	50	100	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	Composite name	13	NULL	YES	nvarchar	255	510	NULL	NULL	NULL	NULL	NULL	NULL	UNICODE	NULL	NULL	Latin1_General_CI_AS	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	CreatedAt	14	NULL	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
+Re_Main_Production	CANBRIAM\iayadiuno	vw_PCE_WM_Ordered	UpdatedAt	15	NULL	YES	datetime2	NULL	NULL	NULL	NULL	NULL	7	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL
 
 
 ----------------------------------------------------------------
@@ -985,6 +1052,7 @@ c-S98-D/94-A-5 - C4a - PnP
 a-D40-H/94-B-8 - C5 - PnP 
 b-F95-H/94-B-8 - C2 - PnP 
 
+Composite Name
 15-12-084-26W6 - C4 - PnP - N
 C-C064-H/094-B-08 - C4 - PnP - N
 C-V098-D/094-A-05 - C4a - PnP - N
@@ -1271,5 +1339,3 @@ D-B099-D/094-A-05 - T3 - PnP - N
 C-S098-D/094-A-05 - C4a - PnP - N
 A-D040-H/094-B-08 - C5 - PnP - N
 B-F095-H/094-B-08 - C2 - PnP - N
-
-
