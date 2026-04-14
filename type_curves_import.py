@@ -223,8 +223,8 @@ def read_typecurve_excel(excel_path: str) -> pd.DataFrame:
     return pd.read_excel(excel_path, sheet_name=0, header=0, dtype=object)
 
 
-_TC_SCENARIO = re.compile(r"-(?i)([TC]\d+)$")
-_PNP_SUFFIX = re.compile(r"-(?i)pnp$")
+_TC_SCENARIO = re.compile(r"-([TC]\d+)$", re.IGNORECASE)
+_PNP_SUFFIX = re.compile(r"-pnp$", re.IGNORECASE)
 
 
 def _trailing_typecurve_vendor_trim_variants(s: str) -> List[str]:
