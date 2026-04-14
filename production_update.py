@@ -10,6 +10,7 @@ from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+
 def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
     """
     Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
