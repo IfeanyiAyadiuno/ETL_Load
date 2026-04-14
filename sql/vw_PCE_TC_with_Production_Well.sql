@@ -1,5 +1,6 @@
--- Helper view: each PCE_TC row with a join-friendly production [Well Name]
--- (strip trailing N' - TC' when present). Use for ad hoc joins to PCE_Production.
+-- Helper view: each PCE_TC row with the physical well key (strip trailing N' - TC').
+-- PCE_TC is keyed by PCE_WM.[Well Name] + ' - TC', which may differ from PCE_Production.[Well Name]
+-- when production uses composite names; join via Well Master or composite mapping as needed.
 
 IF OBJECT_ID(N'dbo.vw_PCE_TC_with_Production_Well', N'V') IS NOT NULL
     DROP VIEW dbo.vw_PCE_TC_with_Production_Well;

@@ -197,7 +197,7 @@ This section is the **most important** if you want to know "where is the code th
   - Dialog: `TypeCurvesImportDialog` (`type_curves_import_dialog.py`).
 
 - **Logic files:**
-  - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, WM composite-first mapping (same key helpers as surveys), Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
+  - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, Excel base-name rule + match to **`PCE_WM.[Well Name]`** via **`well_name_match_key`**, Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
   - **`type.py`** — **`import_typecurves`**: thin wrapper around **`append_typecurves_from_excel`** for callers that still import from `type`.
 
 - **What it does:**

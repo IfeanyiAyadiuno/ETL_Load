@@ -59,7 +59,7 @@ Credential, VPN, and ODBC driver requirements are managed by IT; obtain confirma
 | `PCE_WM` | Well master: well list and linkage to Snowflake identifiers (**GasIDREC**, **PressuresIDREC**). Wells absent or excluded here may be omitted from daily loads. |
 | `PCE_CDA` | Daily-style production rows sourced from Snowflake (and related processing). |
 | `PCE_Production` | Production history for reporting; sequences, cumulatives, and averages derived from CDA according to the job executed. |
-| `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import only. Well keys match production after Well Master mapping, with a fixed **` - TC`** suffix on `[Well Name]` so they never collide with `PCE_Production`. |
+| `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import only. Stored **`[Well Name]`** is **`PCE_WM.[Well Name]`** + literal **` - TC`** (physical well key, not composite), so rows stay distinct from **`PCE_Production`**. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
 **Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors).
@@ -277,7 +277,9 @@ Execute **Run Import**; review the **Import Log**.
 
 **Units (metric storage):** **Gas WH** from **mcf/d** → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** from **bbl/d** → **`[Condensate WH (m³/d)]`**; **Cum Gas** from **bcf** → **`[Cum Gas (e³m³)]`** (via mcf and the documented conversion factor); **Cum Condy** from **Mbbl** → **`[Cum Condy (m³)]`**.
 
-**Well names:** File text is matched to **`PCE_WM`** using the same style of keys as survey import (**composite-first**, then well name). The value saved on each row is the mapped production-style name **plus** the literal suffix **` - TC`** (space, hyphen, space, `TC`). Joining to **`PCE_Production`** uses that production name without the suffix (see **`sql/vw_PCE_TC_with_Production_Well.sql`** in the repo).
+**Well names:** The Excel **Well Name** cell is normalized (spaces, hyphens), then a **base id** is derived: if there are **at least six** hyphen-separated segments, the last **two** segments are dropped (e.g. `A2-01-85-26W6M - T3 - PnP` → `A2-01-85-26W6M`); otherwise the full normalized string is used (so short DLS/NTS ids are not truncated). That base is matched to **`PCE_WM.[Well Name]`** only, using the same **normalization key** as elsewhere (case, slash vs hyphen, leading zeros in digit runs). The list in the dialog shows the matched **`[Well Name]`** from Well Master. Each inserted row stores that exact **`[Well Name]`** plus the suffix **` - TC`**.
+
+**Joining to `PCE_Production`:** Daily production often uses **composite** well names from the CDA pipeline, while **`PCE_TC`** is keyed by **physical** **`PCE_WM.[Well Name]`**. Stripping **` - TC`** alone may not equal **`PCE_Production.[Well Name]`**; use Well Master to relate physical name to composite, or adjust reporting joins accordingly. See **`sql/vw_PCE_TC_with_Production_Well.sql`** for the strip helper and example SQL.
 
 **Append / refresh:** Optionally **Load wells from Excel**, multi-select wells (or leave none selected = **all** wells that appear in the file after mapping), then **Append / refresh selected**. For each well in scope, existing **`PCE_TC`** rows for that stored key are **deleted**, then file rows are **inserted**. Unmatched file well names are listed in **`unmatched_type_curve_wells_<timestamp>.csv`** beside the Excel file when applicable.
 

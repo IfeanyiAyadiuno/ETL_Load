@@ -22,11 +22,11 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
-from survey_import import (
-    _well_name_lookup_trim_candidates,
-    clean_well_name,
-    well_name_match_key,
-)
+from survey_import import clean_well_name, well_name_match_key
+
+# After clean_well_name, strip last two hyphen-separated segments only when there are
+# this many segments (avoids truncating bare DLS/NTS ids like A2-01-85-26W6M).
+_MIN_HYPHEN_PARTS_FOR_TAIL_STRIP = 6
 
 TC_SUFFIX = " - TC"  # stored [Well Name] = mapped + TC_SUFFIX (5 chars)
 M3_PER_BBL = 6.29287017808823
@@ -223,74 +223,29 @@ def read_typecurve_excel(excel_path: str) -> pd.DataFrame:
     return pd.read_excel(excel_path, sheet_name=0, header=0, dtype=object)
 
 
-_TC_SCENARIO = re.compile(r"-([TC]\d+)$", re.IGNORECASE)
-_PNP_SUFFIX = re.compile(r"-pnp$", re.IGNORECASE)
-
-
-def _trailing_typecurve_vendor_trim_variants(s: str) -> List[str]:
+def _excel_base_for_wm_match(cleaned: str) -> str:
     """
-    Type-curve vendor labels often append ``… - T3 - PnP`` / ``… - C5 - PnP`` after the
-    Well Master name. We strip trailing ``-PnP`` first, then optional ``-T#`` / ``-C#`` **only
-    after** a ``PnP`` was removed, so legitimate composites ending in ``-C5`` (without ``PnP``)
-    are not shortened. DLS-style ids are never split on arbitrary hyphens.
+    Type-curve Excel well cells often append extra hyphen-separated trailer segments.
+    After ``clean_well_name`` (spaces collapsed, `` - `` merged to ``-``), if there are at
+    least ``_MIN_HYPHEN_PARTS_FOR_TAIL_STRIP`` segments, keep all but the last two
+    (same as removing from the second-to-last hyphen onward). Otherwise use the full string.
     """
-    variants: List[str] = []
-    seen: Set[str] = set()
-    cur = str(s).strip()
-    stripped_pnp = False
-    while cur:
-        if cur not in seen:
-            seen.add(cur)
-            variants.append(cur)
-        m_pnp = _PNP_SUFFIX.search(cur)
-        if m_pnp:
-            cur = cur[: m_pnp.start()]
-            stripped_pnp = True
-            continue
-        if stripped_pnp:
-            m2 = _TC_SCENARIO.search(cur)
-            if m2:
-                cur = cur[: m2.start()]
-                continue
-        break
-    return variants
+    s = str(cleaned).strip()
+    if not s:
+        return s
+    parts = s.split("-")
+    if len(parts) >= _MIN_HYPHEN_PARTS_FOR_TAIL_STRIP:
+        return "-".join(parts[:-2])
+    return s
 
 
-def _typecurve_well_lookup_candidates(cleaned: str) -> List[str]:
+def _build_wm_well_name_key_map() -> Dict[str, str]:
     """
-    Survey-style leading-word trims, plus trailing ``-`` segment trims for type-curve well labels.
-    """
-    out: List[str] = []
-    seen: Set[str] = set()
-    if not isinstance(cleaned, str) or not cleaned.strip():
-        return out
-    for lead in _well_name_lookup_trim_candidates(cleaned):
-        for v in _trailing_typecurve_vendor_trim_variants(lead):
-            if v not in seen:
-                seen.add(v)
-                out.append(v)
-    return out
-
-
-def _keys_for_wm_label(label: str) -> List[str]:
-    out: List[str] = []
-    cleaned = clean_well_name(label)
-    if not isinstance(cleaned, str) or not cleaned.strip():
-        return out
-    for cand in _well_name_lookup_trim_candidates(cleaned):
-        k = well_name_match_key(cand)
-        if k:
-            out.append(k)
-    return out
-
-
-def _build_wm_composite_and_well_maps() -> Tuple[Dict[str, str], Dict[str, str]]:
-    """
-    Composite-first WM resolution (same production key as apply_well_names).
-    Returns (composite_key -> production_name, well_key -> production_name).
+    ``well_name_match_key(PCE_WM.[Well Name])`` -> exact ``[Well Name]`` from SQL.
+    Last row wins if two WM wells normalize to the same key (should be rare).
     """
     query = """
-        SELECT [Well Name], [Composite Name]
+        SELECT [Well Name]
         FROM PCE_WM
         WHERE [Well Name] IS NOT NULL
           AND LTRIM(RTRIM([Well Name])) <> ''
@@ -298,27 +253,25 @@ def _build_wm_composite_and_well_maps() -> Tuple[Dict[str, str], Dict[str, str]]
     """
     with get_sql_conn() as conn:
         df = pd.read_sql(query, conn)
-    composite_keys: Dict[str, str] = {}
-    well_keys: Dict[str, str] = {}
+    key_to_wn: Dict[str, str] = {}
     for _, row in df.iterrows():
         wn = get_string_value(row.get("Well Name"))
         if not wn:
             continue
-        comp = get_string_value(row.get("Composite Name"))
-        pname = comp if comp else wn
-        if comp:
-            for k in _keys_for_wm_label(comp):
-                composite_keys[k] = pname
-        for k in _keys_for_wm_label(wn):
-            well_keys[k] = pname
-    return composite_keys, well_keys
+        k = well_name_match_key(wn)
+        if k:
+            key_to_wn[k] = wn
+    return key_to_wn
 
 
-def resolve_well_to_production_name(
+def resolve_file_well_to_wm_well_name(
     file_well_cell: object,
-    composite_keys: Dict[str, str],
-    well_keys: Dict[str, str],
+    wm_key_to_well_name: Dict[str, str],
 ) -> Optional[str]:
+    """
+    Map Excel well cell to the exact ``PCE_WM.[Well Name]`` string (not composite).
+    Compare using ``well_name_match_key`` (case, slash/hyphen, leading zeros in digit runs).
+    """
     if file_well_cell is None or (isinstance(file_well_cell, float) and np.isnan(file_well_cell)):
         return None
     raw = str(file_well_cell).strip()
@@ -327,15 +280,11 @@ def resolve_well_to_production_name(
     cleaned = clean_well_name(raw)
     if not isinstance(cleaned, str) or not cleaned.strip():
         return None
-    for cand in _typecurve_well_lookup_candidates(cleaned):
-        k = well_name_match_key(cand)
-        if not k:
-            continue
-        if k in composite_keys:
-            return composite_keys[k]
-        if k in well_keys:
-            return well_keys[k]
-    return None
+    base = _excel_base_for_wm_match(cleaned)
+    k = well_name_match_key(base)
+    if not k:
+        return None
+    return wm_key_to_well_name.get(k)
 
 
 def _dataframe_from_excel(excel_path: str, log: Callable[[str], None]) -> Tuple[pd.DataFrame, Dict[str, int]]:
@@ -351,21 +300,21 @@ def _dataframe_from_excel(excel_path: str, log: Callable[[str], None]) -> Tuple[
 
 def scan_typecurve_wells(excel_path: str) -> Tuple[List[str], List[str]]:
     """
-    Return (matched_production_names, unmatched_file_well_texts).
-    Production names do NOT include the - TC suffix.
+    Return (matched_wm_well_names, unmatched_file_well_texts).
+    Matched values are exact ``PCE_WM.[Well Name]`` strings (no `` - TC`` suffix).
     """
     def log(_):
         pass
 
     df, roles = _dataframe_from_excel(excel_path, log)
     col_well = roles["well"]
-    composite_keys, well_keys = _build_wm_composite_and_well_maps()
+    wm_map = _build_wm_well_name_key_map()
     matched: Set[str] = set()
     unmatched: List[str] = []
     seen_unmatched: Set[str] = set()
     for _, row in df.iterrows():
         cell = row.iloc[col_well]
-        pname = resolve_well_to_production_name(cell, composite_keys, well_keys)
+        pname = resolve_file_well_to_wm_well_name(cell, wm_map)
         if pname:
             matched.add(pname)
         else:
@@ -384,9 +333,9 @@ def append_typecurves_from_excel(
     cancel_event: Optional[object] = None,
 ) -> dict:
     """
-    For each target well: DELETE PCE_TC rows where [Well Name] = mapped + ' - TC', then INSERT from file.
+    For each target well: DELETE PCE_TC rows where [Well Name] = PCE_WM.[Well Name] + ' - TC', then INSERT from file.
 
-    selected_production_names: mapped production-style names WITHOUT suffix.
+    selected_production_names: ``PCE_WM.[Well Name]`` values WITHOUT the `` - TC`` suffix.
       None or empty list => all wells in the file that resolve to WM.
     """
     def log(msg: str):
@@ -419,7 +368,7 @@ def append_typecurves_from_excel(
     log(lf.step("Reading type curve Excel (sheet 1, header row 1)"))
     progress(5)
     df, roles = _dataframe_from_excel(excel_path, log)
-    composite_keys, well_keys = _build_wm_composite_and_well_maps()
+    wm_map = _build_wm_well_name_key_map()
     progress(15)
 
     col_well = roles["well"]
@@ -439,9 +388,7 @@ def append_typecurves_from_excel(
     seen_um: Set[str] = set()
 
     for _, row in df.iterrows():
-        pname = resolve_well_to_production_name(
-            row.iloc[col_well], composite_keys, well_keys
-        )
+        pname = resolve_file_well_to_wm_well_name(row.iloc[col_well], wm_map)
         raw_well = get_string_value(row.iloc[col_well])
         if not pname:
             if raw_well and raw_well not in seen_um:

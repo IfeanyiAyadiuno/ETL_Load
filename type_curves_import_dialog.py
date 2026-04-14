@@ -154,7 +154,7 @@ class TypeCurvesImportDialog(QDialog):
         intro = QLabel(
             "Type curve data is stored only in <b>dbo.PCE_TC</b>. "
             "It is never written to <b>PCE_Production</b>. "
-            "Each row uses the same well key as production (from Well Master / composite rules) "
+            "Each row uses <b>PCE_WM.[Well Name]</b> (physical well, not composite) "
             "plus the suffix <code> - TC</code> on <code>[Well Name]</code> so type curves stay distinct."
         )
         intro.setWordWrap(True)
@@ -178,8 +178,9 @@ class TypeCurvesImportDialog(QDialog):
         ag.addWidget(
             QLabel(
                 "Uses the first worksheet, row 1 as headers. "
+                "Well names in the file are matched to <b>PCE_WM.[Well Name]</b> (see user guide for the base-name rule). "
                 "Optional well selection: leave none selected to import <b>all</b> wells that appear "
-                "in the file after Well Master mapping. "
+                "in the file after mapping. "
                 "Vendor column labelled Gas S1 (10³m³) is stored as <b>Gas S2</b> in PCE_TC."
             )
         )
@@ -220,7 +221,7 @@ class TypeCurvesImportDialog(QDialog):
         dg.addWidget(
             QLabel(
                 "Loads wells that currently have rows in <b>PCE_TC</b>. "
-                "The list shows production-style names (without <code> - TC</code>); "
+                "The list shows <b>PCE_WM.[Well Name]</b> text (without <code> - TC</code>); "
                 "the database delete uses the full stored key including the suffix."
             )
         )
