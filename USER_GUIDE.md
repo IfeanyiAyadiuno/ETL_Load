@@ -23,8 +23,8 @@ This User Guide describes the **Production Update System** (desktop application)
 9. [Public Sales Data and Ratios](#public-sales-data-and-ratios)  
 10. [Survey Data Import](#survey-data-import)  
 11. [Type Curves Import](#type-curves-import)  
-12. [Exports / Reports](#exports--reports)  
-13. [Whitson+ Mass Upload](#whitson-mass-upload)  
+12. [Whitson+ Mass Upload](#whitson-mass-upload)  
+13. [Exports / Reports](#exports--reports)  
 14. [Operational considerations](#operational-considerations)  
 15. [Runbook — script order and maintenance](#runbook--script-order-and-maintenance)  
 16. [Troubleshooting](#troubleshooting)  
@@ -115,6 +115,8 @@ python -m pytest -q
 
 The diagram below is a **logical** map of the Python entry point, dialogs, backend modules, external systems, and SQL Server tables the application reads and writes during normal use. For **script order**, **destructive steps**, and **verification**, see [Runbook — script order and maintenance](#runbook--script-order-and-maintenance).
 
+For a **single-image** architecture overview (one Mermaid figure plus short notes), see **[`APPLICATION_ARCHITECTURE.md`](APPLICATION_ARCHITECTURE.md)**.
+
 ```mermaid
 flowchart TB
   subgraph entryLayer["Entry"]
@@ -134,8 +136,8 @@ flowchart TB
     d_pub["sales_ratios_dialog.py"]
     d_sur["survey_import_dialog.py"]
     d_tc["type_curves_import_dialog.py"]
-    d_exp["exports_dialog.py"]
     d_whi["whitson_mass_upload_dialog.py"]
+    d_exp["exports_dialog.py"]
   end
 
   subgraph backend["Backend modules"]
@@ -174,8 +176,8 @@ flowchart TB
   d_pub --> m_pubg
   d_sur --> m_sur
   d_tc --> m_tc
-  d_exp --> exp_stub["No DB writes Coming soon"]
   d_whi --> wh_stub["File read log only STUB"]
+  d_exp --> exp_stub["No DB writes Coming soon"]
 
   m_db --> TWM
   m_wmjob --> sf
@@ -224,8 +226,8 @@ Application title: **Pacific Canbriam Energy - Production Update System**. Heade
 | 4 | Public Sales Data and Ratios |
 | 5 | Survey Data Import |
 | 6 | Type Curves Import |
-| 7 | Exports / Reports |
-| 8 | Whitson+ Mass Upload |
+| 7 | Whitson+ Mass Upload |
+| 8 | Exports / Reports |
 
 Operation buttons are mutually exclusive (single selection). Closing a dialog clears the selection.
 
@@ -275,6 +277,8 @@ PA uses **ValNav Template**; **Public Sales Data and Ratios** uses **Accumap Tem
 ### Import New Wells (Snowflake)
 
 **Preview New Wells** lists candidate wells. Uncheck rows to exclude them; only checked rows are inserted. Confirm selection, then **Add Wells**.
+
+**Caution (Snowflake `*` and tester-only wells):** Leading **asterisks (`*`)** on well or unit names in the preview come from Snowflake’s naming convention; they are **not kept as part of the stored Well Name**—the application **strips leading asterisks** when you confirm **Add Wells** (including after you edit the name in the preview table). If Snowflake returns wells that exist **only as Tester records** (no Daily meter yet), the app first opens **New Wells – GasIDREC Required**: you must **enter the correct GasIDREC** from ProdView for each row you keep (**PressuresIDREC** is shown read-only from Snowflake on that screen); after you confirm or skip that step, **Preview New Wells** and **Add Wells** work as described above.
 
 ### Post-import behavior
 
@@ -451,12 +455,6 @@ Execute **Run Import**; review the **Import Log**.
 
 ---
 
-## Exports / Reports
-
-The dialog displays a **Coming soon** notice. No export jobs are initiated from this module in the current build.
-
----
-
 ## Whitson+ Mass Upload
 
 **Objective:** Select a sheet from the **Whitson+ File** (**Settings**) for the upload workflow.
@@ -476,6 +474,12 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 <!-- Image: assets/user-guide/figure-10-whitson.png -->
 
 ![Figure 10 — Whitson+ Mass Upload](images/figure-10-whitson.png)
+
+---
+
+## Exports / Reports
+
+The dialog displays a **Coming soon** notice. No export jobs are initiated from this module in the current build.
 
 ---
 

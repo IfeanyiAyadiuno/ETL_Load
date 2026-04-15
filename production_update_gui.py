@@ -183,8 +183,8 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_ratios)
         buttons_layout.addWidget(self.btn_survey)
         buttons_layout.addWidget(self.btn_type_curves)
-        buttons_layout.addWidget(self.btn_exports)
         buttons_layout.addWidget(self.btn_whitson)
+        buttons_layout.addWidget(self.btn_exports)
         
         # Connect buttons to click handlers
         self.btn_well_master.clicked.connect(lambda: self.select_operation("Well Master List"))
@@ -476,8 +476,8 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_ratios.setEnabled(enabled)
         self.btn_survey.setEnabled(enabled)
         self.btn_type_curves.setEnabled(enabled)
-        self.btn_exports.setEnabled(enabled)
         self.btn_whitson.setEnabled(enabled)
+        self.btn_exports.setEnabled(enabled)
     
     def log(self, message):
         """Add message to log window with timestamp"""
