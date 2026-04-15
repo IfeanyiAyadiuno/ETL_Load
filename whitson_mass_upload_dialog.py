@@ -93,7 +93,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.settings_section = settings_section
         self.worker = None
         self.sheet_names = []
-        self.setWindowTitle("Whitson+ Mass Upload")
+        self.setWindowTitle("📤 Whitson+ Mass Upload")
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(600)
@@ -121,7 +121,7 @@ class WhitsonMassUploadDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Whitson+ Mass Upload")
+        title = QLabel("📤 Whitson+ Mass Upload")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 

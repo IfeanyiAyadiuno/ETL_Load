@@ -124,7 +124,7 @@ class TypeCurvesImportDialog(QDialog):
         self.settings_section = settings_section
         self.append_worker = None
         self.delete_worker = None
-        self.setWindowTitle("Type Curves Import")
+        self.setWindowTitle("📈 Type Curves Import")
         self.setModal(True)
         self.setMinimumWidth(720)
         self.setMinimumHeight(580)
@@ -150,7 +150,7 @@ class TypeCurvesImportDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Type Curves Import")
+        title = QLabel("📈 Type Curves Import")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
