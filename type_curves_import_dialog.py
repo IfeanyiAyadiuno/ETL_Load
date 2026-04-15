@@ -43,6 +43,8 @@ from styles import (
     progress_bar_style,
     results_area_style,
     file_path_label_style,
+    muted_body_label_style,
+    list_widget_style,
     configure_dialog_window_mode,
 )
 
@@ -122,7 +124,7 @@ class TypeCurvesImportDialog(QDialog):
         self.settings_section = settings_section
         self.append_worker = None
         self.delete_worker = None
-        self.setWindowTitle("Type curves")
+        self.setWindowTitle("Type Curves Import")
         self.setModal(True)
         self.setMinimumWidth(720)
         self.setMinimumHeight(580)
@@ -134,6 +136,8 @@ class TypeCurvesImportDialog(QDialog):
 
     def initUI(self):
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -143,10 +147,10 @@ class TypeCurvesImportDialog(QDialog):
         scroll_content = QWidget()
         scroll_content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(scroll_content)
-        layout.setSpacing(12)
+        layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Type curves")
+        title = QLabel("Type Curves Import")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
@@ -154,6 +158,7 @@ class TypeCurvesImportDialog(QDialog):
             "Loads into dbo.PCE_TC. Row key = WM well name + ' - TC' suffix."
         )
         intro.setWordWrap(True)
+        intro.setStyleSheet(muted_body_label_style())
         layout.addWidget(intro)
 
         mode_row = QHBoxLayout()
@@ -186,16 +191,18 @@ class TypeCurvesImportDialog(QDialog):
         file_group.layout().addLayout(file_layout)
         al.addWidget(file_group)
 
-        al.addWidget(
-            QLabel(
-                "First sheet, row 1 = headers. Check wells to limit import; "
-                "leave all unchecked to import every matched well in the file."
-            )
+        append_hint = QLabel(
+            "First sheet, row 1 = headers. Check wells to limit import; "
+            "leave all unchecked to import every matched well in the file."
         )
+        append_hint.setWordWrap(True)
+        append_hint.setStyleSheet(muted_body_label_style())
+        al.addWidget(append_hint)
 
         self.append_list = QListWidget()
         self.append_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.append_list.setMinimumHeight(120)
+        self.append_list.setStyleSheet(list_widget_style())
         al.addWidget(self.append_list)
 
         ab = QHBoxLayout()
@@ -224,12 +231,13 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_panel = QWidget()
         dl = QVBoxLayout(self.delete_panel)
         dl.setContentsMargins(0, 0, 0, 0)
-        dl.addWidget(
-            QLabel(
-                "List shows WM name (suffix hidden). Check one or more wells, then Delete "
-                "(full stored key is used)."
-            )
+        delete_hint = QLabel(
+            "List shows WM name (suffix hidden). Check one or more wells, then Delete "
+            "(full stored key is used)."
         )
+        delete_hint.setWordWrap(True)
+        delete_hint.setStyleSheet(muted_body_label_style())
+        dl.addWidget(delete_hint)
 
         db = QHBoxLayout()
         self.load_delete_btn = QPushButton("Load from DB")
@@ -242,6 +250,7 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_list = QListWidget()
         self.delete_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.delete_list.setMinimumHeight(120)
+        self.delete_list.setStyleSheet(list_widget_style())
         dl.addWidget(self.delete_list)
 
         db2 = QHBoxLayout()

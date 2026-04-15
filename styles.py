@@ -306,6 +306,44 @@ def file_path_label_style() -> str:
     """
 
 
+def muted_body_label_style() -> str:
+    """Secondary body / helper text (matches prodview-style description lines)."""
+    return f"""
+        QLabel {{
+            color: {_TEXT_MUTED};
+            font-size: 12px;
+            border: none;
+            background: transparent;
+        }}
+    """
+
+
+def list_widget_style() -> str:
+    """Checkable well list — card look aligned with table_style / dashboard."""
+    return f"""
+        QListWidget {{
+            background-color: {_CARD};
+            border: 1px solid {_BORDER};
+            border-radius: 8px;
+            padding: 4px;
+            font-size: 12px;
+            color: {_TEXT};
+            outline: none;
+        }}
+        QListWidget::item {{
+            padding: 6px 8px;
+            border-radius: 4px;
+        }}
+        QListWidget::item:hover {{
+            background-color: {_INPUT_BG};
+        }}
+        QListWidget::item:selected {{
+            background-color: #dbeafe;
+            color: {_TEXT};
+        }}
+    """
+
+
 def info_panel_style() -> str:
     """Blue-tinted information panel."""
     return f"""

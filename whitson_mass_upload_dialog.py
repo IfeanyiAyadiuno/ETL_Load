@@ -20,7 +20,7 @@ from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_primary, btn_neutral, btn_danger, progress_bar_style,
-    results_area_style, file_path_label_style,
+    results_area_style, file_path_label_style, muted_body_label_style,
     configure_dialog_window_mode,
 )
 
@@ -107,6 +107,8 @@ class WhitsonMassUploadDialog(QDialog):
     def initUI(self):
         """Initialize the Whitson+ Mass Upload dialog UI"""
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(10)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -122,6 +124,14 @@ class WhitsonMassUploadDialog(QDialog):
         title = QLabel("Whitson+ Mass Upload")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
+
+        whitson_intro = QLabel(
+            "Excel file path comes from Settings. Sheet list loads from that file; "
+            "upload currently logs a stub (no API)."
+        )
+        whitson_intro.setWordWrap(True)
+        whitson_intro.setStyleSheet(muted_body_label_style())
+        layout.addWidget(whitson_intro)
 
         # File path (from Settings)
         file_group = self.create_group("Excel File (from Settings)")
@@ -149,7 +159,6 @@ class WhitsonMassUploadDialog(QDialog):
 
         self.sheet_combo = QComboBox()
         self.sheet_combo.setMinimumWidth(280)
-        self.sheet_combo.setStyleSheet("")
         self.sheet_combo.currentIndexChanged.connect(self.validate_inputs)
         sheet_layout.addWidget(self.sheet_combo, 1)
         sheet_group.layout().addLayout(sheet_layout)
