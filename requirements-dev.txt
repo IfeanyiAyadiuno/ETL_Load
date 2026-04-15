@@ -1,7 +1,7 @@
 # Dev / CI — install test dependencies
 #   pip install -r requirements-dev.txt
 #
-# Windows (Command Prompt or PowerShell), from the repo folder (e.g. I:\ETL_Load):
+# Windows (Command Prompt or PowerShell), from the project folder (e.g. I:\ETL_Load):
 #   py -m pip install -r requirements-dev.txt
 #   py -m pytest -q
 # If you only have the `python` launcher:

@@ -913,7 +913,7 @@ def import_directional_survey_with_mapping(
 def main():
     if len(sys.argv) < 2:
         print("Usage: python survey_import.py <excel_file_path> [mode]")
-        print("Modes: append (default), overwrite, merge")
+        print("Modes: append (default), overwrite")
         return
 
     excel_path = sys.argv[1]

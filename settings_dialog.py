@@ -261,7 +261,7 @@ class SettingsDialog(QDialog):
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "Select ValNav Template",
-            self.valnav_input.text() or "I:/ResEng/Production/PA Monthly Actuals",
+            self.valnav_input.text() or "",
             "Excel files (*.xlsx *.xls)",
         )
         if filename:
@@ -272,7 +272,7 @@ class SettingsDialog(QDialog):
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "Select Public Data Accumap Template",
-            self.accumap_input.text() or "I:/ResEng/Production/Prod Macros/Macro 3",
+            self.accumap_input.text() or "",
             "Excel files (*.xlsx *.xls)",
         )
         if filename:
