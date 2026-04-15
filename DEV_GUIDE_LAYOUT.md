@@ -86,14 +86,15 @@ You can paste this into ChatGPT with a prompt such as:
 - Creates the Qt application and shows `ProductionUpdateGUI`.
 
 ### 3.2 What the Main Window Does
-- Shows company header and the **seven main buttons**:
+- Shows company header and the **eight main operation buttons** (Settings is separate in the header):
   1. **📋 Well Master List** – manage well metadata.
   2. **❄️ Prodview/Snowflake Daily Production Retrieve** – daily & historical production update.
   3. **📊 Production Accounting Allocations (PA)** – monthly PA allocations.
   4. **📈 Public Sales Data and Ratios** – sales ratios update.
   5. **📐 Survey Data Import** – survey data loader.
   6. **📊 Type Curves Import** – type curve loader into **`PCE_TC`**.
-  7. **📁 Exports / Reports** – placeholder for future reporting.
+  7. **Whitson+ Mass Upload** – file read / log stub.
+  8. **📁 Exports / Reports** – placeholder for future reporting (last in the list).
 
 
 ### 3.3 How Buttons Map to Logic (Very Important)
@@ -104,9 +105,10 @@ You can paste this into ChatGPT with a prompt such as:
   - **Prodview/Snowflake Daily Production Retrieve** → `ProdviewUpdateDialog` in `prodview_update_dialog.py`.
   - **PA Allocations** → `MonthlyLoaderDialog` in `monthly_loader_dialog.py`.
   - **Sales Ratios** → `SalesRatiosDialog` in `sales_ratios_dialog.py`.
-  - **Survey Import` → `SurveyImportDialog` in `survey_import_dialog.py`.
+  - **Survey Import** → `SurveyImportDialog` in `survey_import_dialog.py`.
   - **Type Curves Import** → `TypeCurvesImportDialog` in `type_curves_import_dialog.py`.
-  - **Exports / Reports` → `ExportsDialog` (UI placeholder).
+  - **Whitson+ Mass Upload** → `WhitsonMassUploadDialog` in `whitson_mass_upload_dialog.py`.
+  - **Exports / Reports** → `ExportsDialog` (UI placeholder).
 
 > **Key takeaway for a manager:** The main window is just a **menu and log**. Each actual process lives in its own dialog file + engine file.
 
