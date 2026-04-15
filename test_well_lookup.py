@@ -7,7 +7,7 @@ import sys
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
 
-WELL_NAME = "B-G095-H/094-B-08"
+WELL_NAME = "B-B074-A/094-B-08"
 
 def main():
     well = WELL_NAME if len(sys.argv) < 2 else sys.argv[1]
@@ -123,7 +123,7 @@ def main():
                 VOLENTERGAS AS GasWH_Production
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
             WHERE IDRECPARENT = %s
-            ORDER BY DTTM DESC
+            ORDER BY DTTM ASC
             LIMIT 10
         """, (gas_idrec,))
 

@@ -16,5 +16,23 @@
       "East": 9,
       "North": 10
     }
+  },
+  "preset 2": {
+    "sheet_index": 0,
+    "header_row": 25,
+    "data_start_row": 26,
+    "well_name_row": 5,
+    "well_name_col": 1,
+    "columns": {
+      "Measured Depth": 0,
+      "Inclination": 1,
+      "Azimuth Angle": 2,
+      "Subsea Elevation": 4,
+      "True Vertical Depth": 3,
+      "Longitude": 12,
+      "Latitude": 11,
+      "East": 9,
+      "North": 10
+    }
   }
 }
