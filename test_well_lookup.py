@@ -7,7 +7,7 @@ import sys
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
 
-WELL_NAME = "*B-G095-H/094-B-08"
+WELL_NAME = "B-G095-H/094-B-08"
 
 def main():
     well = WELL_NAME if len(sys.argv) < 2 else sys.argv[1]
