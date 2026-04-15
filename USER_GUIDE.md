@@ -278,6 +278,8 @@ PA uses **ValNav Template**; **Public Sales Data and Ratios** uses **Accumap Tem
 
 **Preview New Wells** lists candidate wells. Uncheck rows to exclude them; only checked rows are inserted. Confirm selection, then **Add Wells**.
 
+**Caution (Snowflake `*` and tester-only wells):** Leading **asterisks (`*`)** on well or unit names in the preview come from Snowflake’s naming convention; they are **not kept as part of the stored Well Name**—the application **strips leading asterisks** when you confirm **Add Wells** (including after you edit the name in the preview table). If Snowflake returns wells that exist **only as Tester records** (no Daily meter yet), the app first opens **New Wells – GasIDREC Required**: you must **enter the correct GasIDREC** from ProdView for each row you keep (**PressuresIDREC** is shown read-only from Snowflake on that screen); after you confirm or skip that step, **Preview New Wells** and **Add Wells** work as described above.
+
 ### Post-import behavior
 
 The application queues a background job (`well_master_cda_worker`) to load daily data into **`PCE_CDA`** for inserted wells (historical window per application logic, typically from 2009 through the current date). A progress indicator is shown during this task.
