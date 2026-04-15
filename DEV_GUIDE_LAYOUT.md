@@ -1,6 +1,8 @@
 # Pacific Canbriam Energy - Production Update System
 ## Developer Guide Layout & Technical Overview
 
+**Short overview for stakeholders and onboarding:** see [`DEV_GUIDE.md`](DEV_GUIDE.md) (non-technical, under two pages). This file is the **deep technical map** for developers and leads.
+
 This document is a **layout/template** for a developer-focused guide, similar in spirit to `USER_GUIDE_LAYOUT.md` but aimed at a semi-technical manager or lead. It explains **where the main update logic lives**, what each major module does, and what is important to know as a developer.
 
 You can paste this into ChatGPT with a prompt such as:
@@ -65,7 +67,7 @@ You can paste this into ChatGPT with a prompt such as:
   - `prodview_update_gui.py` – **Prodview/Snowflake update logic** (quick update + full rebuild).
   - `monthly_loader_gui.py` – **Production Accounting monthly loader** core logic.
   - `survey_import.py` – **Survey ETL** logic.
-  - `type_curves_import.py` – **Type Curves** ETL logic (`PCE_TC`); `type.py` exposes a thin `import_typecurves` wrapper.
+  - `type_curves_import.py` – **Type Curves** ETL logic (`PCE_TC`). Call `append_typecurves_from_excel` / `delete_typecurves_from_tc` from this module (legacy `type.py` wrapper removed).
   - `sales_ratios_gui.py` – **Sales ratios** ETL logic.
   - `production_update.py` – Older / alternate CDA pipeline (legacy/backup).
   
@@ -200,7 +202,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **Logic files:**
   - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, Excel base-name rule + match to **`PCE_WM.[Well Name]`** via inlined **`_tc_well_match_key`**, Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
-  - **`type.py`** — **`import_typecurves`**: thin wrapper around **`append_typecurves_from_excel`** for callers that still import from `type`.
+  - **`type_curves_import.py`** — primary API for type curve load/delete (legacy `type.py` removed).
 
 - **What it does:**
   - Reads the type-curve workbook (**first sheet**, **row 1 = headers**), maps columns by normalized header text (vendor “Gas S1” column is stored as **Gas S2** in SQL).
@@ -367,7 +369,7 @@ Provide a **simple table** like this in the final document:
 
 - **Type Curves Import**  
   - UI: `type_curves_import_dialog.py` (`TypeCurvesImportDialog`)  
-  - Logic: `type_curves_import.py` (`append_typecurves_from_excel`, `delete_typecurves_from_tc`); `type.py` (`import_typecurves`) for legacy imports  
+  - Logic: `type_curves_import.py` (`append_typecurves_from_excel`, `delete_typecurves_from_tc`)  
   - Data: Excel → **`PCE_TC`** (not `PCE_Production`)
 
 - **Sales Ratios**  

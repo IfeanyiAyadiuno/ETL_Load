@@ -1,18 +1,20 @@
 # Production Update System — User Guide
 
 **Organization:** Pacific Canbriam Energy LTD  
-**Document version:** 1.1  
+**Document version:** 1.2  
 **Last updated:** April 8, 2026  
 
 ## Document purpose and scope
 
 This User Guide describes the **Production Update System** (desktop application) used within Pacific Canbriam Energy LTD. It documents prerequisites, main-window operations, module-specific procedures, the principal SQL Server tables and views, a maintenance runbook, and logical schema diagrams. The intended audience is staff authorized to run production updates, allocations, and related imports.
 
+Documentation entry points: **[README.md](README.md)** (how to run from source), **[DEV_GUIDE.md](DEV_GUIDE.md)** (short stakeholder overview), and this guide for operational detail.
+
 ---
 
 ## Table of contents
 
-1. [Before you start](#before-you-start)  
+1. [Before you start](#before-you-start) (includes [README and config templates](#readme-and-config-templates))  
 2. [How the pieces fit together](#how-the-pieces-fit-together)  
 3. [Application architecture and data flow](#application-architecture-and-data-flow)  
 4. [Main window](#main-window)  
@@ -42,12 +44,12 @@ This User Guide describes the **Production Update System** (desktop application)
 - Network connectivity to the company **SQL Server** instance and, for Prodview and Snowflake well import, to **Snowflake**.  
 - **Windows** host; SQL Server access uses **Windows authentication** unless otherwise configured.  
 - **`.env`** in the application directory (or project root when running from source), containing Snowflake and any server/database overrides. Connection defaults may reference environment variables such as `SQL_SERVER` and `SQL_DATABASE` (confirm values with IT).  
-- **`settings.ini`** adjacent to the executable or project folder. File paths and SQL connection fields are written when **Settings** is saved.
+- **`settings.ini`** adjacent to the executable or project folder. It holds **SQL display names** and **template file paths**; these are **typically the same for everyone** when files live on a **shared drive**. Values are written when **Settings** is saved.
 
 ### Execution
 
 - **Deployed build:** Run the packaged executable (for example `ProductionUpdate.exe`) from a directory that includes `.env` and `settings.ini` where applicable.  
-- **From source (repo root):** Install runtime dependencies, then start the main window:
+- **From source (project folder):** Install runtime dependencies, then start the main window:
 
 ```text
 cd /d I:\ETL_Load
@@ -68,9 +70,13 @@ Optional CSV output: add `-o "I:\path\accumap_audit.csv"` (see `accumap_unmatche
 
 Credential, VPN, and ODBC driver requirements are managed by IT; obtain confirmation before production use.
 
+### README and config templates
+
+The project folder includes **[README.md](README.md)** (how to run from source and links to all guides), **`.env.example`** (Snowflake and optional SQL variable names — copy to `.env` and fill in), and **`settings.ini.example`** (path placeholders — copy to `settings.ini` or save once from **Settings** in the app).
+
 ### Automated tests (developers)
 
-From the repo root, install dev dependencies and run **pytest** (no GUI; uses mocks where applicable):
+From the project folder, install dev dependencies and run **pytest** (no GUI; uses mocks where applicable):
 
 ```text
 python -m pip install -r requirements-dev.txt
@@ -92,7 +98,7 @@ python -m pytest -q
 | `PCE_Surveys` | Survey stations and geometry loaded from Excel or CSV; keyed by **`SurveyID`** with **`UWI`**, **`[Well Name]`**, and optional **`Latitude`** / **`Longitude`** (decimal), plus legacy-style offset columns as applicable. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
-**Reporting views (read-only in normal operations):** The database may expose views such as **`dbo.vw_PCE_Production_with_TypeCurves`**, **`dbo.vw_PCE_TC_with_Production_Well`**, and **`vw_PCE_WM_Ordered`** (schema may differ from `dbo`). The desktop app does not treat these as write targets during routine operations; they exist for reporting and joins. Deploy or refresh their definitions from the `sql/` scripts in this repository when IT approves.
+**Reporting views (read-only in normal operations):** The database may expose views such as **`dbo.vw_PCE_Production_with_TypeCurves`**, **`dbo.vw_PCE_TC_with_Production_Well`**, and **`vw_PCE_WM_Ordered`** (schema may differ from `dbo`). The desktop app does not treat these as write targets during routine operations; they exist for reporting and joins. Deploy or refresh their definitions from the `sql/` scripts shipped with the application when IT approves.
 
 **Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors), via **`monthly_loader_gui.py`** calling **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**.
 
@@ -361,14 +367,14 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 1. Open **Production Accounting Allocations (PA)**.  
 2. Select **Month**.  
-3. Verify status: database and **ValNav file**. (Accumap path is shown for reference; PA does not read it.)  
+3. Verify status: database and **ValNav file**.  
 4. **Run Monthly Loader**; confirm the dialog.  
 5. Review **Results** (counts, warnings, elapsed time).
 
-`[IMAGE: PA dialog — month, paths, Run Monthly Loader, Results]`
+`[IMAGE: PA dialog — month, ValNav path, status, Run Monthly Loader, Results]`
 
 > **Figure 6 — PA allocations**  
-> *[Insert screenshot: PA dialog with month, ValNav path, Accumap path, status lines, Results. Red arrow: Month. Red arrow: Run Monthly Loader.]*
+> *[Insert screenshot: PA dialog with month, ValNav path, status lines, Results. Red arrow: Month. Red arrow: Run Monthly Loader.]*
 
 <!-- Image: assets/user-guide/figure-06-pa-allocations.png -->
 
@@ -408,8 +414,6 @@ There are **two import paths** in the Survey dialog:
 2. **Directional / mapped import** — Choose this mode to **Browse** to any `.xlsx` / `.xls` / `.csv` file whose layout varies by vendor. CSV is treated as a **single sheet** (no sheet picker). Click **Configure mapping…** to open a **second dialog**: pick the sheet, set the **header row** and **first data row**, choose the **well name** cell, and map file columns to survey fields (**Measured Depth** is required). **UWI** and **Pad** are **not** taken from the Excel file; after the well name is read, the app looks up **one** row in **`PCE_WM`** by matching the cell text to **`[Well Name]`** (same field used across Well Master and production) and uses **`[Value Navigator UWI]`** and **`[Pad Name]`** for every survey row. You can **Load/Save** mapping presets (JSON) for repeat layouts.
 
 **Import Mode (GUI):** **Append Mode** (insert rows not already present) or **Overwrite Mode** (delete existing rows for matching UWIs, then insert). Applies to both paths.
-
-**Command-line** `survey_import.py` also supports a third mode, **`merge`**, which is **not** exposed as a radio button in the Survey dialog.
 
 Execute **Run Import**; review the **Import Log**.
 
@@ -494,7 +498,7 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 
 ## Runbook — script order and maintenance
 
-Use this section for **routine refreshes**, **new wells**, and **optional CLI utilities**. Commands assume a Windows Command Prompt or PowerShell session with the working directory set to your clone (for example `I:\ETL_Load`).
+Use this section for **routine refreshes**, **new wells**, and **optional CLI utilities**. Commands assume a Windows Command Prompt or PowerShell session with the working directory set to your application folder (for example `I:\ETL_Load`).
 
 ### Routine GUI refresh (recommended order)
 
@@ -526,7 +530,7 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Populated **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
 | `python cda.py` | Legacy **Snowflake → `PCE_CDA`** pipeline (VBA-style first-production filter); clears CDA in a fixed date range then reloads | Snowflake, **`PCE_WM`** | **Yes** — deletes **`PCE_CDA`** rows in range | Console steps; inspect **`PCE_CDA`**. Prefer **Prodview Quick Update** for normal operations unless you maintain this script intentionally. |
 | `python af.py` | **Allocation_Factors** loader from Excel (interactive `input()` at end) | Excel layout expected by script, **`PCE_WM`** mapping | **Yes** — deletes/replaces allocation rows per script logic | Summary block printed at end. |
-| `python survey_import.py "<path>"` then `append`, `overwrite`, or `merge` | Survey import without GUI | File on disk, **`PCE_WM`** for mapped path | **Overwrite** deletes by UWI; **merge** updates selectively | Console / exit code. |
+| `python survey_import.py "<path>"` then `append` or `overwrite` | Survey import without GUI | File on disk, **`PCE_WM`** for mapping | **Overwrite** deletes existing rows for matching UWIs, then inserts; **append** skips (UWI, depth) pairs already in **`PCE_Surveys`** before insert | Console / exit code. |
 | `python purge_exception_wells.py` | Deletes **`PCE_CDA`**, **`PCE_Production`**, **`Allocation_Factors`**, **`PCE_Surveys`** rows for wells with **`PCE_WM.Exception = 'Y'`** | Exception flags set deliberately | **Yes** | Printed delete counts. |
 | `python gas_idrec_production_peek.py …` | Debug peek at **`PCE_Production`** by **GasIDREC** / **PressuresIDREC** | Well keys in **`PCE_WM`** | No | Printed rows. |
 | `python test_well_lookup.py …` | Ad hoc well / CDA / production / Snowflake samples (if maintained) | Environment | Read-only if only querying | Console output. |
@@ -585,7 +589,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 
 ## Appendix C — Logical database schema (SQL Server)
 
-The following **entity-relationship diagram is logical**: the application and well keys imply the relationships below. SQL Server might not declare every relationship as a foreign key. Column inventory is maintained from **`INFORMATION_SCHEMA.COLUMNS`** exports (see `output.txt` in the repository for a recent tab-separated example).
+The following **entity-relationship diagram is logical**: the application and well keys imply the relationships below. SQL Server might not declare every relationship as a foreign key. Column inventory is maintained from **`INFORMATION_SCHEMA.COLUMNS`** exports (see `output.txt` in the project folder for a recent tab-separated example).
 
 **Tables included:** `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`. **Views** commonly deployed with the app include **`dbo.vw_PCE_Production_with_TypeCurves`**, **`dbo.vw_PCE_TC_with_Production_Well`**, and **`vw_PCE_WM_Ordered`** (view schema may be owner-specific); they are read-only for routine ETL and join production to type curves or order wells for display.
 

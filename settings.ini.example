@@ -1,0 +1,10 @@
+[SQL]
+server = YOUR_SQL_SERVER_HOST
+database = YOUR_DATABASE_NAME
+
+[PATHS]
+valnav_template = C:/Company/Data/ValNav/Production-Accounting-Template.xlsx
+accumap_template = C:/Company/Data/Accumap/Public-Data-Accumap.xlsx
+survey_file = C:/Company/Data/Survey/Survey.xlsx
+type_curves_file = C:/Company/Data/TypeCurves/PCE_TCs.xlsx
+whitson_file = C:/Company/Data/Whitson/Whitson_Mass_Upload.xlsx

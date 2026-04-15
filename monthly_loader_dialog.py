@@ -93,31 +93,15 @@ class MonthlyLoaderDialog(QDialog):
         valnav_group.layout().addLayout(valnav_layout)
         layout.addWidget(valnav_group)
 
-        # Accumap (informational — loaded in Public Sales dialog, not PA)
-        accumap_group = self.create_group("📁 Accumap template (Public Sales only)")
-        accumap_layout = QHBoxLayout()
-        accumap_layout.addWidget(QLabel("Path:"))
-
-        self.accumap_label = QLabel()
-        accumap_path = self.settings_section.get('accumap_template', 'Not configured in Settings')
-        self.accumap_label.setText(accumap_path)
-        self.accumap_label.setStyleSheet(file_path_label_style())
-        self.accumap_label.setWordWrap(True)
-        accumap_layout.addWidget(self.accumap_label, 1)
-        accumap_group.layout().addLayout(accumap_layout)
-        layout.addWidget(accumap_group)
-
         # Status Group
         status_group = self.create_group("ℹ️ Status")
         status_layout = QVBoxLayout()
 
         self.db_status = QLabel("⏳ Checking database connection...")
         self.valnav_status = QLabel("⏳ Checking ValNav file...")
-        self.accumap_status = QLabel("⏳ Accumap (for Public Sales)…")
 
         status_layout.addWidget(self.db_status)
         status_layout.addWidget(self.valnav_status)
-        status_layout.addWidget(self.accumap_status)
         status_group.layout().addLayout(status_layout)
         layout.addWidget(status_group)
 
@@ -259,15 +243,6 @@ class MonthlyLoaderDialog(QDialog):
         else:
             self.valnav_status.setText("❌ ValNav file not found")
             self.valnav_status.setStyleSheet("color: #dc3545;")
-
-        # Accumap: not required for PA (Public Sales uses it)
-        accumap_path = self.settings_section.get('accumap_template', '')
-        if os.path.exists(accumap_path):
-            self.accumap_status.setText("✅ Accumap file on disk (Public Sales dialog)")
-            self.accumap_status.setStyleSheet("color: #1a4d3e;")
-        else:
-            self.accumap_status.setText("ℹ️ PA does not use Accumap — set path in Settings for Public Sales")
-            self.accumap_status.setStyleSheet("color: #856404;")
 
         # Check database connection using imported function
         try:
