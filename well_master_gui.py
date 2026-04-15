@@ -581,6 +581,27 @@ class WellMasterDialog(QDialog):
         """Return button stylesheet (delegates to styles module)."""
         return btn_style(color, large)
 
+    def _staged_well_names(self):
+        """Normalized well names currently on the Add New Wells staging list."""
+        return {(w.get('well_name') or '').strip() for w in self.staged_wells}
+
+    def _current_tab_well_source(self):
+        """Complete wells plus pending wells not hidden by staging (by well name)."""
+        staged_names = self._staged_well_names()
+        pending_visible = [
+            w for w in self.pending_wells
+            if (w.get('well_name') or '').strip() not in staged_names
+        ]
+        return self.complete_wells + pending_visible
+
+    def _refresh_current_wells_after_staging_change(self):
+        """Rebuild Current Wells grid after stage/unstage; clears stale edit row indices."""
+        self.pending_current_edits.clear()
+        if self.search_input.text().strip():
+            self.filter_wells()
+        else:
+            self.display_wells(self._current_tab_well_source())
+
     def load_data(self):
         """Load well data from database"""
         self.status_label.setText("Loading wells from database...")
@@ -603,9 +624,7 @@ class WellMasterDialog(QDialog):
         self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
         self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
 
-        all_sorted = self.complete_wells + self.pending_wells
-
-        self.display_wells(all_sorted)
+        self.display_wells(self._current_tab_well_source())
         self.make_current_table_editable()
 
         self.status_label.setText(
@@ -717,7 +736,8 @@ class WellMasterDialog(QDialog):
                         self.pending_current_edits.remove(row)
 
         if is_checked and well in self.pending_wells:
-            if well not in self.staged_wells:
+            wn = (well.get('well_name') or '').strip()
+            if wn not in self._staged_well_names():
                 self.status_label.setText(
                     f"{well.get('well_name', 'Well')} selected — click  Stage Selected  to add to completion queue"
                 )
@@ -726,12 +746,14 @@ class WellMasterDialog(QDialog):
         """Filter wells based on search text"""
         search_text = self.search_input.text().lower()
 
+        base = self._current_tab_well_source()
+
         if not search_text:
-            self.display_wells(self.complete_wells + self.pending_wells)
+            self.display_wells(base)
             return
 
         filtered = []
-        for well in self.complete_wells + self.pending_wells:
+        for well in base:
             searchable = [
                 well.get('well_name', ''),
                 well.get('gas_idrec', ''),
@@ -746,7 +768,7 @@ class WellMasterDialog(QDialog):
 
         self.display_wells(filtered)
         self.status_label.setText(
-            f"Showing {len(filtered)} of {len(self.all_wells)} wells"
+            f"Showing {len(filtered)} of {len(base)} wells"
         )
 
     def on_staged_item_changed(self, item):
@@ -1048,7 +1070,7 @@ class WellMasterDialog(QDialog):
                     self,
                     "Import Complete",
                     f"Successfully added {inserted} new wells to PCE_WM.\n\n"
-                    f"PCE_CDA will now be populated for these wells."
+                    "A progress window will open next to populate PCE_CDA for these wells."
                 )
 
             self.load_data()
@@ -1083,7 +1105,8 @@ class WellMasterDialog(QDialog):
             if well not in self.pending_wells:
                 skipped_complete += 1
                 continue
-            if well not in self.staged_wells:
+            wn = (well.get('well_name') or '').strip()
+            if wn not in self._staged_well_names():
                 self.staged_wells.append(well)
                 staged_count += 1
 
@@ -1095,6 +1118,7 @@ class WellMasterDialog(QDialog):
             return
 
         self.update_staged_table()
+        self._refresh_current_wells_after_staging_change()
         note = f" ({skipped_complete} complete well(s) skipped)" if skipped_complete else ""
         self.status_label.setText(
             f"Staged {staged_count} well(s) for completion{note} — switch to the Add New Wells tab to continue"
@@ -1338,11 +1362,19 @@ class WellMasterDialog(QDialog):
         table.verticalHeader().setDefaultSectionSize(44)
         table.verticalHeader().setVisible(False)
 
+        def _preview_row_checkbox(r):
+            w = table.cellWidget(r, 0)
+            return w.findChild(QCheckBox) if w else None
+
         for row, well in enumerate(new_wells):
-            cb_item = QTableWidgetItem()
-            cb_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            cb_item.setCheckState(Qt.Checked)
-            table.setItem(row, 0, cb_item)
+            chk = QCheckBox()
+            chk.setChecked(True)
+            chk_wrapper = QWidget()
+            chk_layout = QHBoxLayout(chk_wrapper)
+            chk_layout.addWidget(chk)
+            chk_layout.setAlignment(Qt.AlignCenter)
+            chk_layout.setContentsMargins(0, 0, 0, 0)
+            table.setCellWidget(row, 0, chk_wrapper)
 
             for col, val in enumerate([well['well_name'], well['gas_idrec'], well['pressures_idrec']]):
                 it = QTableWidgetItem(val)
@@ -1355,19 +1387,21 @@ class WellMasterDialog(QDialog):
                     it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 table.setItem(row, col + 1, it)
 
-        table.setColumnWidth(0, 32)
+        table.setColumnWidth(0, 40)
         table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(table)
 
         def _set_all_checks(state):
             for r in range(table.rowCount()):
-                table.item(r, 0).setCheckState(state)
+                cb = _preview_row_checkbox(r)
+                if cb:
+                    cb.setCheckState(state)
             _update_count()
 
         def _update_count():
             checked = sum(
                 1 for r in range(table.rowCount())
-                if table.item(r, 0).checkState() == Qt.Checked
+                if (cb := _preview_row_checkbox(r)) and cb.isChecked()
             )
             add_btn.setText(f"Add {checked} Well{'s' if checked != 1 else ''}")
             add_btn.setEnabled(checked > 0)
@@ -1396,21 +1430,30 @@ class WellMasterDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
+        for r in range(table.rowCount()):
+            cb = _preview_row_checkbox(r)
+            if cb:
+                cb.stateChanged.connect(lambda _s: _update_count())
+
+        _update_count()
+
         preview_dialog.exec_()
 
     def _do_checked_import(self, dialog, table, new_wells, confirm_cb):
         """Collect only the checked wells, then delegate to do_import_wells."""
         selected = []
         for r in range(table.rowCount()):
-            if table.item(r, 0).checkState() != Qt.Checked:
+            cell_w = table.cellWidget(r, 0)
+            chk = cell_w.findChild(QCheckBox) if cell_w else None
+            if not chk or not chk.isChecked():
                 continue
-            w = dict(new_wells[r])
+            well_rec = dict(new_wells[r])
             name_item = table.item(r, 1)
             if name_item is not None:
-                w["well_name"] = _strip_leading_snowflake_asterisk(
+                well_rec["well_name"] = _strip_leading_snowflake_asterisk(
                     name_item.text().strip()
                 )
-            selected.append(w)
+            selected.append(well_rec)
         if not selected:
             QMessageBox.warning(self, "No Wells Selected", "Please select at least one well.")
             return
@@ -1674,6 +1717,7 @@ class WellMasterDialog(QDialog):
 
         self.staged_wells = [w for i, w in enumerate(self.staged_wells) if i not in selected_rows]
         self.update_staged_table()
+        self._refresh_current_wells_after_staging_change()
         self.status_label.setText(f"Removed {len(selected_rows)} well(s) from staging")
         self.tabs.setCurrentIndex(0)
 
@@ -1735,12 +1779,28 @@ class WellMasterDialog(QDialog):
         self._cda_dialog.exec_()
 
     def _on_cda_populate_done(self, result):
+        dlg = self._cda_dialog
+        if dlg:
+            dlg.accept()
+            self._cda_dialog = None
+
         if 'error' in result:
             self.status_label.setText("CDA populate failed")
-        else:
-            recs = result.get('cda_records', 0)
-            self.status_label.setText(
-                f"CDA populated: {recs:,} records for {result.get('wells', 0)} wells"
+            QMessageBox.critical(
+                self,
+                "PCE_CDA populate failed",
+                str(result.get("error", "Unknown error")),
             )
-        if self._cda_dialog:
-            self._cda_dialog.accept()
+        else:
+            recs = result.get("cda_records", 0)
+            wells_n = result.get("wells", 0)
+            self.status_label.setText(
+                f"CDA populated: {recs:,} records for {wells_n} wells"
+            )
+            QMessageBox.information(
+                self,
+                "PCE_CDA complete",
+                "PCE_CDA population finished successfully.\n\n"
+                f"Wells: {wells_n}\n"
+                f"Records written: {recs:,}",
+            )
