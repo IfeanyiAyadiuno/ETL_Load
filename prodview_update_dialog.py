@@ -124,7 +124,7 @@ class ProdviewUpdateDialog(QDialog):
             "  • Pulls Snowflake for the selected From/To range\n"
             "  • Replaces PCE_CDA rows in that date range; deletes matching PCE_Production dates\n"
             "  • Reloads all CDA into memory to recalc sequences/cumulatives, then rebuilds PCE_Production\n"
-            "  • Usual choice for routine refreshes"
+            "  • Usual choice for routine refreshes (time depends on date range; often 5-10 minutes for 1-6 months)"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)

@@ -1,4 +1,4 @@
-"""Unit tests for type-curve well match keys (no DB)."""
+"""Unit tests for type-curve well match keys"""
 
 import pytest
 
