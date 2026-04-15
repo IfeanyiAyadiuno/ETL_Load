@@ -3,11 +3,12 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
     QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit
+    QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit,
+    QAbstractItemView,
 )
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QProgressBar, QScrollArea
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import QApplication
 import log_format as lf
 from styles import (
@@ -32,6 +33,62 @@ def _strip_leading_snowflake_asterisk(name):
     while s.startswith("*"):
         s = s[1:].strip()
     return s
+
+
+class CopyableWellMasterTable(QTableWidget):
+    """QTableWidget with Ctrl/Cmd+C copy (single cell or TSV range); skips checkbox-only col 0."""
+
+    def _display_text(self, row, col):
+        item = self.item(row, col)
+        if col == 0 and item is None:
+            return None
+        idx = self.model().index(row, col)
+        if not idx.isValid():
+            return ""
+        val = self.model().data(idx, Qt.DisplayRole)
+        return "" if val is None else str(val)
+
+    def _clipboard_text_from_selection(self):
+        model = self.model()
+        raw = list(self.selectedIndexes())
+        indexes = [i for i in raw if i.model() is model]
+        filtered = []
+        for idx in indexes:
+            t = self._display_text(idx.row(), idx.column())
+            if t is None:
+                continue
+            filtered.append(idx)
+
+        if not filtered:
+            cur = self.currentIndex()
+            if cur.isValid() and cur.model() is model:
+                t = self._display_text(cur.row(), cur.column())
+                if t is not None:
+                    return t
+            return None
+
+        filtered.sort(key=lambda i: (i.row(), i.column()))
+        if len(filtered) == 1:
+            return self._display_text(filtered[0].row(), filtered[0].column()) or ""
+
+        by_row = {}
+        for idx in filtered:
+            r, c = idx.row(), idx.column()
+            by_row.setdefault(r, []).append((c, self._display_text(r, c) or ""))
+        lines = []
+        for r in sorted(by_row.keys()):
+            cells = sorted(by_row[r], key=lambda x: x[0])
+            lines.append("\t".join(text for _c, text in cells))
+        return "\n".join(lines)
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.Copy):
+            text = self._clipboard_text_from_selection()
+            if text is not None:
+                QApplication.clipboard().setText(text)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
 
 class WellMasterDialog(QDialog):
@@ -259,12 +316,13 @@ class WellMasterDialog(QDialog):
         layout.addWidget(self.status_label)
 
         # Table
-        self.table = QTableWidget()
+        self.table = CopyableWellMasterTable()
         self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.setSortingEnabled(True)
         self.table.setStyleSheet(table_style())
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.verticalHeader().setVisible(False)
 
         self.table.setItemDelegate(PlainTextDelegate(self.table))
@@ -289,11 +347,12 @@ class WellMasterDialog(QDialog):
         self.staged_info.setStyleSheet("color: #1a4d3e; font-weight: bold; padding: 5px; font-size: 13px;")
         layout.addWidget(self.staged_info)
 
-        self.staged_table = QTableWidget()
+        self.staged_table = CopyableWellMasterTable()
         self.staged_table.setAlternatingRowColors(True)
-        self.staged_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.staged_table.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.staged_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.staged_table.setStyleSheet(table_style())
-        self.staged_table.verticalHeader().setDefaultSectionSize(34)
+        self.staged_table.verticalHeader().setDefaultSectionSize(44)
         self.staged_table.verticalHeader().setVisible(False)
         self.staged_table.setItemDelegate(PlainTextDelegate(self.staged_table))
 
@@ -1130,7 +1189,7 @@ class WellMasterDialog(QDialog):
         tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         tbl.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         tbl.setColumnWidth(3, 180)
-        tbl.verticalHeader().setDefaultSectionSize(36)
+        tbl.verticalHeader().setDefaultSectionSize(44)
         tbl.verticalHeader().setVisible(False)
         tbl.setAlternatingRowColors(True)
 
@@ -1276,7 +1335,7 @@ class WellMasterDialog(QDialog):
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["", "Well Name", "GasIDREC", "PressuresIDREC"])
         table.setRowCount(len(new_wells))
-        table.verticalHeader().setDefaultSectionSize(34)
+        table.verticalHeader().setDefaultSectionSize(44)
         table.verticalHeader().setVisible(False)
 
         for row, well in enumerate(new_wells):
