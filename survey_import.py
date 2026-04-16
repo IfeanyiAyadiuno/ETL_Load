@@ -9,6 +9,7 @@ import traceback
 import re
 import log_format as lf
 from db_connection import get_sql_conn
+from type_curves_import import _excel_base_for_wm_match, _tc_well_match_key
 
 # Logical column keys for directional mapping (values are 0-based Excel column indices or None)
 DIRECTIONAL_FIELD_KEYS = [
@@ -151,55 +152,54 @@ def _well_name_lookup_trim_candidates(text: str) -> List[str]:
     return out
 
 
-def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) -> bool:
-    """True if any leading-word-trim variant matches a key in valid_wm_keys (legacy bulk)."""
+def _survey_file_match_key_variants(well_name_cell: Any) -> List[str]:
+    """
+    Normalized match keys to try for a bulk-survey file well cell vs PCE_WM.
+
+    Vendors often send composite-style names (extra hyphen segments such as pad
+    T2-PnP). Align with type-curve matching: strip trailing segments when there
+    are enough hyphen parts, and use the same key as type curves (meridian M,
+    digit collapse, slash→hyphen).
+    """
     if well_name_cell is None or (isinstance(well_name_cell, float) and pd.isna(well_name_cell)):
-        return False
+        return []
     text = str(well_name_cell).strip()
     if not text:
-        return False
+        return []
+    seen: set = set()
+    out: List[str] = []
     for cand in _well_name_lookup_trim_candidates(text):
-        k = well_name_match_key(cand)
-        if k and k in valid_wm_keys:
+        cleaned = clean_well_name(cand)
+        if not isinstance(cleaned, str) or not cleaned.strip():
+            continue
+        base = _excel_base_for_wm_match(cleaned)
+        for frag in (cleaned, base):
+            if not frag or not str(frag).strip():
+                continue
+            k = _tc_well_match_key(frag)
+            if k and k not in seen:
+                seen.add(k)
+                out.append(k)
+    return out
+
+
+def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) -> bool:
+    """True if any file key variant matches a key in valid_wm_keys (legacy bulk)."""
+    for k in _survey_file_match_key_variants(well_name_cell):
+        if k in valid_wm_keys:
             return True
     return False
-
-
-def _collapse_digit_runs_leading_zeros(s: str) -> str:
-    """Each contiguous digit block is normalized via int() so 094→94, 05→5, 00→0."""
-
-    def norm_digits(m: re.Match) -> str:
-        block = m.group(0)
-        try:
-            return str(int(block, 10))
-        except ValueError:
-            return block
-
-    return re.sub(r"\d+", norm_digits, s)
 
 
 def well_name_match_key(name) -> str:
     """
     Normalized key for matching survey/file text to PCE_WM [Well Name].
 
-    Vendors often differ on casing and on slash vs hyphen in lateral IDs (e.g. D/94 vs D-94).
-    Contiguous digits are compared with leading zeros removed (e.g. V098 vs V98, …-094-… vs …-94-…).
-    This does not change the stored display name; use clean_well_name for that.
+    Delegates to type-curve key logic so bulk survey files with composite-style
+    well labels (pad / rig trailers), meridian ``M`` suffixes, and slash vs
+    hyphen DLS variants align with Well Master and with ``_survey_file_match_key_variants``.
     """
-    if name is None or (isinstance(name, float) and pd.isna(name)):
-        return ""
-    if not isinstance(name, str):
-        name = str(name).strip()
-    cleaned = clean_well_name(name)
-    if not isinstance(cleaned, str) or not cleaned:
-        return ""
-    s = cleaned.casefold()
-    s = s.replace("\\", "-").replace("/", "-")
-    s = re.sub(r"\s*-\s*", "-", s)
-    s = re.sub(r"-+", "-", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    s = _collapse_digit_runs_leading_zeros(s)
-    return s
+    return _tc_well_match_key(name)
 
 
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
@@ -315,9 +315,9 @@ def lookup_wm_uwi_pad_for_directional(
     well_name_from_file: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
-    Match well name text to PCE_WM [Well Name] using well_name_match_key
-    (case-insensitive; slashes normalized to hyphens). Tries the full cell text first,
-    then drops leading words one at a time so prefixed vendor strings still resolve.
+    Match well name text to PCE_WM [Well Name] using the same key variants as bulk survey
+    (composite-style names, meridian M, slash vs hyphen). Tries leading-word trims and
+    hyphen-tail base forms from the file cell.
     Returns (uwi, pad, wm_well_name, error_message). On success error_message is None
     and wm_well_name is the exact PCE_WM.[Well Name] to store in PCE_Surveys.
     """
@@ -343,14 +343,10 @@ def lookup_wm_uwi_pad_for_directional(
     df["_key"] = df["Well Name"].apply(well_name_match_key)
 
     m = pd.DataFrame()
-    for cand in _well_name_lookup_trim_candidates(well_name_from_file):
-        k = well_name_match_key(cand)
-        if not k:
-            continue
+    for k in _survey_file_match_key_variants(well_name_from_file):
         m = df[df["_key"] == k]
         if len(m) == 1:
             break
-        # 0 rows: try next candidate; >1 rows: try next (shorter tail may disambiguate)
         m = pd.DataFrame()
 
     if len(m) != 1:
