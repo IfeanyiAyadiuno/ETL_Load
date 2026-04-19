@@ -335,23 +335,6 @@ INSERT_COLS = [
     "PAD",
 ]
 
-# Must match the order of ? placeholders in INSERT_SQL (INSERT_COLS + SourceFile).
-SURVEY_INSERT_PARAM_LABELS = (
-    "[UWI]",
-    "[Well Name] (from Well Name Cleaned)",
-    "[Subsea Elevation]",
-    "[Inclination]",
-    "[Azimuth Angle]",
-    "[Measured Depth]",
-    "[True Vertical Depth]",
-    "[Longitude]",
-    "[Latitude]",
-    "[East]",
-    "[North]",
-    "<redacted_PAD>",
-    "[SourceFile]",
-)
-
 _SURVEY_NUMERIC_INSERT_COLS = frozenset(
     {
         "Subsea Elevation",
@@ -404,92 +387,6 @@ def _coerce_survey_numeric_for_odbc(val: Any) -> Optional[float]:
         return float(val)
     except (TypeError, ValueError):
         return None
-
-
-def _survey_numeric_cell_issue(col_name: str, val: Any) -> Optional[str]:
-    """If ``val`` is not suitable for SQL float/decimal columns, return a short reason."""
-    if val is None:
-        return None
-    if isinstance(val, float) and pd.isna(val):
-        return None
-    if isinstance(val, (int, float)) and not (isinstance(val, float) and pd.isna(val)):
-        return None
-    try:
-        if hasattr(val, "item") and not isinstance(val, (bytes, str, bytearray)):
-            float(val.item())
-            return None
-    except (ValueError, TypeError, AttributeError, OverflowError):
-        pass
-    if isinstance(val, str):
-        s = val.strip().replace(",", "")
-        if s == "" or s.lower() in ("-", "nan", "none", "n/a", "na", "--"):
-            return None
-        try:
-            float(s)
-            return None
-        except ValueError:
-            return f"cannot parse as number: {repr(s[:120])}"
-    if isinstance(val, (datetime, pd.Timestamp)):
-        return (
-            "datetime/timestamp in a numeric survey column (Excel may have stored a date); "
-            f"value={val!r}"
-        )
-    return f"unsupported type {type(val).__name__}: {repr(str(val)[:200])}"
-
-
-def _format_survey_row_params_for_log(row_tuple: Tuple[Any, ...]) -> str:
-    """One block listing each INSERT parameter with Python type and value preview."""
-    lines: List[str] = []
-    for label, val in zip(SURVEY_INSERT_PARAM_LABELS, row_tuple):
-        v = val
-        if v is not None and isinstance(v, float) and pd.isna(v):
-            v = None
-        tname = type(val).__name__
-        if v is None:
-            preview = "NULL"
-        elif isinstance(v, str):
-            preview = repr(v[:200])
-        else:
-            preview = repr(v)[:200]
-        lines.append(f"  {label}: ({tname}) {preview}")
-    return "\n".join(lines)
-
-
-def _preflight_survey_insert_values(
-    matched_df: pd.DataFrame,
-    log: Callable[[str], None],
-    max_issues: int = 40,
-) -> int:
-    """
-    Before ODBC insert, scan numeric columns for values SQL Server is likely to reject.
-    Returns how many issues were logged.
-    """
-    issues = 0
-    label_by_col = {c: SURVEY_INSERT_PARAM_LABELS[i] for i, c in enumerate(INSERT_COLS)}
-    for row_pos, (df_idx, row) in enumerate(matched_df.iterrows()):
-        for col in INSERT_COLS:
-            if col not in _SURVEY_NUMERIC_INSERT_COLS:
-                continue
-            msg = _survey_numeric_cell_issue(col, row.get(col))
-            if not msg:
-                continue
-            raw = row.get(col)
-            log(
-                lf.warn(
-                    f"Preflight row {row_pos} (df index {df_idx}) "
-                    f"{label_by_col[col]}: {msg}; raw={raw!r}"
-                )
-            )
-            issues += 1
-            if issues >= max_issues:
-                log(
-                    lf.warn(
-                        f"Preflight: stopped after {max_issues} issue(s); "
-                        "fix types or mapping and re-run."
-                    )
-                )
-                return issues
-    return issues
 
 
 def lookup_wm_uwi_pad_for_directional(
@@ -640,15 +537,6 @@ def _batch_insert_surveys(
     error_count = 0
     duplicate_skipped = 0
 
-    preflight_n = _preflight_survey_insert_values(matched_df, log)
-    if preflight_n:
-        log(
-            lf.detail(
-                f"Preflight reported {lf.num(preflight_n)} likely bad numeric cell(s) "
-                "(see warnings above). Insert will still run; ODBC may fail per row."
-            )
-        )
-
     sub = matched_df[INSERT_COLS].astype(object)
     sub[sub.isna()] = None
     for col in _SURVEY_NUMERIC_INSERT_COLS:
@@ -680,15 +568,7 @@ def _batch_insert_surveys(
                         duplicate_skipped += 1
                     else:
                         error_count += 1
-                        err_full = str(e)
-                        log(lf.error(err_full))
-                        if error_count <= 3:
-                            log(
-                                lf.detail(
-                                    "Parameter dump for this failed row (SQL column → Python value):\n"
-                                    + _format_survey_row_params_for_log(row)
-                                )
-                            )
+                        log(lf.error(str(e)[:500]))
         conn.commit()
 
         if total_rows:

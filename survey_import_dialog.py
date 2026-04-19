@@ -38,12 +38,32 @@ from styles import (
 )
 
 
+def _clone_import_result_for_qt(result: dict) -> dict:
+    """Copy summary dict with built-in ``int`` values so PyQt cross-thread signals stay stable."""
+    out = {}
+    for k, v in result.items():
+        if isinstance(v, bool):
+            out[k] = v
+        elif v is None:
+            out[k] = 0
+        else:
+            try:
+                out[k] = int(v)
+            except (TypeError, ValueError, OverflowError):
+                try:
+                    out[k] = int(float(v))
+                except (TypeError, ValueError, OverflowError):
+                    out[k] = v
+    return out
+
+
 class SurveyImportWorker(QThread):
     """Worker thread for survey import (legacy or directional)."""
 
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(dict)
+    # Use ``object`` (not ``dict``) so queued cross-thread delivery is reliable in PyQt5.
+    finished_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
     def __init__(self, excel_path, import_mode, directional_spec=None):
@@ -81,9 +101,9 @@ class SurveyImportWorker(QThread):
 
             if not self._cancelled:
                 if "error" in result:
-                    self.error_signal.emit(result["error"])
+                    self.error_signal.emit(str(result["error"]))
                 else:
-                    self.finished_signal.emit(result)
+                    self.finished_signal.emit(_clone_import_result_for_qt(result))
         except Exception as e:
             if not self._cancelled:
                 self.error_signal.emit(str(e))
@@ -381,31 +401,44 @@ class SurveyImportDialog(QDialog):
         self.validate_inputs()
 
     def import_finished(self, result):
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(100)
-        self._re_enable_controls()
-        self.log("")
-        self.log(
-            lf.summary(
-                "IMPORT COMPLETE",
-                {
-                    "Total rows in file": result.get("total_rows", 0),
-                    "Rows matched to wells": result.get("matched", 0),
-                    "Rows unmatched": result.get("unmatched", 0),
-                    "Rows inserted": result.get("inserted", 0),
-                    "Duplicates skipped": result.get("duplicates", 0),
-                    "Errors": result.get("errors", 0),
-                },
+        try:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(100)
+            self._re_enable_controls()
+            self.log("")
+            if not isinstance(result, dict):
+                self.import_error(f"Unexpected import result type: {type(result).__name__}")
+                return
+            self.log(
+                lf.summary(
+                    "IMPORT COMPLETE",
+                    {
+                        "Total rows in file": result.get("total_rows", 0),
+                        "Rows matched to wells": result.get("matched", 0),
+                        "Rows unmatched": result.get("unmatched", 0),
+                        "Rows inserted": result.get("inserted", 0),
+                        "Duplicates skipped": result.get("duplicates", 0),
+                        "Errors": result.get("errors", 0),
+                    },
+                )
             )
-        )
-        QMessageBox.information(
-            self,
-            "Import Complete",
-            f"Survey import completed successfully!\n\n"
-            f"Inserted: {result.get('inserted', 0):,} rows\n"
-            f"Matched: {result.get('matched', 0):,} rows\n"
-            f"Unmatched: {result.get('unmatched', 0):,} rows",
-        )
+            ins = int(result.get("inserted", 0) or 0)
+            mat = int(result.get("matched", 0) or 0)
+            unm = int(result.get("unmatched", 0) or 0)
+            QMessageBox.information(
+                self,
+                "Import Complete",
+                f"Survey import completed successfully!\n\n"
+                f"Inserted: {ins:,} rows\n"
+                f"Matched: {mat:,} rows\n"
+                f"Unmatched: {unm:,} rows",
+            )
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            self._re_enable_controls()
+            self.import_error(f"{str(e)}\n\n(See traceback in terminal / log.)")
 
     def import_error(self, error_msg):
         self.progress_bar.setRange(0, 100)
