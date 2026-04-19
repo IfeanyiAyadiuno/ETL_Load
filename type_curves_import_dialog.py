@@ -157,7 +157,8 @@ class TypeCurvesImportDialog(QDialog):
         intro = QLabel(
             "Loads into dbo.PCE_TC, then materializes into PCE_Production at ImportDate. "
             "WM-backed keys use the longer of Excel vs WM well id plus ' - TC'. "
-            "File-only rows keep the Excel well text plus ' - TC'."
+            "File-only rows: names starting with YE2 (including YE23) stay verbatim; "
+            "other file-only wells get ' - TC'."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(muted_body_label_style())

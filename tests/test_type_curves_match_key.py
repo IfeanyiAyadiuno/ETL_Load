@@ -2,7 +2,11 @@
 
 import pytest
 
-from type_curves_import import _tc_storage_base_name, _tc_well_match_key
+from type_curves_import import (
+    _tc_storage_base_name,
+    _tc_well_match_key,
+    stored_well_name_file_only,
+)
 
 
 @pytest.mark.parametrize(
@@ -55,3 +59,15 @@ def test_tc_storage_base_excel_only():
 
 def test_tc_storage_base_wm_only():
     assert _tc_storage_base_name(None, "WM-Only") == "WM-Only"
+
+
+def test_file_only_ye23_no_tc_suffix():
+    raw = "YE23 McD LM NFB TC-1P"
+    assert stored_well_name_file_only(raw) == raw
+
+
+def test_file_only_other_well_gets_tc_suffix():
+    from type_curves_import import TC_SUFFIX
+
+    s = stored_well_name_file_only("orphan-file-well-01")
+    assert s.endswith(TC_SUFFIX)

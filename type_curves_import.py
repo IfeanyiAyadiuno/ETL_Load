@@ -154,6 +154,22 @@ def with_tc_suffix(mapped_production_name: str) -> str:
     return b + TC_SUFFIX
 
 
+def _is_ye2_family_bulk_name(cleaned: str) -> bool:
+    """
+    YE2 / YE23 (and similar) type-curve rows are stored verbatim — no `` - TC`` suffix.
+    Matches the same ``LIKE 'YE2%'`` guard used on ``PCE_Production`` (``YE23`` starts with ``YE2``).
+    """
+    s = str(cleaned).strip().casefold()
+    return bool(s) and s.startswith("ye2")
+
+
+def stored_well_name_file_only(cleaned: str) -> str:
+    """Stored ``[Well Name]`` for a file-only (no WM) row."""
+    if _is_ye2_family_bulk_name(cleaned):
+        return str(cleaned).strip()
+    return with_tc_suffix(str(cleaned).strip())
+
+
 def strip_tc_suffix(stored_name: str) -> str:
     s = str(stored_name).rstrip()
     if s.endswith(TC_SUFFIX):
@@ -333,6 +349,10 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
     )
     if idx is not None:
         roles["formation_producer"] = idx
+    if "formation_producer" not in roles:
+        idx = take(lambda n: n == "formation")
+        if idx is not None:
+            roles["formation_producer"] = idx
 
     idx = take(lambda n: "fault" in n and "block" in n)
     if idx is not None:
@@ -462,7 +482,8 @@ def scan_typecurve_wells(
     Return (append_row_descriptors, unmatched_file_well_texts).
 
     Each descriptor has: ``kind`` (``wm`` | ``file``), ``display_label``, ``stored_key``
-    (full ``PCE_TC.[Well Name]`` including `` - TC`` for curve rows).
+    (``PCE_TC.[Well Name]`` as stored: WM-backed rows end with `` - TC``; file-only YE2/YE23-style
+    names are verbatim with no suffix).
     """
 
     def log(_):
@@ -499,7 +520,7 @@ def scan_typecurve_wells(
                 unmatched.append(u)
             if not cleaned:
                 continue
-            sk = with_tc_suffix(cleaned)
+            sk = stored_well_name_file_only(cleaned)
             if sk not in seen_key:
                 seen_key.add(sk)
                 descriptors.append(
@@ -565,8 +586,8 @@ def append_typecurves_from_excel(
     """
     For each target well: DELETE PCE_TC rows for that stored key, then INSERT from file.
 
-    ``selected_stored_keys``: full ``[Well Name]`` values as stored (including `` - TC``).
-      When provided and non-empty, only those keys present in the file are imported.
+    ``selected_stored_keys``: full ``[Well Name]`` values as stored (WM rows end with `` - TC``;
+      YE2/YE23-style file rows do not).
 
     ``selected_production_names``: legacy — WM ``[Well Name]`` without `` - TC`` suffix.
       Used only when ``selected_stored_keys`` is None.
@@ -671,7 +692,7 @@ def append_typecurves_from_excel(
                     seen_um.add(raw_well)
                     unmatched.append(raw_well)
                 continue
-            w_tc = with_tc_suffix(cleaned)
+            w_tc = stored_well_name_file_only(cleaned)
             fault = fault_excel
 
         if not pname and raw_well and raw_well not in seen_um:

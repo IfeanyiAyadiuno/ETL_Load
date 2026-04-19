@@ -207,7 +207,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **What it does:**
   - Reads the type-curve workbook (**first sheet**, **row 1 = headers**), maps columns by normalized header text (vendor “Gas S1” column is stored as **Gas S2** in SQL).
-  - Writes **`dbo.PCE_TC`**, then refreshes **`PCE_Production`** for TC-backed rows via **`sync_tc_to_production`** (also after Prodview quick update / full rebuild where applicable). Stored **`[Well Name]`** for WM-backed rows uses the **longer** of cleaned Excel vs WM **`[Well Name]`**, then **` - TC`**. File-only rows use Excel text + **` - TC`**.
+  - Writes **`dbo.PCE_TC`**, then refreshes **`PCE_Production`** for TC-backed rows via **`sync_tc_to_production`** (also after Prodview quick update / full rebuild where applicable). Stored **`[Well Name]`** for WM-backed rows uses the **longer** of cleaned Excel vs WM **`[Well Name]`**, then **` - TC`**. File-only: names starting with **`YE2`** (covers **`YE23`**) verbatim; other file-only rows append **` - TC`**.
   - **Append:** per stored key, `DELETE` then `INSERT` for rows in scope (all rows in the file, or a user-selected subset from the scan list).
   - **Delete:** `DELETE FROM PCE_TC` for selected stored well keys (no Excel); matching **`PCE_Production`** rows for those keys are removed.
 
