@@ -36,8 +36,9 @@ INSERT INTO PCE_Production (
     [Pad Name], [Lateral Length], [Orientation],
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+    [Remarks]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _TC_SELECT = """
@@ -111,12 +112,18 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
     lateral = _num(row.get("Lateral Length"))
     orient = row.get("Orientation")
     on_year = _int_or_none(row.get("On Production Year"))
+    remarks_raw = row.get("Remarks")
 
     layer_s = None if layer is None or pd.isna(layer) else str(layer).strip() or None
     pad_s = None if pad is None or pd.isna(pad) else str(pad).strip() or None
     formation_s = None if formation is None or pd.isna(formation) else str(formation).strip() or None
     fault_s = None if fault is None or pd.isna(fault) else str(fault).strip() or None
     orient_s = None if orient is None or pd.isna(orient) else str(orient).strip() or None
+    remarks_s = (
+        None
+        if remarks_raw is None or pd.isna(remarks_raw)
+        else str(remarks_raw).strip() or None
+    )
 
     return (
         d,
@@ -131,7 +138,6 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         sales_cgr,
-        None,
         None,
         None,
         None,
@@ -159,6 +165,7 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         None,
+        remarks_s,
     )
 
 
