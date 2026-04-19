@@ -55,10 +55,10 @@ class AppendTypeCurvesWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, excel_path, selected_production_bases, log_callback):
+    def __init__(self, excel_path, selected_stored_keys, log_callback):
         super().__init__()
         self.excel_path = excel_path
-        self.selected_production_bases = selected_production_bases
+        self.selected_stored_keys = selected_stored_keys
         self.log_callback = log_callback
         self._cancel = threading.Event()
 
@@ -74,7 +74,7 @@ class AppendTypeCurvesWorker(QThread):
                 if not self._cancel.is_set():
                     self.progress_signal.emit(value)
 
-            sel = self.selected_production_bases
+            sel = self.selected_stored_keys
             if sel is not None and len(sel) == 0:
                 sel = None
 
@@ -82,7 +82,7 @@ class AppendTypeCurvesWorker(QThread):
                 self.excel_path,
                 log_callback=log,
                 progress_callback=progress,
-                selected_production_names=sel,
+                selected_stored_keys=sel,
                 cancel_event=self._cancel,
             )
             if not self._cancel.is_set():
@@ -155,7 +155,9 @@ class TypeCurvesImportDialog(QDialog):
         layout.addWidget(title)
 
         intro = QLabel(
-            "Loads into dbo.PCE_TC. Row key = WM well name + ' - TC' suffix."
+            "Loads into dbo.PCE_TC, then materializes into PCE_Production at ImportDate. "
+            "WM-backed keys use the longer of Excel vs WM well id plus ' - TC'. "
+            "File-only rows keep the Excel well text plus ' - TC'."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(muted_body_label_style())
@@ -192,8 +194,8 @@ class TypeCurvesImportDialog(QDialog):
         al.addWidget(file_group)
 
         append_hint = QLabel(
-            "First sheet, row 1 = headers. Check wells to limit import; "
-            "leave all unchecked to import every matched well in the file."
+            "First sheet, row 1 = headers. [WM] / [File] tags show match source. "
+            "Check rows to limit import; leave all unchecked to import every row in the file."
         )
         append_hint.setWordWrap(True)
         append_hint.setStyleSheet(muted_body_label_style())
@@ -341,12 +343,18 @@ class TypeCurvesImportDialog(QDialog):
         for i in range(self.delete_list.count()):
             self.delete_list.item(i).setCheckState(Qt.Unchecked)
 
-    def _append_checked_wm_names(self):
+    def _append_checked_stored_keys(self):
         out = []
         for i in range(self.append_list.count()):
             it = self.append_list.item(i)
             if it.checkState() == Qt.Checked:
-                out.append(it.data(Qt.UserRole))
+                data = it.data(Qt.UserRole)
+                if isinstance(data, dict):
+                    sk = data.get("stored_key")
+                    if sk:
+                        out.append(sk)
+                elif data:
+                    out.append(data)
         return out
 
     def _delete_checked_stored_keys(self):
@@ -383,15 +391,17 @@ class TypeCurvesImportDialog(QDialog):
             return
         self.append_list.clear()
         try:
-            matched, unmatched = scan_typecurve_wells(file_path)
+            descriptors, unmatched = scan_typecurve_wells(file_path)
         except Exception as e:
             QMessageBox.critical(self, "Type curves", str(e))
             return
-        for name in matched:
-            self.append_list.addItem(self._make_checkable_item(name, name))
+        for d in descriptors:
+            label = d.get("display_label") or d.get("stored_key", "")
+            self.append_list.addItem(self._make_checkable_item(label, d))
         self.log_output.append(
             lf.detail(
-                f"Scan: {lf.num(len(matched))} matched, {lf.num(len(unmatched))} unmatched names."
+                f"Scan: {lf.num(len(descriptors))} append row(s), "
+                f"{lf.num(len(unmatched))} unmatched file name(s)."
             )
         )
         if unmatched:
@@ -415,13 +425,13 @@ class TypeCurvesImportDialog(QDialog):
             QMessageBox.warning(self, "Type curves", "File missing or not configured.")
             return
 
-        checked = self._append_checked_wm_names()
+        checked = self._append_checked_stored_keys()
         if len(checked) == 0:
-            sel_bases = None
+            sel_keys = None
             scope_msg = "all wells in file"
         else:
-            sel_bases = checked
-            scope_msg = f"{len(sel_bases)} selected"
+            sel_keys = checked
+            scope_msg = f"{len(sel_keys)} selected"
 
         if (
             QMessageBox.question(
@@ -450,7 +460,7 @@ class TypeCurvesImportDialog(QDialog):
             if hasattr(self.parent(), "log"):
                 self.parent().log(message)
 
-        self.append_worker = AppendTypeCurvesWorker(file_path, sel_bases, log_callback)
+        self.append_worker = AppendTypeCurvesWorker(file_path, sel_keys, log_callback)
         self.append_worker.log_signal.connect(self.log)
         self.append_worker.progress_signal.connect(self.progress_bar.setValue)
         self.append_worker.finished_signal.connect(self.append_finished)

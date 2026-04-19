@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, date
 import log_format as lf
 from db_connection import get_sql_conn
 from snowflake_connector import SnowflakeConnector
+from sync_typecurves_to_production import sync_tc_to_production
 
 
 def _emit_log(log_callback, msg):
@@ -440,8 +441,16 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         # Delete existing data for full range
         cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
                         overall_start, overall_end)
-        cursor.execute("DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
-                        overall_start, overall_end)
+        cursor.execute(
+            """
+            DELETE FROM PCE_Production
+            WHERE [Date] BETWEEN ? AND ?
+              AND [Well Name] NOT LIKE '% - TC'
+              AND [Well Name] NOT LIKE 'YE2%'
+            """,
+            overall_start,
+            overall_end,
+        )
         conn.commit()
 
         # Insert CDA
@@ -483,6 +492,13 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         """, overall_start, overall_end)
         total_prod = cursor.rowcount
         conn.commit()
+        progress(65)
+
+        log(lf.step("Materializing PCE_TC into PCE_Production..."))
+        try:
+            sync_tc_to_production(log_callback=log, conn=conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
         progress(70)
 
         # SQL-based sequence recalculation (replaces Python per-well loop)
@@ -564,7 +580,13 @@ _CDA_SELECT_SQL = """
         [Pad Name], [Lateral Length],
                     [Orient] as [Orientation]
                 FROM PCE_CDA
-    ORDER BY [Well Name], ProdDate
+    ORDER BY
+        CASE
+            WHEN [Well Name] LIKE 'YE2%' THEN 1
+            WHEN [Well Name] LIKE '% - TC' THEN 2
+            ELSE 0
+        END,
+        [Well Name], ProdDate
 """
 
 
@@ -628,8 +650,16 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         log(lf.step("Replacing PCE_CDA data..."))
         cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
                         start_first, end_last)
-        cursor.execute("DELETE FROM PCE_Production WHERE [Date] BETWEEN ? AND ?",
-                        start_first, end_last)
+        cursor.execute(
+            """
+            DELETE FROM PCE_Production
+            WHERE [Date] BETWEEN ? AND ?
+              AND [Well Name] NOT LIKE '% - TC'
+              AND [Well Name] NOT LIKE 'YE2%'
+            """,
+            start_first,
+            end_last,
+        )
         conn.commit()
 
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
@@ -689,6 +719,12 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         else:
             total_wells = 0
             total_prod = 0
+
+        log(lf.step("Materializing PCE_TC into PCE_Production..."))
+        try:
+            sync_tc_to_production(log_callback=log, conn=conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
 
         progress(95)
         conn.close()

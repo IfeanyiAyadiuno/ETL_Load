@@ -23,6 +23,7 @@ Generated for internal continuity / transfer. **Classification:** GUI/ETL chain,
 - **`survey_import.py`** — Survey ETL + CLI entry.
 - **`type_curves_import_dialog.py`** — Type curves UI.
 - **`type_curves_import.py`** — Type curves ETL.
+- **`sync_typecurves_to_production.py`** — Materialize `PCE_TC` into `PCE_Production` at `ImportDate`.
 - **`whitson_mass_upload_dialog.py`** — Whitson+ UI (stub worker).
 - **`accumap_unmatched_cli.py`** — Accumap UWI audit (GUI and script entry).
 - **`db_connection.py`** — SQL Server (pyodbc, env).

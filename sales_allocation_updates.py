@@ -293,6 +293,8 @@ def apply_valnav_allocation_to_cda_and_production(
         INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
         WHERE c.ProdDate BETWEEN ? AND ?
           AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
+          AND p.[Well Name] NOT LIKE '% - TC'
+          AND p.[Well Name] NOT LIKE 'YE2%'
         """,
         month_start_date,
         month_end_date,
@@ -384,6 +386,8 @@ def apply_full_sales_ratios_for_month(
         INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
         WHERE c.ProdDate BETWEEN ? AND ?
           AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
+          AND p.[Well Name] NOT LIKE '% - TC'
+          AND p.[Well Name] NOT LIKE 'YE2%'
         """,
         month_start_date,
         month_end_date,

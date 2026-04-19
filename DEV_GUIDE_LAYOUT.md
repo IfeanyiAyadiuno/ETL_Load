@@ -201,16 +201,17 @@ This section is the **most important** if you want to know "where is the code th
   - Dialog: `TypeCurvesImportDialog` (`type_curves_import_dialog.py`).
 
 - **Logic files:**
-  - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, Excel base-name rule + match to **`PCE_WM.[Well Name]`** via inlined **`_tc_well_match_key`**, Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
+  - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, **`ye2_append_rows_to_pce_tc`** (bulk YE2 path), Excel base-name rule + match to **`PCE_WM.[Well Name]`** via **`_tc_well_match_key`**, **`_tc_storage_base_name`** (longer of Excel vs WM + **` - TC`**), Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
+  - **`sync_typecurves_to_production.py`** — **`sync_tc_to_production`**: materializes **`PCE_TC`** into **`PCE_Production`** at **`ImportDate`** (Python column map only; no repo-shipped view DDL).
   - **`type_curves_import.py`** — primary API for type curve load/delete (legacy `type.py` removed).
 
 - **What it does:**
   - Reads the type-curve workbook (**first sheet**, **row 1 = headers**), maps columns by normalized header text (vendor “Gas S1” column is stored as **Gas S2** in SQL).
-  - **Does not** write **`PCE_Production`**. Stored **`[Well Name]`** = Well Master–resolved production key + literal **` - TC`** suffix.
-  - **Append:** per well, `DELETE` then `INSERT` for rows in scope (all mapped wells in the file, or a user-selected subset).
-  - **Delete:** `DELETE FROM PCE_TC` for selected stored well keys (no Excel).
+  - Writes **`dbo.PCE_TC`**, then refreshes **`PCE_Production`** for TC-backed rows via **`sync_tc_to_production`** (also after Prodview quick update / full rebuild where applicable). Stored **`[Well Name]`** for WM-backed rows uses the **longer** of cleaned Excel vs WM **`[Well Name]`**, then **` - TC`**. File-only rows use Excel text + **` - TC`**.
+  - **Append:** per stored key, `DELETE` then `INSERT` for rows in scope (all rows in the file, or a user-selected subset from the scan list).
+  - **Delete:** `DELETE FROM PCE_TC` for selected stored well keys (no Excel); matching **`PCE_Production`** rows for those keys are removed.
 
-- **SQL:** `sql/PCE_TC_create.sql`, `sql/vw_PCE_TC_with_Production_Well.sql`.
+- **SQL:** DDL for **`PCE_TC`** is maintained on the server by the DBA; the app embeds insert/update SQL in Python only.
 
 > **Manager summary:** Operators confirm scope in the dialog; unmatched file wells can produce **`unmatched_type_curve_wells_*.csv`** next to the Excel file after a run.
 

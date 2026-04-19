@@ -110,7 +110,13 @@ def fetch_cda_data():
         [Lateral Length],
         [Orient] as [Orientation]
     FROM PCE_CDA
-    ORDER BY [Well Name], ProdDate
+    ORDER BY
+        CASE
+            WHEN [Well Name] LIKE 'YE2%' THEN 1
+            WHEN [Well Name] LIKE '% - TC' THEN 2
+            ELSE 0
+        END,
+        [Well Name], ProdDate
     """
     
     with get_sql_conn() as conn:
@@ -519,6 +525,14 @@ def main(cancel_event=None):
 
     # Step 11: Insert into PCE_Production
     rows_inserted = insert_pce_production(df)
+
+    from sync_typecurves_to_production import sync_tc_to_production
+
+    print(lf.step("Materializing PCE_TC into PCE_Production..."))
+    try:
+        sync_tc_to_production(log_callback=print)
+    except Exception as e:
+        print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
 
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)

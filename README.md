@@ -20,7 +20,7 @@ python -m pip install -r requirements.txt
 python production_update_gui.py
 ```
 
-Optional: create a venv (`python3 -m venv .venv`, activate, then `pip install -r requirements-dev.txt`) and run `python -m pytest -q` — **12** tests, no GUI.
+Optional: create a venv (`python3 -m venv .venv`, activate, then `pip install -r requirements-dev.txt`) and run `python -m pytest -q` — automated tests, no GUI.
 
 ## Configuration
 
@@ -39,7 +39,6 @@ Optional: create a venv (`python3 -m venv .venv`, activate, then `pip install -r
 - **`*_dialog.py`** — PyQt dialogs; **`*_gui.py`** (where present) — worker threads and ETL logic.
 - **`db_connection.py`**, **`snowflake_connector.py`** — data connections.
 - **`tests/`** — pytest.
-- **`sql/`** — optional view / DDL scripts referenced in the user guide.
 
 ## License / support
 

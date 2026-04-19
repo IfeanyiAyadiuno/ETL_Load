@@ -57,7 +57,6 @@ Typical sequence for a month: **Well Master** (keys correct) → **Prodview** (d
 - **`db_connection.py`**, **`snowflake_connector.py`**, **`app_paths.py`** — connections and paths.
 - **`well_master_*.py`**, **`survey_import.py`**, **`type_curves_import.py`**, **`sales_allocation_updates.py`** — domain logic.
 - **`tests/`** — automated tests (`pytest`).
-- **`sql/`** — optional database view scripts referenced in documentation.
 
 ---
 

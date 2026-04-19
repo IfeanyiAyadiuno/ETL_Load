@@ -94,11 +94,11 @@ python -m pytest -q
 | `PCE_WM` | Well master: well list and linkage to Snowflake identifiers (**GasIDREC**, **PressuresIDREC**). Wells absent or excluded here may be omitted from daily loads. |
 | `PCE_CDA` | Daily-style production rows sourced from Snowflake (and related processing). |
 | `PCE_Production` | Production history for reporting; sequences, cumulatives, and averages derived from CDA and allocation passes. |
-| `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import only. Stored **`[Well Name]`** is **`PCE_WM.[Well Name]`** + literal **` - TC`** (physical well key, not composite), so rows stay distinct from **`PCE_Production`**. |
+| `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import (GUI) or **YE2/YE23** bulk script. WM-backed stored **`[Well Name]`** is the **longer** of cleaned Excel vs **`PCE_WM.[Well Name]`**, plus literal **` - TC`**. File-only rows use Excel text + **` - TC`**. YE2-style bulk loads keep the Excel well cell verbatim (often names starting with **`YE2`**). **`PCE_Production`** receives a **materialized** copy at **`ImportDate`** via **`sync_tc_to_production`**. |
 | `PCE_Surveys` | Survey stations and geometry loaded from Excel or CSV; keyed by **`SurveyID`** with **`UWI`**, **`[Well Name]`**, and optional **`Latitude`** / **`Longitude`** (decimal), plus legacy-style offset columns as applicable. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
-**Reporting views (read-only in normal operations):** The database may expose views such as **`dbo.vw_PCE_Production_with_TypeCurves`**, **`dbo.vw_PCE_TC_with_Production_Well`**, and **`vw_PCE_WM_Ordered`** (schema may differ from `dbo`). The desktop app does not treat these as write targets during routine operations; they exist for reporting and joins. Deploy or refresh their definitions from the `sql/` scripts shipped with the application when IT approves.
+**Optional reporting views:** Your DBA may deploy read-only views (for example joins between production and type curves). The desktop app does **not** ship view DDL in this repository; routine ETL uses **`PCE_TC`**, **`PCE_Production`**, and Python-side **`sync_tc_to_production`** instead of view-based writes.
 
 **Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors), via **`monthly_loader_gui.py`** calling **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**.
 
@@ -432,19 +432,21 @@ Execute **Run Import**; review the **Import Log**.
 
 **Settings:** **Type Curves File** path; the dialog shows it read-only.
 
-**Modes:** **Append from Excel** (**Load from file**, optional multi-select, **Run**) or **Delete from PCE_TC** (**Load from DB**, **Delete**). Only **`dbo.PCE_TC`** is written; **`PCE_Production`** is unchanged.
+**Modes:** **Append from Excel** (**Load from file**, optional multi-select, **Run**) or **Delete from PCE_TC** (**Load from DB**, **Delete**). Writes **`dbo.PCE_TC`**, then refreshes matching **`PCE_Production`** rows (same **`[Well Name]`** as **`PCE_TC`**, **`[Date]`** = **`ImportDate`**) via **`sync_tc_to_production`**.
 
 **Sheet:** First worksheet, **row 1** = headers. Ignored columns include **TC/Production**, **Date**, **Days Seq**, **Day Seq UPRT**. **`ImportDate`** is the import run date.
 
 **Gas S1 → S2:** Vendor **Gas S1 Production (10³m³)** maps to **`[Gas S2 Production (10³m³)]`** (single gas column in the table).
 
-**Units:** **Gas WH** mcf/d → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** bbl/d → **`[Condensate WH (m³/d)]`**; **Cum Gas** bcf → **`[Cum Gas (e³m³)]`**; **Cum Condy** Mbbl → **`[Cum Condy (m³)]`**.
+**Units:** **Gas WH** mcf/d → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** bbl/d → **`[Condensate WH (m³/d)]`**; **Cum Gas** bcf → **`[Cum Gas (e³m³)]`**; **Cum Condy** Mbbl → **`[Cum Condy (m³)]`**. Optional imperial columns (**Gas S2** mcf/d and mmcf cum, **Condensate Sales** bbl/d and mbbl cum) are stored on **`PCE_TC`** when headers match.
 
-**Well matching:** Normalized text (spaces, hyphens, case, slashes, digit runs). With **≥ six** hyphen parts, the last **two** are dropped for the base id (for example `…-26W6M - T3 - PnP` → `…-26W6M`); shorter ids stay intact. **Meridian `M`:** an optional trailing **`M`** after **`W` + digits** at the **end** of the match key (for example Excel **`26W6M`**) is ignored so it can align with WM **`26W6`**. Matched WM **`[Well Name]`** is stored plus **` - TC`**.
+**Well matching:** Normalized text (spaces, hyphens, case, slashes, digit runs). With **≥ six** hyphen parts, the last **two** are dropped **only for the WM lookup key** (for example `…-26W6M - T3 - PnP` → `…-26W6M`); shorter ids stay intact. **Meridian `M`:** an optional trailing **`M`** after **`W` + digits** at the **end** of the match key (for example Excel **`26W6M`**) is ignored so it can align with WM **`26W6`**. **Stored base id** for a WM match is the **longer** of the full cleaned Excel cell and the resolved WM **`[Well Name]`** (tie → WM), then **` - TC`**. The scan list shows **`[WM]`** vs **`[File]`**; file-only rows import without WM.
 
-**Production joins:** **`PCE_TC`** uses physical WM names; production may use composites — see **`sql/vw_PCE_TC_with_Production_Well.sql`** and **`sql/vw_PCE_Production_with_TypeCurves.sql`**.
+**Append:** No selection = every row in the file (WM-backed and file-only). Per stored key in scope, existing TC rows for that key are replaced from the file. Unmatched names → **`unmatched_type_curve_wells_<timestamp>.csv`** next to the workbook when applicable.
 
-**Append:** No selection = all mapped wells in file. Per well in scope, existing TC rows for that key are replaced from the file. Unmatched names → **`unmatched_type_curve_wells_<timestamp>.csv`** next to the workbook when applicable.
+**YE2/YE23 bulk:** `python scripts/ye23_typecurves_to_pce_tc.py "<path-to-xlsx>"` — inserts into **`PCE_TC`** with Excel well names verbatim (no **` - TC`** suffix), then runs the same production sync. Use well names beginning with **`YE2`** if you rely on the app’s Prodview delete guards and allocation filters for those keys.
+
+**Schema note:** **`PCE_Production`** is keyed in practice by **`([Well Name], [Date])`** uniqueness; type-curve materialized rows use the same **`[Well Name]`** as **`PCE_TC`** and **`[Date]`** = **`ImportDate`**.
 
 **Log:** Counts, warnings, and errors appear in the dialog log.
 
@@ -591,7 +593,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 
 The following **entity-relationship diagram is logical**: the application and well keys imply the relationships below. SQL Server might not declare every relationship as a foreign key. Column inventory is maintained from **`INFORMATION_SCHEMA.COLUMNS`** exports (see `output.txt` in the project folder for a recent tab-separated example).
 
-**Tables included:** `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`. **Views** commonly deployed with the app include **`dbo.vw_PCE_Production_with_TypeCurves`**, **`dbo.vw_PCE_TC_with_Production_Well`**, and **`vw_PCE_WM_Ordered`** (view schema may be owner-specific); they are read-only for routine ETL and join production to type curves or order wells for display.
+**Tables included:** `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`. Optional database views (if any) are DBA-maintained; this repo does not ship view DDL. Type-curve data is joined in reporting via **`PCE_TC`** and materialized **`PCE_Production`** rows, not via application-bundled SQL view scripts.
 
 ```mermaid
 erDiagram

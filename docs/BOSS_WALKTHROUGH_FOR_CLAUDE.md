@@ -18,7 +18,6 @@ Personal cheat sheet while walking the Production Update app: where things live 
 - **`*_gui.py`** (where present) — **heavy ETL** for that feature: Snowflake, pandas, batch SQL. Most **inline SQL** for that flow.
 - **`db_connection.py` / `snowflake_connector.py`** — shared connections.
 - **`app_paths.py`** — finds `settings.ini` next to the frozen exe or project root.
-- **`sql/`** — optional DDL/views only, not the main transactional ETL.
 - **`tests/`** — pytest, mocks where needed, no GUI.
 
 ## At a glance (process → files)
@@ -40,7 +39,7 @@ Personal cheat sheet while walking the Production Update app: where things live 
 
 - **What:** Pull daily / historical production from Snowflake into SQL Server so internal data matches Prodview.
 - **Main files:** `prodview_update_dialog.py`, `prodview_update_gui.py`; alternate pipeline `production_update.py` (full rebuild / legacy CDA path).
-- **Where SQL lives:** Large inline strings in `prodview_update_gui.py` (`_CDA_INSERT_SQL`, `_PROD_INSERT_SQL`, deletes, inserts, sequence updates); rebuild in `production_update.py` — not under `sql/`.
+- **Where SQL lives:** Large inline strings in `prodview_update_gui.py` (`_CDA_INSERT_SQL`, `_PROD_INSERT_SQL`, deletes, inserts, sequence updates); rebuild in `production_update.py`.
 - **Main tables:** `PCE_CDA`, `PCE_Production`. Column detail: `output.txt` snapshot or live DB.
 
 ## PA (ValNav) — Production Accounting
@@ -73,10 +72,10 @@ Personal cheat sheet while walking the Production Update app: where things live 
 
 ## Type curves
 
-- **What:** Excel → `PCE_TC` (GUI path may suffix well name with ` - TC`); delete-from-TC supported.
-- **Main files:** `type_curves_import_dialog.py`, `type_curves_import.py`.
-- **Where SQL lives:** Inline insert/delete in `type_curves_import.py`.
-- **Main tables:** `PCE_TC`.
+- **What:** Excel → `PCE_TC` (WM-backed keys: longer of Excel vs WM + ` - TC`; file-only: Excel + ` - TC`); YE2 bulk script; delete-from-TC; `sync_typecurves_to_production.py` materializes into `PCE_Production` at `ImportDate`.
+- **Main files:** `type_curves_import_dialog.py`, `type_curves_import.py`, `sync_typecurves_to_production.py`.
+- **Where SQL lives:** Inline insert/delete in `type_curves_import.py`; sync insert/delete in `sync_typecurves_to_production.py`.
+- **Main tables:** `PCE_TC`, `PCE_Production` (materialized TC rows).
 
 ## Accumap audit (CLI)
 
@@ -100,14 +99,6 @@ Personal cheat sheet while walking the Production Update app: where things live 
 - **`.env`** — Snowflake credentials; optional `SQL_SERVER` / `SQL_DATABASE` / `SQL_DRIVER`. Not for Excel paths.
 - **`settings.ini`** — Excel template paths and Settings display fields.
 - **`.env.example` / `settings.ini.example`** — templates only, no secrets.
-
-## `sql/` folder
-
-Day-to-day ETL from the app is **Python-embedded SQL**. Repo `sql/` only has view/DDL scripts (often applied by DBA):
-
-- [`../sql/vw_PCE_Production_with_TypeCurves.sql`](../sql/vw_PCE_Production_with_TypeCurves.sql)
-- [`../sql/vw_PCE_TC_with_Production_Well.sql`](../sql/vw_PCE_TC_with_Production_Well.sql)
-- [`../sql/PCE_TC_create.sql`](../sql/PCE_TC_create.sql)
 
 ## Other docs
 

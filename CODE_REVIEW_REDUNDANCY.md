@@ -1,6 +1,6 @@
 # Code review: redundancies and optimization (behavior-preserving)
 
-**Scope:** All Python modules under the repo root (35 files). **SQL under `sql/`:** reviewed conceptually only; **no edits** per plan.
+**Scope:** All Python modules under the repo root. **Server DDL** for `PCE_TC` and optional views is DBA-maintained; the app ships Python-embedded SQL only.
 
 **Inventory (Phase 1):** 35 files, **13,691** total lines (`wc -l`) before Phase 2; **13,693** after Phase 2 (`prodview_update_gui.py` +2 lines).
 
@@ -228,13 +228,6 @@
 **Lines:** 1  
 **Changes:** None.  
 **Rationale:** Trivial stub; no changes needed.
-
----
-
-## SQL (`sql/`)
-
-**Changes:** None (read-only per plan).  
-**Rationale:** Views and DDL are deployment artifacts; not deduplicated with Python.
 
 ---
 
