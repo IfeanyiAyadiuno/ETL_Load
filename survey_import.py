@@ -214,6 +214,8 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
         "true vertical depth": "True Vertical Depth",
         "longitude": "Longitude",
         "latitude": "Latitude",
+        "surface location longitude (nad83)": "Longitude",
+        "surface location latitude (nad83)": "Latitude",
         "offset in ew": "Longitude",
         "offset in ns": "Latitude",
         "east": "East",

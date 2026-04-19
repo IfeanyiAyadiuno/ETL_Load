@@ -1,8 +1,13 @@
 """Survey bulk well matching vs PCE_WM keys (composite file names, meridian M)."""
 
+import pandas as pd
 import pytest
 
-from survey_import import _survey_file_match_key_variants, survey_well_name_matches_wm_keys
+from survey_import import (
+    _normalize_column_names,
+    _survey_file_match_key_variants,
+    survey_well_name_matches_wm_keys,
+)
 
 
 @pytest.mark.parametrize(
@@ -42,3 +47,14 @@ def test_survey_well_matches_wm_with_composite_and_slash(file_well, wm_keys, exp
 def test_variants_include_tail_stripped_key():
     keys = set(_survey_file_match_key_variants("B2-01-85-26W6M-T2-PnP"))
     assert "b2-1-85-26w6" in keys
+
+
+def test_normalize_nad83_surface_lat_long_headers():
+    df = pd.DataFrame(
+        {
+            "Surface Location Latitude (NAD83)": [1.0],
+            "Surface Location Longitude (NAD83)": [2.0],
+        }
+    )
+    out = _normalize_column_names(df)
+    assert list(out.columns) == ["Latitude", "Longitude"]
