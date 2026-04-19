@@ -5,6 +5,7 @@ import pytest
 
 from survey_import import (
     _normalize_column_names,
+    _resolve_wm_well_name_from_uwi,
     _survey_file_match_key_variants,
     survey_well_name_matches_wm_keys,
 )
@@ -74,3 +75,10 @@ def test_normalize_duplicate_lat_long_prefers_last_column():
     assert list(out.columns) == ["Latitude", "Longitude"]
     assert float(out["Latitude"].iloc[0]) == 1.0
     assert float(out["Longitude"].iloc[0]) == 2.0
+
+
+def test_resolve_wm_well_name_from_uwi_matches_fetch_pce_dict_shape():
+    """Same UWI→well map shape as ``fetch_pce_uwi_to_well_name`` (lowercase keys)."""
+    pce = {"102/16-28-084-25w6/0": "Pacific Well A"}
+    assert _resolve_wm_well_name_from_uwi("102/16-28-084-25W6/0", pce) == "Pacific Well A"
+    assert _resolve_wm_well_name_from_uwi(None, pce) is None

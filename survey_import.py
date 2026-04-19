@@ -9,6 +9,7 @@ import traceback
 import re
 import log_format as lf
 from db_connection import get_sql_conn
+from sales_allocation_updates import fetch_pce_uwi_to_well_name, resolve_accumap_uwi_to_well_name
 from type_curves_import import _excel_base_for_wm_match, _tc_well_match_key
 
 # Logical column keys for directional mapping (values are 0-based Excel column indices or None)
@@ -189,6 +190,18 @@ def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) ->
         if k in valid_wm_keys:
             return True
     return False
+
+
+def _resolve_wm_well_name_from_uwi(
+    uwi: Any, pce_uwi_dict: Dict[str, str]
+) -> Optional[str]:
+    """Map file UWI text to ``PCE_WM.[Well Name]`` using the same rules as Public Sales."""
+    if uwi is None or (isinstance(uwi, float) and pd.isna(uwi)):
+        return None
+    s = str(uwi).strip()
+    if not s or s.lower() in ("nan", "none", ""):
+        return None
+    return resolve_accumap_uwi_to_well_name(s, pce_uwi_dict)
 
 
 def well_name_match_key(name) -> str:
@@ -654,9 +667,33 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         db_samples = list(valid_wells)[:3]
         log(lf.detail(f"Sample DB match keys (normalized): {db_samples}"))
 
-        df["Well Found"] = df["Well Name"].apply(
+        cur_uwi = conn.cursor()
+        pce_uwi_dict = fetch_pce_uwi_to_well_name(cur_uwi)
+        log(
+            lf.detail(
+                f"Loaded {lf.num(len(pce_uwi_dict))} UWI lookup keys from "
+                "PCE_WM [Value Navigator UWI]"
+            )
+        )
+
+        name_match = df["Well Name"].apply(
             lambda w: survey_well_name_matches_wm_keys(w, valid_wells)
         )
+        wm_from_uwi = df["UWI"].apply(
+            lambda u: _resolve_wm_well_name_from_uwi(u, pce_uwi_dict)
+        )
+        uwi_match = wm_from_uwi.notna()
+        df["Well Found"] = name_match | uwi_match
+        use_wm_name = uwi_match & ~name_match
+        if use_wm_name.any():
+            df.loc[use_wm_name, "Well Name Cleaned"] = wm_from_uwi[use_wm_name]
+            log(
+                lf.detail(
+                    f"Rows matched by Value Navigator UWI only (name key differed): "
+                    f"{lf.num(int(use_wm_name.sum()))}"
+                )
+            )
+
         matched_df = df[df["Well Found"]].copy()
         unmatched_df = df[~df["Well Found"]].copy()
         log(lf.success(f"{lf.num(len(matched_df))} rows matched to database wells"))
