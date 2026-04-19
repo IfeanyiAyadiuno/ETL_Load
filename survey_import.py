@@ -1,4 +1,6 @@
 import csv
+import numbers
+from decimal import Decimal
 import pandas as pd
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -365,6 +367,45 @@ _SURVEY_NUMERIC_INSERT_COLS = frozenset(
 )
 
 
+def _coerce_survey_numeric_for_odbc(val: Any) -> Optional[float]:
+    """
+    Bind true Python floats for SQL float/decimal columns. Excel often leaves numbers as
+    strings; pyodbc then sends nvarchar and SQL Server raises 8114 (nvarchar to numeric).
+    """
+    if val is None:
+        return None
+    if isinstance(val, float) and pd.isna(val):
+        return None
+    if isinstance(val, bool):
+        return float(val)
+    if isinstance(val, numbers.Real):
+        return float(val)
+    if isinstance(val, Decimal):
+        return float(val)
+    if isinstance(val, str):
+        s = val.strip().replace(",", "")
+        if s == "" or s.lower() in ("-", "nan", "none", "n/a", "na", "--"):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    if hasattr(val, "item") and not isinstance(val, (bytes, str, bytearray)):
+        try:
+            x = val.item()
+            if x is None or (isinstance(x, float) and pd.isna(x)):
+                return None
+            return float(x)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return None
+    if isinstance(val, (datetime, pd.Timestamp)):
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def _survey_numeric_cell_issue(col_name: str, val: Any) -> Optional[str]:
     """If ``val`` is not suitable for SQL float/decimal columns, return a short reason."""
     if val is None:
@@ -610,6 +651,9 @@ def _batch_insert_surveys(
 
     sub = matched_df[INSERT_COLS].astype(object)
     sub[sub.isna()] = None
+    for col in _SURVEY_NUMERIC_INSERT_COLS:
+        if col in sub.columns:
+            sub[col] = sub[col].map(_coerce_survey_numeric_for_odbc)
     rows_to_insert = [
         tuple(row) + (source_basename,)
         for row in sub.itertuples(index=False, name=None)
