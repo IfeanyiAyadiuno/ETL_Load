@@ -203,7 +203,12 @@ def well_name_match_key(name) -> str:
 
 
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename Excel columns to canonical names using case-insensitive match."""
+    """Rename Excel columns to canonical names using case-insensitive match.
+
+    For bulk import, ``[Longitude]`` / ``[Latitude]`` in SQL still come from columns that
+    normalize to ``Longitude`` / ``Latitude`` here. Prefer **Surface Location … (NAD83)**
+    headers; **Offset in EW / Offset in NS** are no longer mapped to Longitude/Latitude.
+    """
     canonical_by_fold = {
         "well name": "Well Name",
         "well unique identifier": "UWI",
@@ -216,8 +221,6 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
         "latitude": "Latitude",
         "surface location longitude (nad83)": "Longitude",
         "surface location latitude (nad83)": "Latitude",
-        "offset in ew": "Longitude",
-        "offset in ns": "Latitude",
         "east": "East",
         "north": "North",
         "pad": "PAD",
@@ -231,6 +234,11 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
             rename[c] = canonical_by_fold[key]
     if rename:
         df = df.rename(columns=rename)
+    # If the sheet had both legacy Lat/Long and NAD83 (or other aliases), two headers
+    # can rename to the same canonical name — duplicate columns would make each insert
+    # row too wide for INSERT_SQL. Keep the rightmost column for each duplicate name.
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated(keep="last")]
     return df
 
 
