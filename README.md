@@ -5,11 +5,6 @@ Desktop application (**PyQt5**) for Pacific Canbriam Energy LTD: refresh **Snowf
 ## Documentation
 
 - **[USER_GUIDE.md](USER_GUIDE.md)** — Operators: full procedures, tables, runbook.
-- **[DEV_GUIDE.md](DEV_GUIDE.md)** — Stakeholders and new team members: short overview.
-- **[DEV_GUIDE_LAYOUT.md](DEV_GUIDE_LAYOUT.md)** — Developers: technical map of modules.
-- **[COWORKER_SETUP.md](COWORKER_SETUP.md)** — Anyone running a packaged **.exe** from a share.
-- **[PACKAGING_WINDOWS.md](PACKAGING_WINDOWS.md)** — Building the Windows bundle (PyInstaller).
-- **[docs/HANDOFF_INVENTORY.md](docs/HANDOFF_INVENTORY.md)** — Module classification and CLI utilities.
 
 ## Requirements
 
