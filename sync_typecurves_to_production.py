@@ -15,6 +15,7 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
+from type_curves_import import _tc_pad_name_from_excel
 
 _INSERT_SQL = """
 INSERT INTO PCE_Production (
@@ -116,6 +117,8 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
 
     layer_s = None if layer is None or pd.isna(layer) else str(layer).strip() or None
     pad_s = None if pad is None or pd.isna(pad) else str(pad).strip() or None
+    if pad_s is not None:
+        pad_s = _tc_pad_name_from_excel(pad_s)
     formation_s = None if formation is None or pd.isna(formation) else str(formation).strip() or None
     fault_s = None if fault is None or pd.isna(fault) else str(fault).strip() or None
     orient_s = None if orient is None or pd.isna(orient) else str(orient).strip() or None
@@ -193,6 +196,31 @@ def sync_tc_to_production(
             return {"ok": True, "rows_deleted": 0, "rows_inserted": 0}
 
         cursor = conn.cursor()
+        # Backfill dbo.PCE_TC.[Pad Name] when legacy rows lack the PCE-TC- prefix (same rules as import).
+        pad_fixes: List[Tuple] = []
+        for _, row in df.iterrows():
+            pad = row.get("Pad Name")
+            wn = row.get("Well Name")
+            imp = row.get("ImportDate")
+            if wn is None or str(wn).strip() == "":
+                continue
+            pad_s = None if pad is None or pd.isna(pad) else str(pad).strip() or None
+            if pad_s is None:
+                continue
+            new_pad = _tc_pad_name_from_excel(pad_s)
+            if new_pad and new_pad != pad_s:
+                pad_fixes.append((new_pad, str(wn).strip(), imp))
+        if pad_fixes:
+            cursor.executemany(
+                """
+                UPDATE dbo.PCE_TC
+                SET [Pad Name] = ?
+                WHERE [Well Name] = ? AND [ImportDate] = ?
+                """,
+                pad_fixes,
+            )
+            conn.commit()
+            df = pd.read_sql(_TC_SELECT, conn)
         cursor.fast_executemany = True
         cursor.execute(
             """

@@ -3,6 +3,8 @@
 import pytest
 
 from type_curves_import import (
+    _assign_column_roles,
+    _tc_pad_name_from_excel,
     _tc_storage_base_name,
     _tc_well_match_key,
     stored_well_name_file_only,
@@ -71,3 +73,17 @@ def test_file_only_other_well_gets_tc_suffix():
 
     s = stored_well_name_file_only("orphan-file-well-01")
     assert s.endswith(TC_SUFFIX)
+
+
+def test_pad_column_prefers_pad_name_over_padding():
+    cols = ["Padding", "Pad Name", "Well Name"]
+    roles = _assign_column_roles(cols)
+    assert roles["pad"] == 1
+
+
+def test_tc_pad_prefix_normalizes_spaces():
+    assert _tc_pad_name_from_excel("7-01 South") == "PCE-TC-7-01-South"
+
+
+def test_tc_pad_prefix_idempotent():
+    assert _tc_pad_name_from_excel("PCE-TC-7-01-South") == "PCE-TC-7-01-South"

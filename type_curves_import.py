@@ -216,6 +216,9 @@ def _tc_pad_name_from_excel(pad_raw: Optional[str]) -> Optional[str]:
     s = str(pad_raw).strip()
     if not s:
         return None
+    # Already normalized (re-import / sync); do not double-prefix.
+    if s.casefold().startswith(TC_PAD_PREFIX.casefold()):
+        return s
     s = re.sub(r"\s+", " ", s)
     tail = re.sub(r"[^\w\-]+", "-", s, flags=re.UNICODE)
     tail = re.sub(r"-+", "-", tail).strip("-")
@@ -377,7 +380,10 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
     if idx is not None:
         roles["orientation"] = idx
 
-    idx = take(lambda n: "pad" in n)
+    # Prefer "Pad Name" explicitly. Avoid matching "Padding" — substring "pad" is inside "padding".
+    idx = take(lambda n: "pad name" in n)
+    if idx is None:
+        idx = take(lambda n: "pad" in n and "padding" not in n)
     if idx is not None:
         roles["pad"] = idx
 
@@ -854,9 +860,12 @@ def delete_typecurves_from_tc(
 
 
 def fetch_distinct_tc_well_names() -> List[str]:
+    # GROUP BY (not DISTINCT + ORDER BY CASE): SQL Server requires ORDER BY
+    # expressions to appear in the select list when DISTINCT is used (error 145).
     q = """
-        SELECT DISTINCT [Well Name]
+        SELECT [Well Name]
         FROM dbo.PCE_TC
+        GROUP BY [Well Name]
         ORDER BY
             CASE
                 WHEN [Well Name] LIKE 'YE2%' THEN 1
