@@ -49,6 +49,7 @@ SELECT
     [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
+    [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
     [Lateral Length], [On Production Year], [Orientation]
@@ -104,6 +105,12 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
     sales_cgr = _num(row.get("Sales CGR (m³/e³m³)"))
     cum_gas = _num(row.get("Cum Gas (e³m³)"))
     cum_condy = _num(row.get("Cum Condy (m³)"))
+    cum_gas_wh = _num(row.get("Gas WH Cumulative Production (10³m³)"))
+    cum_cond_wh = _num(row.get("Condensate WH Cumulative Production (m³)"))
+    if cum_gas_wh is None:
+        cum_gas_wh = cum_gas
+    if cum_cond_wh is None:
+        cum_cond_wh = cum_condy
     layer = row.get("Layer Producer")
     pad = row.get("Pad Name")
     formation = row.get("Formation Producer")
@@ -146,11 +153,11 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         None,
-        None,
+        cum_gas_wh,
         cum_gas,
         None,
         cum_condy,
-        cum_condy,
+        cum_cond_wh,
         None,
         None,
         formation_s,

@@ -448,6 +448,8 @@ Execute **Run Import**; review the **Import Log**.
 
 **YE WH mirroring:** For stored **`[Well Name]`** values matching **`LIKE 'YE2%'`** (including **`YE23`**), import sets **`[Gas WH Production (e³m³/d)]`** from the Gas S2 rate and **`[Condensate WH (m³/d)]`** from the condensate sales rate so **`PCE_TC`** (and **`sync_tc_to_production`**) carry both WH and S2/sales columns.
 
+**TC WH cumulatives on production:** **`sync_tc_to_production`** maps **`PCE_TC.[Gas WH Cumulative Production (10³m³)]`** and **`[Condensate WH Cumulative Production (m³)]`** into the same-named cumulative columns on **`PCE_Production`**; if either is null, it uses **`[Cum Gas (e³m³)]`** or **`[Cum Condy (m³)]`** respectively.
+
 **Schema note:** **`PCE_Production`** is keyed in practice by **`([Well Name], [Date])`** uniqueness; type-curve materialized rows use the same **`[Well Name]`** as **`PCE_TC`** and **`[Date]`** = **`ImportDate`**.
 
 **Log:** Counts, warnings, and errors appear in the dialog log.

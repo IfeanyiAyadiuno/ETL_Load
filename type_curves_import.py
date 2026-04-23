@@ -38,10 +38,11 @@ INSERT INTO dbo.PCE_TC (
     [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
+    [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
     [Lateral Length], [On Production Year], [Orientation]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -725,6 +726,8 @@ def append_typecurves_from_excel(
                 cond_wh_m3,
                 cum_gas_e3,
                 cum_cond_m3,
+                cum_gas_e3,
+                cum_cond_m3,
                 layer,
                 pad,
                 source_name,
@@ -958,6 +961,8 @@ def ye2_append_rows_to_pce_tc(
                 sales_cgr,
                 gas_wh_e3,
                 cond_wh_m3,
+                cum_gas_e3,
+                cum_cond_m3,
                 cum_gas_e3,
                 cum_cond_m3,
                 layer,
