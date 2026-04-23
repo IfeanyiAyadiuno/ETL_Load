@@ -128,6 +128,10 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         else str(remarks_raw).strip() or None
     )
 
+    # PCE_TC [Cum Gas (e³m³)] (workbook Cum Gas bcf) → Gas WH + Gas Gathered cumulatives on PCE_Production.
+    gas_wh_cum = cum_gas
+    gas_gathered_cum = cum_gas
+
     return (
         d,
         1,
@@ -148,12 +152,12 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         None,
-        None,
+        gas_wh_cum,
         cum_gas,
         None,
         cum_condy,
         cum_condy,
-        None,
+        gas_gathered_cum,
         None,
         formation_s,
         layer_s,
