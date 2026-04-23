@@ -255,14 +255,6 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
         roles["cum_gas_bcf"] = idx
 
     idx = take(
-        lambda n: "cum" in n
-        and ("condy" in n or ("cond" in n and "mbbl" in n))
-        and "bcf" not in n
-    )
-    if idx is not None:
-        roles["cum_cond_mbbl"] = idx
-
-    idx = take(
         lambda n: "gas" in n
         and "s2" in n
         and "mcf" in n
@@ -291,6 +283,7 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
     if idx is not None:
         roles["cond_sales_bbl_d"] = idx
 
+    # Assign before cum_cond_mbbl: "cond" matches inside "condensate" and would steal the wrong column.
     idx = take(
         lambda n: "condensate" in n
         and "sales" in n
@@ -299,6 +292,17 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
     )
     if idx is not None:
         roles["cond_sales_cum_mbbl"] = idx
+
+    # TC workbook "Cum Condy (Mbbl)" — require "condy" so "Condensate Sales Cum …" does not match.
+    idx = take(
+        lambda n: "cum" in n
+        and "condy" in n
+        and ("mbbl" in n or "bbl" in n)
+        and "bcf" not in n
+        and "sales" not in n
+    )
+    if idx is not None:
+        roles["cum_cond_mbbl"] = idx
 
     idx = take(
         lambda n: "gas" in n
@@ -668,11 +672,11 @@ def append_typecurves_from_excel(
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
-        cum_cond_m3 = col("cond_sales_cum_mbbl", row)
-        if cum_cond_m3 is not None:
-            cum_cond_m3 = _mbbl_to_cum_m3(cum_cond_m3)
-        if cum_cond_m3 is None:
-            cum_cond_m3 = _mbbl_to_cum_m3(col("cum_cond_mbbl", row))
+        cum_cond_mbbl_raw = col("cum_cond_mbbl", row)
+        if cum_cond_mbbl_raw is not None:
+            cum_cond_m3 = _mbbl_to_cum_m3(cum_cond_mbbl_raw)
+        else:
+            cum_cond_m3 = _mbbl_to_cum_m3(col("cond_sales_cum_mbbl", row))
 
         layer = col_str("layer", row)
         pad_raw = col_str("pad", row)
@@ -686,7 +690,11 @@ def append_typecurves_from_excel(
         gas_s2_mcf_d = col("gas_s2_mcf_d", row)
         gas_s2_cum_mmcf = col("gas_s2_cum_mmcf", row)
         cond_bbl_d = col("cond_sales_bbl_d", row)
-        cond_cum_mbbl = col("cond_sales_cum_mbbl", row)
+        cond_cum_mbbl = (
+            cum_cond_mbbl_raw
+            if cum_cond_mbbl_raw is not None
+            else col("cond_sales_cum_mbbl", row)
+        )
 
         if pname:
             storage_base = _tc_storage_base_name(cleaned, pname)
@@ -925,11 +933,11 @@ def ye2_append_rows_to_pce_tc(
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
-        cum_cond_m3 = col("cond_sales_cum_mbbl", row)
-        if cum_cond_m3 is not None:
-            cum_cond_m3 = _mbbl_to_cum_m3(cum_cond_m3)
-        if cum_cond_m3 is None:
-            cum_cond_m3 = _mbbl_to_cum_m3(col("cum_cond_mbbl", row))
+        cum_cond_mbbl_raw = col("cum_cond_mbbl", row)
+        if cum_cond_mbbl_raw is not None:
+            cum_cond_m3 = _mbbl_to_cum_m3(cum_cond_mbbl_raw)
+        else:
+            cum_cond_m3 = _mbbl_to_cum_m3(col("cond_sales_cum_mbbl", row))
         layer = col_str("layer", row)
         pad_raw = col_str("pad", row)
         pad = _tc_pad_name_from_excel(pad_raw) if pad_raw else None
@@ -942,7 +950,11 @@ def ye2_append_rows_to_pce_tc(
         gas_s2_mcf_d = col("gas_s2_mcf_d", row)
         gas_s2_cum_mmcf = col("gas_s2_cum_mmcf", row)
         cond_bbl_d = col("cond_sales_bbl_d", row)
-        cond_cum_mbbl = col("cond_sales_cum_mbbl", row)
+        cond_cum_mbbl = (
+            cum_cond_mbbl_raw
+            if cum_cond_mbbl_raw is not None
+            else col("cond_sales_cum_mbbl", row)
+        )
 
         rows_out.append(
             (

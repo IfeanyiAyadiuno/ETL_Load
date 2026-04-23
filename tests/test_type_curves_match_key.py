@@ -87,3 +87,15 @@ def test_tc_pad_prefix_normalizes_spaces():
 
 def test_tc_pad_prefix_idempotent():
     assert _tc_pad_name_from_excel("PCE-TC-7-01-South") == "PCE-TC-7-01-South"
+
+
+def test_cum_condy_column_not_stolen_by_condensate_sales_cum():
+    """Sales cumulative uses 'cond' inside 'condensate'; cum_cond role must require 'condy'."""
+    cols = [
+        "Well Name",
+        "Condensate Sales Cum mbbl",
+        "Cum Condy (Mbbl)",
+    ]
+    roles = _assign_column_roles(cols)
+    assert roles["cond_sales_cum_mbbl"] == 1
+    assert roles["cum_cond_mbbl"] == 2
