@@ -161,6 +161,13 @@ def _is_ye2_family_bulk_name(cleaned: str) -> bool:
     return bool(s) and s.startswith("ye2")
 
 
+def _is_ye_tc_stored_well_name(name) -> bool:
+    """True when the stored ``PCE_TC.[Well Name]`` should get YE-style TC rules (SQL ``LIKE 'YE2%'``)."""
+    if name is None:
+        return False
+    return _is_ye2_family_bulk_name(str(name))
+
+
 def stored_well_name_file_only(cleaned: str) -> str:
     """Stored ``[Well Name]`` for a file-only (no WM) row."""
     if _is_ye2_family_bulk_name(cleaned):
@@ -702,6 +709,10 @@ def append_typecurves_from_excel(
             seen_um.add(raw_well)
             unmatched.append(raw_well)
 
+        if _is_ye_tc_stored_well_name(w_tc):
+            gas_wh_e3 = gas_s2_metric
+            cond_wh_m3 = cond_sales
+
         rows_out.append(
             (
                 w_tc,
@@ -932,6 +943,10 @@ def ye2_append_rows_to_pce_tc(
         lateral = col("lateral_length", row)
         on_year = col("on_production_year", row)
         orientation = col_str("orientation", row)
+
+        if _is_ye_tc_stored_well_name(wn):
+            gas_wh_e3 = gas_s2_metric
+            cond_wh_m3 = cond_sales
 
         rows_out.append(
             (

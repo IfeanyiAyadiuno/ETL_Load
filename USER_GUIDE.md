@@ -446,6 +446,8 @@ Execute **Run Import**; review the **Import Log**.
 
 **YE2/YE23 bulk:** `python scripts/ye23_typecurves_to_pce_tc.py "<path-to-xlsx>"` — inserts into **`PCE_TC`** with Excel well names verbatim (no **` - TC`** suffix), then runs the same production sync. Use well names beginning with **`YE2`** if you rely on the app’s Prodview delete guards and allocation filters for those keys.
 
+**YE WH mirroring:** For stored **`[Well Name]`** values matching **`LIKE 'YE2%'`** (including **`YE23`**), import sets **`[Gas WH Production (e³m³/d)]`** from the Gas S2 rate and **`[Condensate WH (m³/d)]`** from the condensate sales rate so **`PCE_TC`** (and **`sync_tc_to_production`**) carry both WH and S2/sales columns.
+
 **Schema note:** **`PCE_Production`** is keyed in practice by **`([Well Name], [Date])`** uniqueness; type-curve materialized rows use the same **`[Well Name]`** as **`PCE_TC`** and **`[Date]`** = **`ImportDate`**.
 
 **Log:** Counts, warnings, and errors appear in the dialog log.

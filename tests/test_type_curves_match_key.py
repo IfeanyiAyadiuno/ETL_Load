@@ -4,6 +4,7 @@ import pytest
 
 from type_curves_import import (
     _assign_column_roles,
+    _is_ye_tc_stored_well_name,
     _tc_pad_name_from_excel,
     _tc_storage_base_name,
     _tc_well_match_key,
@@ -87,6 +88,21 @@ def test_tc_pad_prefix_normalizes_spaces():
 
 def test_tc_pad_prefix_idempotent():
     assert _tc_pad_name_from_excel("PCE-TC-7-01-South") == "PCE-TC-7-01-South"
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("YE23 McD LM NFB TC-1P", True),
+        ("ye23 lower", True),
+        ("YE2-foo", True),
+        ("07-01-085-26W6M - TC", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_ye_tc_stored_well_name(name, expected):
+    assert _is_ye_tc_stored_well_name(name) is expected
 
 
 def test_cum_condy_column_not_stolen_by_condensate_sales_cum():
