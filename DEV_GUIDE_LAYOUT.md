@@ -128,7 +128,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **Where the real logic is:**
   - **File:** `prodview_update_gui.py`
-  - **Main function:** `run_quick_update(start_month, end_month, progress_callback=None, log_callback=None)`
+  - **Main function:** `run_quick_update(progress_callback=None, log_callback=None)` — rolling 18 months through `prodview_effective_end_date()` (today − 2).
   - **Full rebuild** is started from the same dialog but runs `production_update.main` (clears/rebuilds `PCE_Production` from all SQL Server `PCE_CDA` rows; no Snowflake call in that step).
 
 - **What `run_quick_update` does (high-level):**

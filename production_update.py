@@ -7,6 +7,7 @@ import warnings
 
 import log_format as lf
 from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
+from prodview_date_bounds import prodview_effective_end_date
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -455,6 +456,19 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled after PCE_CDA sales refresh."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    end_cap = prodview_effective_end_date()
+    with get_sql_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_cap,))
+        n_trim = cur.rowcount or 0
+        conn.commit()
+    if n_trim:
+        print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (today − lag)"))
+
+    if aborted():
+        print(lf.warn("Cancelled after trimming future CDA."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 2: Clear existing data
     clear_pce_production()
     if aborted():
@@ -469,6 +483,9 @@ def main(cancel_event=None):
 
     # Step 4: Fetch CDA data
     df = fetch_cda_data()
+    if not df.empty:
+        df = df[pd.to_datetime(df["Date"]).dt.date <= end_cap].reset_index(drop=True)
+        print(lf.detail(f"PCE_CDA rows after end-date cap ({end_cap}): {lf.num(len(df))}"))
 
     if df.empty:
         print(lf.warn("No data to process. Exiting."))

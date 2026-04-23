@@ -1,17 +1,12 @@
-"""run_quick_update entry: validation path.
+"""Prodview quick update uses rolling date bounds (see prodview_date_bounds)."""
 
-Uses English month abbreviations (e.g. Dec 2024), same as the GUI and
-datetime.strptime(..., "%b %Y") on typical en-US Windows installs.
-"""
+from datetime import date
+from unittest.mock import patch
 
-from prodview_update_gui import run_quick_update
+import prodview_date_bounds as pdb
 
 
-def test_run_quick_update_rejects_inverted_month_range():
-    out = run_quick_update(
-        "Dec 2024",
-        "Jan 2024",
-        progress_callback=lambda _x: None,
-        log_callback=lambda _m: None,
-    )
-    assert out == {"error": "Start month must be before end month"}
+def test_quick_update_window_ordering():
+    with patch.object(pdb, "_today", return_value=date(2026, 1, 10)):
+        s, e = pdb.quick_update_date_range()
+        assert s < e

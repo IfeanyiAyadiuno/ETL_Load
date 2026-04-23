@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, date
 
 import log_format as lf
 from db_connection import get_sql_conn
+from prodview_date_bounds import prodview_effective_end_date, quick_update_date_range
 from snowflake_connector import SnowflakeConnector
 from sync_typecurves_to_production import sync_tc_to_production
 
@@ -303,6 +304,9 @@ def populate_wells_cda(mapping_df, start_date, end_date,
 
     Only PCE_CDA is touched; PCE_Production is NOT modified.
 
+    *end_date* is capped at ``prodview_effective_end_date()`` so we never write
+    daily rows beyond the agreed Prodview lag.
+
     Returns dict with summary stats or {"error": ...}.
     """
     log = partial(_emit_log, log_callback)
@@ -313,6 +317,15 @@ def populate_wells_cda(mapping_df, start_date, end_date,
 
     total_start = time.time()
     well_names = mapping_df['Well Name'].unique().tolist()
+
+    if isinstance(start_date, datetime):
+        start_date = start_date.date()
+    if isinstance(end_date, datetime):
+        end_date = end_date.date()
+    cap = prodview_effective_end_date()
+    if end_date > cap:
+        log(lf.detail(f"Capping CDA populate end date {end_date} → {cap} (today − lag)"))
+        end_date = cap
 
     log(lf.header("POPULATE PCE_CDA",
                    Wells=len(well_names),
@@ -416,6 +429,13 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
         overall_start, _ = _month_boundaries(start_date)
         _, overall_end = _month_boundaries(end_date)
+        cap = prodview_effective_end_date()
+        if overall_end > cap:
+            log(lf.detail(f"Capping Snowflake/CDA window end {overall_end} → {cap} (today − lag)"))
+            overall_end = cap
+        if overall_start > overall_end:
+            log(lf.error("Start month is after capped end date"))
+            return {"error": "Invalid date range after capping to today − lag"}
 
         # Single Snowflake pull
         log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
@@ -590,15 +610,22 @@ _CDA_SELECT_SQL = """
 """
 
 
-def run_quick_update(start_month, end_month, progress_callback=None, log_callback=None):
+def run_quick_update(progress_callback=None, log_callback=None):
     log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
             progress_callback(val)
 
-    log(lf.header("QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
-                   Range=f"{start_month} to {end_month}"))
+    start_first, end_last = quick_update_date_range()
+    if start_first > end_last:
+        log(lf.error("Quick update date range is empty"))
+        return {"error": "Quick update date range is empty"}
+
+    log(lf.header(
+        "QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
+        Range=f"{start_first} through {end_last} (rolling 18 months, end = today − 2 days)",
+    ))
     total_start = time.time()
 
     try:
@@ -608,15 +635,6 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
             fetch_well_mapping, apply_well_names, filter_to_first_production,
         )
 
-        start_date = datetime.strptime(start_month, "%b %Y")
-        end_date = datetime.strptime(end_month, "%b %Y")
-        if start_date > end_date:
-            log(lf.error("Start month must be before end month"))
-            return {"error": "Start month must be before end month"}
-
-        start_first = start_date.replace(day=1).date()
-        _, end_last = _month_boundaries(end_date)
-
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
@@ -624,6 +642,19 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
 
         mapping_df = _fetch_well_mapping(cursor)
         log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
+
+        log(lf.step(f"Removing CDA / production rows after {end_last} (future days)…"))
+        cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_last,))
+        cursor.execute(
+            """
+            DELETE FROM PCE_Production
+            WHERE [Date] > ?
+              AND [Well Name] NOT LIKE '% - TC'
+              AND [Well Name] NOT LIKE 'YE2%'
+            """,
+            (end_last,),
+        )
+        conn.commit()
 
         # Single Snowflake pull for entire range
         log(lf.step(f"Pulling Snowflake data ({start_first} to {end_last})..."))
@@ -643,6 +674,12 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         result_df = _merge_sf_data(spine_df, sf_data)
         result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
         result_df, _repl = _apply_gaswh_replacement(result_df)
+        before_cap = len(result_df)
+        result_df = result_df.loc[
+            pd.to_datetime(result_df["ProdDate"]).dt.normalize().dt.date <= end_last
+        ].copy()
+        if len(result_df) < before_cap:
+            log(lf.detail(f"Dropped {lf.num(before_cap - len(result_df))} row(s) after {end_last} (Snowflake spine cap)"))
         log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
         progress(35)
 
@@ -679,6 +716,13 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         all_cda = pd.read_sql(_CDA_SELECT_SQL, conn)
         log(lf.detail(f"Loaded {lf.num(len(all_cda))} total CDA rows"))
         progress(60)
+
+        if not all_cda.empty:
+            all_cda["_cap_date"] = pd.to_datetime(all_cda["Date"], errors="coerce").dt.date
+            before_all = len(all_cda)
+            all_cda = all_cda.loc[all_cda["_cap_date"] <= end_last].drop(columns=["_cap_date"])
+            if len(all_cda) < before_all:
+                log(lf.detail(f"Excluded {lf.num(before_all - len(all_cda))} CDA row(s) after {end_last} before production rebuild"))
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
@@ -730,17 +774,17 @@ def run_quick_update(start_month, end_month, progress_callback=None, log_callbac
         conn.close()
         
         total_time = time.time() - total_start
-        months_count = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
         summary = {
-            'months_processed': months_count,
-            'wells_updated': total_wells,
-            'cda_records': total_cda,
-            'production_records': total_prod,
-            'duration': total_time,
+            "date_range_start": str(start_first),
+            "date_range_end": str(end_last),
+            "wells_updated": total_wells,
+            "cda_records": total_cda,
+            "production_records": total_prod,
+            "duration": total_time,
         }
         log(lf.summary("QUICK UPDATE COMPLETE", {
             "Completed": lf.timestamp(),
-            "Months processed": months_count,
+            "Date range": f"{start_first} → {end_last}",
             "Wells updated": total_wells,
             "PCE_CDA records": total_cda,
             "PCE_Production records": total_prod,

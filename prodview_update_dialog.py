@@ -2,9 +2,8 @@
 
 import threading
 import time
-from datetime import datetime, timedelta
-
 import log_format as lf
+from prodview_date_bounds import prodview_effective_end_date, quick_update_date_range
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -18,7 +17,6 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QWidget,
-    QComboBox,
     QMessageBox,
     QRadioButton,
 )
@@ -73,58 +71,41 @@ class ProdviewUpdateDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        # Month Range Selection (disabled when Full rebuild is selected — only Quick Update uses it)
-        self.range_group = self.create_group("📅 Update Range")
-        range_layout = QVBoxLayout()
-
-        from_layout = QHBoxLayout()
-        from_layout.addWidget(QLabel("From:"))
-        self.from_combo = QComboBox()
-        self.populate_months(self.from_combo, months_back=36)
-        from_layout.addWidget(self.from_combo)
-        from_layout.addStretch()
-        range_layout.addLayout(from_layout)
-
-        to_layout = QHBoxLayout()
-        to_layout.addWidget(QLabel("To:"))
-        self.to_combo = QComboBox()
-        self.populate_months(self.to_combo, months_back=0)
-        self.to_combo.setCurrentIndex(0)
-        to_layout.addWidget(self.to_combo)
-        to_layout.addStretch()
-        range_layout.addLayout(to_layout)
-
-        self.range_group.layout().addLayout(range_layout)
-        layout.addWidget(self.range_group)
+        self.quick_scope_group = self.create_group("📅 Quick update window")
+        self.quick_scope_body = QLabel()
+        self.quick_scope_body.setWordWrap(True)
+        self.quick_scope_body.setStyleSheet("color: #334155; font-size: 13px;")
+        self.quick_scope_group.layout().addWidget(self.quick_scope_body)
+        layout.addWidget(self.quick_scope_group)
 
         # Update Mode Selection
         mode_group = self.create_group("⚙️ Update Mode")
         mode_layout = QVBoxLayout()
 
         self.mode_full_rebuild = QRadioButton(
-            "Full rebuild — entire PCE_Production from all PCE_CDA"
+            "Full rebuild — PCE_Production from all PCE_CDA (through today − 2 days)"
         )
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Clears and rebuilds the full PCE_Production table from all rows in PCE_CDA\n"
-            "  • This step does not query Snowflake; CDA is usually filled first via Quick Update\n"
+            "  • Clears and rebuilds PCE_Production from PCE_CDA (rows through today − 2 only)\n"
+            "  • Trims future CDA rows first; does not query Snowflake — run Quick update for Snowflake\n"
             "  • Typically 10 - 20 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton(
-            "Quick update — Snowflake range, replace CDA/Production for that range"
+            "Quick update — Snowflake for last 18 months through today − 2 days"
         )
         self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "  • Pulls Snowflake for the selected From/To range\n"
-            "  • Replaces PCE_CDA rows in that date range; deletes matching PCE_Production dates\n"
-            "  • Reloads all CDA into memory to recalc sequences/cumulatives, then rebuilds PCE_Production\n"
-            "  • Usual choice for routine refreshes (time depends on date range; often 5-10 minutes for 1-6 months)"
+            "  • No month pickers: always last 18 calendar months through (today − 2)\n"
+            "  • Replaces PCE_CDA in that window; trims any CDA/production rows after that end date\n"
+            "  • Reloads all CDA to recalc sequences/cumulatives, then rebuilds PCE_Production\n"
+            "  • Typical routine refresh (often several minutes depending on well count)"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
@@ -134,6 +115,8 @@ class ProdviewUpdateDialog(QDialog):
 
         mode_group.layout().addLayout(mode_layout)
         layout.addWidget(mode_group)
+
+        self._refresh_quick_scope_label()
 
         # Info Group
         info_group = self.create_group("ℹ️ This will:")
@@ -199,6 +182,15 @@ class ProdviewUpdateDialog(QDialog):
 
         self.update_info_text()
 
+    def _refresh_quick_scope_label(self):
+        s, e = quick_update_date_range()
+        self.quick_scope_body.setText(
+            f"Quick update always uses:\n"
+            f"  • Start: {s}\n"
+            f"  • End:   {e} (local calendar date: today minus 2 days)\n"
+            f"  • Rolling span: 18 months before that end date"
+        )
+
     def handle_close(self):
         """
         Handle dialog close.
@@ -251,20 +243,22 @@ class ProdviewUpdateDialog(QDialog):
         event.accept()
 
     def update_info_text(self):
-        """Update info text and range availability based on selected mode."""
-        self.range_group.setEnabled(self.mode_quick_update.isChecked())
+        """Update info text based on selected mode."""
+        self._refresh_quick_scope_label()
         if self.mode_full_rebuild.isChecked():
+            cap = prodview_effective_end_date()
             self.info_text.setText(
-                "  • Rebuild entire PCE_Production from all rows in PCE_CDA (full date span in CDA)\n"
+                "  • Rebuild PCE_Production from all PCE_CDA rows on or before "
+                f"{cap} (today − 2)\n"
                 "  • First refreshes PCE_CDA Gas S2, gas sales, condensate sales, and Sales CGR from "
-                "Allocation_Factors (when present), then clears PCE_Production and rebuilds it\n"
-                "  • No new Snowflake pull in this step (refresh CDA with Quick Update first if needed)\n"
+                "Allocation_Factors (when present), trims future CDA, clears PCE_Production, rebuilds\n"
+                "  • No Snowflake pull — run Quick update first if CDA must match Prodview\n"
                 "  • ⚠️ Long run (often 5–10 minutes; more months in Allocation_Factors take longer)"
             )
         else:
             self.info_text.setText(
-                "  • Pull Snowflake for the selected From/To range\n"
-                "  • Replace PCE_CDA in that range; remove matching PCE_Production dates\n"
+                "  • Pull Snowflake for the rolling 18‑month window (see box above)\n"
+                "  • Replace CDA in that window; drop CDA/production after the end date\n"
                 "  • Recalculate from full CDA and rebuild PCE_Production (all wells in CDA)\n"
                 "  • Routine refresh path"
             )
@@ -282,36 +276,6 @@ class ProdviewUpdateDialog(QDialog):
         group_layout.addWidget(title_label)
         return group
 
-    def populate_months(self, combo_box, months_back=24):
-        """Populate month combo box"""
-        current = datetime.now()
-        month_names = {
-            1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
-            7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
-        }
-
-        # months_back is the number of months to include (if > 0),
-        # otherwise just include the current month.
-        count = months_back if months_back and months_back > 0 else 1
-
-        months = []
-        year = current.year
-        month = current.month
-        for _ in range(count):
-            months.append(f"{month_names[month]} {year}")
-            month -= 1
-            if month == 0:
-                month = 12
-                year -= 1
-
-        months.reverse()
-
-        combo_box.clear()
-        combo_box.addItems(months)
-        # Make sure full text (e.g. "Dec 2025") is visible
-        combo_box.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        combo_box.setMinimumContentsLength(10)
-
     def log_result(self, message):
         """Add message to results area"""
         self.results_text.append(message)
@@ -322,31 +286,28 @@ class ProdviewUpdateDialog(QDialog):
     
     def run_update(self):
         """Run the prodview update in a separate thread"""
-        # Confirm before running
-        from_month = self.from_combo.currentText()
-        to_month = self.to_combo.currentText()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
             mode_label = (
-                "FULL REBUILD — rebuild PCE_Production from all PCE_CDA "
-                "(full date range in CDA; no Snowflake query in this step)"
+                "FULL REBUILD — rebuild PCE_Production from PCE_CDA "
+                f"(through {prodview_effective_end_date()}; no Snowflake in this step)"
             )
             body = (
                 "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
                 f"  • Mode: {mode_label}\n\n"
                 "Full rebuild refreshes Gas S2, gas sales, condensate sales, and Sales CGR on "
-                "PCE_CDA from Allocation_Factors, then clears PCE_Production and rebuilds it from "
-                "every row in PCE_CDA (typically loaded from Snowflake using Quick Update earlier). "
-                "The Update Range (From/To) applies only to Quick Update.\n\n"
+                "PCE_CDA from Allocation_Factors, removes CDA rows after (today − 2), clears "
+                "PCE_Production, and rebuilds from remaining CDA. Run Quick update first if "
+                "Snowflake must be current.\n\n"
                 "Do you want to continue?"
             )
         else:
-            mode_label = "QUICK UPDATE (Snowflake for selected From/To range)"
+            s, e = quick_update_date_range()
+            mode_label = "QUICK UPDATE (Snowflake rolling 18 months)"
             body = (
                 "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
                 f"  • Mode: {mode_label}\n"
-                f"  • From: {from_month}\n"
-                f"  • To:   {to_month}\n\n"
+                f"  • Date window: {s} through {e}\n\n"
                 "Do you want to continue?"
             )
         reply = QMessageBox.question(
@@ -364,8 +325,6 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setVisible(True)
         self.results_text.clear()
 
-        from_month = self.from_combo.currentText()
-        to_month = self.to_combo.currentText()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         mode_name = "FULL REBUILD" if update_mode == "full_rebuild" else "QUICK UPDATE"
 
@@ -374,13 +333,13 @@ class ProdviewUpdateDialog(QDialog):
             "Mode": mode_name,
         }
         if update_mode == "quick_update":
-            hdr["From"] = from_month
-            hdr["To"] = to_month
+            s, e = quick_update_date_range()
+            hdr["Date window"] = f"{s} → {e}"
         else:
-            hdr["From/To"] = "N/A (full CDA span; not used in Full rebuild)"
+            hdr["Through"] = str(prodview_effective_end_date())
         self.log_result(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE", **hdr))
 
-        self.worker = ProdviewUpdateWorker(from_month, to_month, update_mode)
+        self.worker = ProdviewUpdateWorker(update_mode)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.status_signal.connect(self._on_worker_status)
@@ -504,10 +463,8 @@ class ProdviewUpdateWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, from_month, to_month, update_mode="full_rebuild"):
+    def __init__(self, update_mode="full_rebuild"):
         super().__init__()
-        self.from_month = from_month
-        self.to_month = to_month
         self.update_mode = update_mode
         self._cancel_event = threading.Event()
 
@@ -585,10 +542,8 @@ class ProdviewUpdateWorker(QThread):
                 self.status_signal.emit("Running quick update...")
 
                 summary = run_quick_update(
-                    self.from_month,
-                    self.to_month,
                     progress_callback,
-                    log_callback
+                    log_callback,
                 )
 
             if summary and summary.get("error"):
