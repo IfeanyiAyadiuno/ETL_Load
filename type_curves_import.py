@@ -40,10 +40,8 @@ INSERT INTO dbo.PCE_TC (
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
-    [Lateral Length], [On Production Year], [Orientation],
-    [Gas S2 Production mcf/d], [Gas S2 Cum Production mmcf],
-    [Condensate Sales bbl/d], [Condensate Sales Cum mbbl]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    [Lateral Length], [On Production Year], [Orientation]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -687,15 +685,6 @@ def append_typecurves_from_excel(
         on_year = col("on_production_year", row)
         orientation = col_str("orientation", row)
 
-        gas_s2_mcf_d = col("gas_s2_mcf_d", row)
-        gas_s2_cum_mmcf = col("gas_s2_cum_mmcf", row)
-        cond_bbl_d = col("cond_sales_bbl_d", row)
-        cond_cum_mbbl = (
-            cum_cond_mbbl_raw
-            if cum_cond_mbbl_raw is not None
-            else col("cond_sales_cum_mbbl", row)
-        )
-
         if pname:
             storage_base = _tc_storage_base_name(cleaned, pname)
             w_tc = with_tc_suffix(storage_base)
@@ -734,10 +723,6 @@ def append_typecurves_from_excel(
                 lateral,
                 on_year,
                 orientation,
-                gas_s2_mcf_d,
-                gas_s2_cum_mmcf,
-                cond_bbl_d,
-                cond_cum_mbbl,
             )
         )
 
@@ -947,14 +932,6 @@ def ye2_append_rows_to_pce_tc(
         lateral = col("lateral_length", row)
         on_year = col("on_production_year", row)
         orientation = col_str("orientation", row)
-        gas_s2_mcf_d = col("gas_s2_mcf_d", row)
-        gas_s2_cum_mmcf = col("gas_s2_cum_mmcf", row)
-        cond_bbl_d = col("cond_sales_bbl_d", row)
-        cond_cum_mbbl = (
-            cum_cond_mbbl_raw
-            if cum_cond_mbbl_raw is not None
-            else col("cond_sales_cum_mbbl", row)
-        )
 
         rows_out.append(
             (
@@ -977,10 +954,6 @@ def ye2_append_rows_to_pce_tc(
                 lateral,
                 on_year,
                 orientation,
-                gas_s2_mcf_d,
-                gas_s2_cum_mmcf,
-                cond_bbl_d,
-                cond_cum_mbbl,
             )
         )
 

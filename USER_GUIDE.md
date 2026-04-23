@@ -438,7 +438,7 @@ Execute **Run Import**; review the **Import Log**.
 
 **Gas S1 → S2:** Vendor **Gas S1 Production (10³m³)** maps to **`[Gas S2 Production (10³m³)]`** (single gas column in the table).
 
-**Units:** **Gas WH** mcf/d → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** bbl/d → **`[Condensate WH (m³/d)]`**; **Cum Gas** bcf → **`[Cum Gas (e³m³)]`**; **Cum Condy** Mbbl → **`[Cum Condy (m³)]`**. Optional imperial columns (**Gas S2** mcf/d and mmcf cum, **Condensate Sales** bbl/d and mbbl cum) are stored on **`PCE_TC`** when headers match.
+**Units:** **Gas WH** mcf/d → **`[Gas WH Production (e³m³/d)]`**; **Condensate WH** bbl/d → **`[Condensate WH (m³/d)]`**; **Cum Gas** bcf → **`[Cum Gas (e³m³)]`**; **Cum Condy** Mbbl → **`[Cum Condy (m³)]`**. **Gas S2** and **condensate sales** rates and cumulatives from the workbook are converted to metric and stored only in the **`(10³m³)`**, **`(m³/d)`**, and cumulative **`(m³)`** / **`(e³m³)`** columns on **`PCE_TC`**.
 
 **Well matching:** Normalized text (spaces, hyphens, case, slashes, digit runs). With **≥ six** hyphen parts, the last **two** are dropped **only for the WM lookup key** (for example `…-26W6M - T3 - PnP` → `…-26W6M`); shorter ids stay intact. **Meridian `M`:** an optional trailing **`M`** after **`W` + digits** at the **end** of the match key (for example Excel **`26W6M`**) is ignored so it can align with WM **`26W6`**. **Stored base id** for a WM match is the **longer** of the full cleaned Excel cell and the resolved WM **`[Well Name]`** (tie → WM), then **` - TC`**. The scan list shows **`[WM]`** vs **`[File]`**; file-only rows import without WM. **YE23 / YE2-family** file wells (name starts with **`YE2`**, e.g. **`YE23 McD …`**) keep the Excel well string **as-is** (no **` - TC`**).
 

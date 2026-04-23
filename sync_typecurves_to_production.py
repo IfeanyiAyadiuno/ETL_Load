@@ -51,9 +51,7 @@ SELECT
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
-    [Lateral Length], [On Production Year], [Orientation],
-    [Gas S2 Production mcf/d], [Gas S2 Cum Production mmcf],
-    [Condensate Sales bbl/d], [Condensate Sales Cum mbbl]
+    [Lateral Length], [On Production Year], [Orientation]
 FROM dbo.PCE_TC
 """
 
