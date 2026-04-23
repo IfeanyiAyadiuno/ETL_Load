@@ -324,7 +324,7 @@ def populate_wells_cda(mapping_df, start_date, end_date,
         end_date = end_date.date()
     cap = prodview_effective_end_date()
     if end_date > cap:
-        log(lf.detail(f"Capping CDA populate end date {end_date} → {cap} (today − lag)"))
+        log(lf.detail(f"Capping CDA populate end date {end_date} → {cap} (automatic end)"))
         end_date = cap
 
     log(lf.header("POPULATE PCE_CDA",
@@ -431,11 +431,11 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         _, overall_end = _month_boundaries(end_date)
         cap = prodview_effective_end_date()
         if overall_end > cap:
-            log(lf.detail(f"Capping Snowflake/CDA window end {overall_end} → {cap} (today − lag)"))
+            log(lf.detail(f"Capping Snowflake/CDA window end {overall_end} → {cap} (automatic end)"))
             overall_end = cap
         if overall_start > overall_end:
             log(lf.error("Start month is after capped end date"))
-            return {"error": "Invalid date range after capping to today − lag"}
+            return {"error": "Invalid date range after capping to automatic end date"}
 
         # Single Snowflake pull
         log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
@@ -624,7 +624,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
 
     log(lf.header(
         "QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
-        Range=f"{start_first} through {end_last} (rolling 18 months, end = today − 2 days)",
+        Range=f"{start_first} through {end_last} (rolling 18 months)",
     ))
     total_start = time.time()
 
@@ -643,7 +643,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
         mapping_df = _fetch_well_mapping(cursor)
         log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
 
-        log(lf.step(f"Removing CDA / production rows after {end_last} (future days)…"))
+        log(lf.step(f"Trimming CDA and production after {end_last}…"))
         cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_last,))
         cursor.execute(
             """

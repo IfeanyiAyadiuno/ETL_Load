@@ -3,7 +3,6 @@
 import threading
 import time
 import log_format as lf
-from prodview_date_bounds import prodview_effective_end_date, quick_update_date_range
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -71,7 +70,7 @@ class ProdviewUpdateDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        self.quick_scope_group = self.create_group("📅 Quick update window")
+        self.quick_scope_group = self.create_group("📅 Quick update")
         self.quick_scope_body = QLabel()
         self.quick_scope_body.setWordWrap(True)
         self.quick_scope_body.setStyleSheet("color: #334155; font-size: 13px;")
@@ -83,29 +82,28 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout = QVBoxLayout()
 
         self.mode_full_rebuild = QRadioButton(
-            "Full rebuild — PCE_Production from all PCE_CDA (through today − 2 days)"
+            "Full rebuild — PCE_Production from all PCE_CDA"
         )
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Clears and rebuilds PCE_Production from PCE_CDA (rows through today − 2 only)\n"
-            "  • Trims future CDA rows first; does not query Snowflake — run Quick update for Snowflake\n"
-            "  • Typically 10 - 20 minutes"
+            "  • Rebuilds production from CDA through the latest included daily date\n"
+            "  • Does not query Snowflake — run Quick update first when Prodview data must be current\n"
+            "  • Typically 10–20 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton(
-            "Quick update — Snowflake for last 18 months through today − 2 days"
+            "Quick update — Snowflake (rolling 18‑month window)"
         )
         self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "  • No month pickers: always last 18 calendar months through (today − 2)\n"
-            "  • Replaces PCE_CDA in that window; trims any CDA/production rows after that end date\n"
-            "  • Reloads all CDA to recalc sequences/cumulatives, then rebuilds PCE_Production\n"
-            "  • Typical routine refresh (often several minutes depending on well count)"
+            "  • Refreshes roughly the past 18 months of daily data for all mapped wells\n"
+            "  • Replaces CDA in that window and rebuilds production from CDA\n"
+            "  • Routine refresh; runtime depends on well count"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
@@ -183,12 +181,10 @@ class ProdviewUpdateDialog(QDialog):
         self.update_info_text()
 
     def _refresh_quick_scope_label(self):
-        s, e = quick_update_date_range()
         self.quick_scope_body.setText(
-            f"Quick update always uses:\n"
-            f"  • Start: {s}\n"
-            f"  • End:   {e} (local calendar date: today minus 2 days)\n"
-            f"  • Rolling span: 18 months before that end date"
+            "Quick update pulls Snowflake for a rolling 18‑month window. "
+            "The calendar range is set automatically from the current date; "
+            "no month selection is required."
         )
 
     def handle_close(self):
@@ -246,21 +242,17 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         self._refresh_quick_scope_label()
         if self.mode_full_rebuild.isChecked():
-            cap = prodview_effective_end_date()
             self.info_text.setText(
-                "  • Rebuild PCE_Production from all PCE_CDA rows on or before "
-                f"{cap} (today − 2)\n"
-                "  • First refreshes PCE_CDA Gas S2, gas sales, condensate sales, and Sales CGR from "
-                "Allocation_Factors (when present), trims future CDA, clears PCE_Production, rebuilds\n"
+                "  • Rebuild PCE_Production from PCE_CDA through the latest included daily date\n"
+                "  • Refreshes CDA allocation columns from Allocation_Factors where applicable\n"
                 "  • No Snowflake pull — run Quick update first if CDA must match Prodview\n"
-                "  • ⚠️ Long run (often 5–10 minutes; more months in Allocation_Factors take longer)"
+                "  • Longer run (often several minutes depending on history in Allocation_Factors)"
             )
         else:
             self.info_text.setText(
-                "  • Pull Snowflake for the rolling 18‑month window (see box above)\n"
-                "  • Replace CDA in that window; drop CDA/production after the end date\n"
-                "  • Recalculate from full CDA and rebuild PCE_Production (all wells in CDA)\n"
-                "  • Routine refresh path"
+                "  • Pull Snowflake for the rolling 18‑month window\n"
+                "  • Replace CDA in that window and align production\n"
+                "  • Recalculate sequences and cumulatives from CDA, then rebuild PCE_Production"
             )
 
     def create_group(self, title):
@@ -288,27 +280,20 @@ class ProdviewUpdateDialog(QDialog):
         """Run the prodview update in a separate thread"""
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = (
-                "FULL REBUILD — rebuild PCE_Production from PCE_CDA "
-                f"(through {prodview_effective_end_date()}; no Snowflake in this step)"
-            )
+            mode_label = "FULL REBUILD — PCE_Production from PCE_CDA (no Snowflake)"
             body = (
-                "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
-                f"  • Mode: {mode_label}\n\n"
-                "Full rebuild refreshes Gas S2, gas sales, condensate sales, and Sales CGR on "
-                "PCE_CDA from Allocation_Factors, removes CDA rows after (today − 2), clears "
-                "PCE_Production, and rebuilds from remaining CDA. Run Quick update first if "
-                "Snowflake must be current.\n\n"
-                "Do you want to continue?"
+                "Run full rebuild?\n\n"
+                f"{mode_label}\n\n"
+                "Rebuilds production from CDA through the latest included daily date. "
+                "Run Quick update first if Snowflake must be current.\n\n"
+                "Continue?"
             )
         else:
-            s, e = quick_update_date_range()
-            mode_label = "QUICK UPDATE (Snowflake rolling 18 months)"
+            mode_label = "QUICK UPDATE — Snowflake (18‑month rolling window)"
             body = (
-                "You are about to run the Prodview/Snowflake Daily Production Retrieve.\n\n"
-                f"  • Mode: {mode_label}\n"
-                f"  • Date window: {s} through {e}\n\n"
-                "Do you want to continue?"
+                "Run quick update?\n\n"
+                f"{mode_label}\n\n"
+                "Continue?"
             )
         reply = QMessageBox.question(
             self,
@@ -333,10 +318,9 @@ class ProdviewUpdateDialog(QDialog):
             "Mode": mode_name,
         }
         if update_mode == "quick_update":
-            s, e = quick_update_date_range()
-            hdr["Date window"] = f"{s} → {e}"
+            hdr["Scope"] = "Rolling 18 months (automatic)"
         else:
-            hdr["Through"] = str(prodview_effective_end_date())
+            hdr["Scope"] = "Full CDA → production (automatic end date)"
         self.log_result(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE", **hdr))
 
         self.worker = ProdviewUpdateWorker(update_mode)

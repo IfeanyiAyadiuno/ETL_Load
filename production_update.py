@@ -463,7 +463,7 @@ def main(cancel_event=None):
         n_trim = cur.rowcount or 0
         conn.commit()
     if n_trim:
-        print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (today − lag)"))
+        print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
 
     if aborted():
         print(lf.warn("Cancelled after trimming future CDA."))
