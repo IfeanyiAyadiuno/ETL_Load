@@ -65,21 +65,16 @@ def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
 
 
 def clear_pce_production():
-    """Clear all data from PCE_Production table"""
+    """Remove all rows from dbo.PCE_Production and reset IDENTITY (Production_ID)."""
     with get_sql_conn() as conn:
         cursor = conn.cursor()
-        # Delete all rows
-        cursor.execute("DELETE FROM PCE_Production")
-        deleted = cursor.rowcount
-        # Reset identity/ID column so new rows start from 1 again (if table has an IDENTITY)
-        try:
-            cursor.execute("DBCC CHECKIDENT('PCE_Production', RESEED, 0)")
-        except Exception:
-            # If the table has no IDENTITY or permissions are limited, ignore the error
-            pass
+        cursor.execute("TRUNCATE TABLE dbo.PCE_Production")
         conn.commit()
-        print(lf.success(f"Cleared PCE_Production: {lf.num(deleted)} records deleted (identity reseeded where applicable)"))
-        return deleted
+        print(
+            lf.success(
+                "Truncated dbo.PCE_Production; all rows removed and Production_ID counter reset."
+            )
+        )
 
 def fetch_cda_data():
     """Fetch all daily production data from PCE_CDA ordered by well and date"""
