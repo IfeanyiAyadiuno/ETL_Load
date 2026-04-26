@@ -184,7 +184,6 @@ class ProdviewUpdateDialog(QDialog):
         self.quick_scope_body.setText(
             "Quick update pulls Snowflake for a rolling 18‑month window. "
             "The calendar range is set automatically from the current date; "
-            "no month selection is required."
         )
 
     def handle_close(self):
