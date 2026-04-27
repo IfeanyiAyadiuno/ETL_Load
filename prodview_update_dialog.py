@@ -70,7 +70,7 @@ class ProdviewUpdateDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        self.quick_scope_group = self.create_group("📅 Quick update")
+        self.quick_scope_group = self.create_group("📅 Snowflake → CDA + production rebuild")
         self.quick_scope_body = QLabel()
         self.quick_scope_body.setWordWrap(True)
         self.quick_scope_body.setStyleSheet("color: #334155; font-size: 13px;")
@@ -87,23 +87,24 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Rebuilds production from CDA through the latest included daily date\n"
-            "  • Does not query Snowflake — run Quick update first when Prodview data must be current\n"
-            "  • Typically 10–20 minutes"
+            "  • Reads all PCE_CDA and repaints allocation-driven columns from Allocation_Factors where applicable\n"
+            "  • Deletes all PCE_Production rows and rebuilds them from CDA (sequences, cumulatives, averages)\n"
+            "  • Does not query Snowflake — run “Snowflake → CDA + production rebuild” first when daily source data must be current\n"
+            "  • Typically 5–10 minutes"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton(
-            "Quick update — Snowflake (rolling 18‑month window)"
+            "Snowflake → CDA + production rebuild"
         )
         self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "  • Refreshes roughly the past 18 months of daily data for all mapped wells\n"
-            "  • Replaces CDA in that window and rebuilds production from CDA\n"
-            "  • Routine refresh; runtime depends on well count"
+            "  • Pulls Snowflake (ECF, gas WH, CGR/water, WGR, pressures, allocation volumes) for a rolling ~18‑month window\n"
+            "  • Replaces PCE_CDA daily rows in that window, then reloads all PCE_CDA to rebuild PCE_Production (and type-curve sync)\n"
+            "  • Typically 10–20 minutes; larger well counts and Snowflake latency add time"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
@@ -182,8 +183,9 @@ class ProdviewUpdateDialog(QDialog):
 
     def _refresh_quick_scope_label(self):
         self.quick_scope_body.setText(
-            "Quick update pulls Snowflake for a rolling 18‑month window. "
-            "The calendar range is set automatically from the current date; "
+            "This mode pulls Snowflake for a rolling ~18‑month window (from the automatic end date backward). "
+            "It replaces CDA in that window, then rebuilds production from the full CDA table — heavier than full rebuild alone. "
+            "Use full rebuild when only CDA/production math must be refreshed and Snowflake is already up to date."
         )
 
     def handle_close(self):
@@ -197,7 +199,7 @@ class ProdviewUpdateDialog(QDialog):
                 "Cancel Update?",
                 "A Prodview/Snowflake update is running.\n\n"
                 "Cancellation may not stop work immediately (Python/SQL may keep running).\n"
-                "Quick Update can leave partial commits after a successful step—avoid cancelling mid-run.\n\n"
+                "A long-running step can leave partial commits after a successful sub-step—avoid cancelling mid-run.\n\n"
                 "Close anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
@@ -223,7 +225,7 @@ class ProdviewUpdateDialog(QDialog):
                 "Cancel Update?",
                 "A Prodview/Snowflake update is running.\n\n"
                 "Cancellation may not stop work immediately (Python/SQL may keep running).\n"
-                "Quick Update can leave partial commits after a successful step—avoid cancelling mid-run.\n\n"
+                "A long-running step can leave partial commits after a successful sub-step—avoid cancelling mid-run.\n\n"
                 "Close anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
@@ -242,16 +244,16 @@ class ProdviewUpdateDialog(QDialog):
         self._refresh_quick_scope_label()
         if self.mode_full_rebuild.isChecked():
             self.info_text.setText(
-                "  • Rebuild PCE_Production from PCE_CDA through the latest included daily date\n"
-                "  • Refreshes CDA allocation columns from Allocation_Factors where applicable\n"
-                "  • No Snowflake pull — run Quick update first if CDA must match Prodview\n"
-                "  • Longer run (often several minutes depending on history in Allocation_Factors)"
+                "  • Repaint Gas S2 / sales / CGR on PCE_CDA from Allocation_Factors (all distinct factor months)\n"
+                "  • Clear PCE_Production and rebuild every row from all PCE_CDA (sequences, cumulatives, averages)\n"
+                "  • No Snowflake — choose Snowflake → CDA + production rebuild first if daily meter data in CDA must be current\n"
+                "  • Typically 5–10 minutes"
             )
         else:
             self.info_text.setText(
-                "  • Pull Snowflake for the rolling 18‑month window\n"
-                "  • Replace CDA in that window and align production\n"
-                "  • Recalculate sequences and cumulatives from CDA, then rebuild PCE_Production"
+                "  • Query Snowflake for the rolling ~18‑month window and merge into PCE_CDA for that range\n"
+                "  • Replace matching PCE_CDA rows, then read all PCE_CDA and rebuild PCE_Production (plus materialize PCE_TC)\n"
+                "  • Typically 10–20 minutes"
             )
 
     def create_group(self, title):
@@ -279,19 +281,21 @@ class ProdviewUpdateDialog(QDialog):
         """Run the prodview update in a separate thread"""
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = "FULL REBUILD — PCE_Production from PCE_CDA (no Snowflake)"
+            mode_label = "FULL REBUILD — PCE_Production from all PCE_CDA (no Snowflake)"
             body = (
                 "Run full rebuild?\n\n"
                 f"{mode_label}\n\n"
                 "Rebuilds production from CDA through the latest included daily date. "
-                "Run Quick update first if Snowflake must be current.\n\n"
+                "Run “Snowflake → CDA + production rebuild” first if Snowflake daily data must be current.\n\n"
                 "Continue?"
             )
         else:
-            mode_label = "QUICK UPDATE — Snowflake (18‑month rolling window)"
+            mode_label = "SNOWFLAKE → CDA + PRODUCTION REBUILD (~18‑month window)"
             body = (
-                "Run quick update?\n\n"
+                "Run Snowflake → CDA + production rebuild?\n\n"
                 f"{mode_label}\n\n"
+                "Replaces CDA in the rolling window, then rebuilds production from all CDA. "
+                "Typically slower than full rebuild alone.\n\n"
                 "Continue?"
             )
         reply = QMessageBox.question(
@@ -310,7 +314,11 @@ class ProdviewUpdateDialog(QDialog):
         self.results_text.clear()
 
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
-        mode_name = "FULL REBUILD" if update_mode == "full_rebuild" else "QUICK UPDATE"
+        mode_name = (
+            "FULL REBUILD"
+            if update_mode == "full_rebuild"
+            else "SNOWFLAKE → CDA + PRODUCTION"
+        )
 
         hdr = {
             "Started": lf.timestamp(),
@@ -422,7 +430,7 @@ class ProdviewUpdateDialog(QDialog):
         else:
             self.status_label.setText("Complete")
             # Success: final summary already streamed from production_update (full rebuild)
-            # or run_quick_update (quick update); avoid duplicate COMPLETE blocks.
+            # or run_quick_update (Snowflake → CDA + production rebuild); avoid duplicate COMPLETE blocks.
 
     def update_error(self, error_msg):
         """Handle update error"""
@@ -522,7 +530,7 @@ class ProdviewUpdateWorker(QThread):
                 def log_callback(message):
                     self.log_signal.emit(message)
 
-                self.status_signal.emit("Running quick update...")
+                self.status_signal.emit("Running Snowflake → CDA + production rebuild…")
 
                 summary = run_quick_update(
                     progress_callback,
