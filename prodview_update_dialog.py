@@ -70,7 +70,7 @@ class ProdviewUpdateDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        self.quick_scope_group = self.create_group("📅 Summary")
+        self.quick_scope_group = self.create_group("📅 Overview")
         self.quick_scope_body = QLabel()
         self.quick_scope_body.setWordWrap(True)
         self.quick_scope_body.setStyleSheet("color: #334155; font-size: 13px;")
@@ -224,7 +224,7 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         if self.mode_full_rebuild.isChecked():
             self.quick_scope_body.setText(
-                "PCE_CDA only (no Snowflake). Clears and reloads PCE_Production. ~5–10 min."
+                "Rebuild PCE_Production from CDA; no Snowflake. ~5–10 min."
             )
             self.info_text.setText(
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
@@ -232,7 +232,7 @@ class ProdviewUpdateDialog(QDialog):
             )
         else:
             self.quick_scope_body.setText(
-                "Snowflake (~18 mo) → PCE_CDA, then PCE_Production rebuild. ~10–20 min."
+                "Snowflake (~18 mo), then full PCE_Production rebuild (+ TC sync). ~10–20 min."
             )
             self.info_text.setText(
                 "  • Load Snowflake into PCE_CDA for the rolling window\n"
