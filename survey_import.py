@@ -11,7 +11,10 @@ import traceback
 import re
 import log_format as lf
 from db_connection import get_sql_conn
-from sales_allocation_updates import fetch_pce_uwi_to_well_name, resolve_accumap_uwi_to_well_name
+from sales_allocation_updates import (
+    fetch_pce_uwi_to_survey_well_name,
+    resolve_accumap_uwi_to_survey_well_name,
+)
 from type_curves_import import _excel_base_for_wm_match, _tc_well_match_key
 
 # Logical column keys for directional mapping (values are 0-based Excel column indices or None)
@@ -192,18 +195,6 @@ def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) ->
         if k in valid_wm_keys:
             return True
     return False
-
-
-def _resolve_wm_well_name_from_uwi(
-    uwi: Any, pce_uwi_dict: Dict[str, str]
-) -> Optional[str]:
-    """Map file UWI text to ``PCE_WM.[Well Name]`` using the same rules as Public Sales."""
-    if uwi is None or (isinstance(uwi, float) and pd.isna(uwi)):
-        return None
-    s = str(uwi).strip()
-    if not s or s.lower() in ("nan", "none", ""):
-        return None
-    return resolve_accumap_uwi_to_well_name(s, pce_uwi_dict)
 
 
 def well_name_match_key(name) -> str:
@@ -396,14 +387,15 @@ def lookup_wm_uwi_pad_for_directional(
     Match well name text to PCE_WM [Well Name] using the same key variants as bulk survey
     (composite-style names, meridian M, slash vs hyphen). Tries leading-word trims and
     hyphen-tail base forms from the file cell.
-    Returns (uwi, pad, wm_well_name, error_message). On success error_message is None
-    and wm_well_name is the exact PCE_WM.[Well Name] to store in PCE_Surveys.
+    Returns (uwi, pad, survey_well_name, error_message). On success error_message is None
+    and survey_well_name is ``COALESCE`` of trimmed ``[Composite Name]`` and ``[Well Name]``
+    for the matched row (the value written to ``PCE_Surveys.[Well Name]``).
     """
     conn = get_sql_conn()
     try:
         df = pd.read_sql(
             """
-            SELECT [Well Name], [Value Navigator UWI], [Pad Name]
+            SELECT [Well Name], [Composite Name], [Value Navigator UWI], [Pad Name]
             FROM PCE_WM
             WHERE [Well Name] IS NOT NULL
               AND LTRIM(RTRIM([Well Name])) <> ''
@@ -436,15 +428,22 @@ def lookup_wm_uwi_pad_for_directional(
         )
     uwi = m.iloc[0]["Value Navigator UWI"]
     pad = m.iloc[0]["Pad Name"]
+    composite = m.iloc[0]["Composite Name"]
     wm_wn = m.iloc[0]["Well Name"]
     if pd.isna(uwi) or str(uwi).strip() == "":
         return None, None, None, "Value Navigator UWI is missing in PCE_WM for this well."
     uwi_s = str(uwi).strip()
     pad_s = "" if pd.isna(pad) or pad is None else str(pad).strip()
+    comp_s = (
+        ""
+        if pd.isna(composite) or composite is None
+        else str(composite).strip()
+    )
     wm_wn_s = "" if pd.isna(wm_wn) or wm_wn is None else str(wm_wn).strip()
-    if not wm_wn_s:
+    survey_name_s = comp_s if comp_s else wm_wn_s
+    if not survey_name_s:
         return None, None, None, "[Well Name] is missing in PCE_WM for the matched row."
-    return uwi_s, pad_s, wm_wn_s, None
+    return uwi_s, pad_s, survey_name_s, None
 
 
 def _apply_append_or_overwrite(
@@ -726,20 +725,27 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         log(lf.detail(f"Sample DB match keys (normalized): {db_samples}"))
 
         cur_uwi = conn.cursor()
-        pce_uwi_dict = fetch_pce_uwi_to_well_name(cur_uwi)
+        pce_uwi_survey_dict = fetch_pce_uwi_to_survey_well_name(cur_uwi)
         log(
             lf.detail(
-                f"Loaded {lf.num(len(pce_uwi_dict))} UWI lookup keys from "
-                "PCE_WM [Value Navigator UWI]"
+                f"Loaded {lf.num(len(pce_uwi_survey_dict))} UWI lookup keys from "
+                "PCE_WM [Value Navigator UWI] (Composite Name preferred for survey label)"
             )
         )
 
         name_match = df["Well Name"].apply(
             lambda w: survey_well_name_matches_wm_keys(w, valid_wells)
         )
-        wm_from_uwi = df["UWI"].apply(
-            lambda u: _resolve_wm_well_name_from_uwi(u, pce_uwi_dict)
-        )
+
+        def _survey_name_from_uwi_cell(u: Any) -> Optional[str]:
+            if u is None or (isinstance(u, float) and pd.isna(u)):
+                return None
+            s = str(u).strip()
+            if not s or s.lower() in ("nan", "none", ""):
+                return None
+            return resolve_accumap_uwi_to_survey_well_name(s, pce_uwi_survey_dict)
+
+        wm_from_uwi = df["UWI"].apply(_survey_name_from_uwi_cell)
         uwi_match = wm_from_uwi.notna()
         df["Well Found"] = name_match | uwi_match
         use_wm_name = uwi_match & ~name_match
@@ -753,6 +759,20 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             )
 
         matched_df = df[df["Well Found"]].copy()
+        resolved_survey = matched_df["UWI"].apply(_survey_name_from_uwi_cell)
+        have_wm_label = resolved_survey.notna()
+        if have_wm_label.any():
+            matched_df.loc[have_wm_label, "Well Name Cleaned"] = resolved_survey[
+                have_wm_label
+            ]
+        name_only = ~have_wm_label
+        if name_only.any():
+            log(
+                lf.warn(
+                    f"{lf.num(int(name_only.sum()))} matched row(s) have no WM survey label "
+                    "for file UWI (using file-based cleaned name for [Well Name])."
+                )
+            )
         unmatched_df = df[~df["Well Found"]].copy()
         log(lf.success(f"{lf.num(len(matched_df))} rows matched to database wells"))
         log(lf.warn(f"{lf.num(len(unmatched_df))} rows did not match"))
@@ -853,7 +873,8 @@ def import_directional_survey_with_mapping(
     """
     Import a single-well directional survey workbook using user-defined row/column mapping.
     UWI, PAD, and the stored [Well Name] on each row come from the matched PCE_WM record
-    (Value Navigator UWI, Pad Name, Well Name). The survey file cell is only used to find that row.
+    (Value Navigator UWI, Pad Name; stored well label prefers Composite Name when set, else Well Name).
+    The survey file cell is only used to find that row.
     """
     def log(message):
         if log_callback:
@@ -903,7 +924,7 @@ def import_directional_survey_with_mapping(
             return {"error": err}
         log(lf.detail(f"UWI: {uwi}"))
         log(lf.detail(f"PAD: {pad or '(empty)'}"))
-        log(lf.detail(f"Well Name (from PCE_WM): {wm_well_name}"))
+        log(lf.detail(f"Well Name (WM composite-preferred): {wm_well_name}"))
         progress(25)
 
         data_start = mapping_spec.resolved_data_start_row()

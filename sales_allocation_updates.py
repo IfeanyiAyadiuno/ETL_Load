@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 from datetime import date, datetime, timedelta
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -67,6 +67,62 @@ def fetch_pce_uwi_to_well_name(cursor) -> Dict[str, str]:
     return pce_uwi_dict
 
 
+def _survey_well_display_from_wm(composite: Any, well_name: Any) -> Optional[str]:
+    """
+    Value stored on survey rows from one PCE_WM row: trim ``[Composite Name]`` when non-empty,
+    otherwise ``[Well Name]``. Returns None if neither yields a non-empty string.
+    """
+    comp_s: Optional[str] = None
+    if composite is not None and not (isinstance(composite, float) and pd.isna(composite)):
+        t = str(composite).strip()
+        if t:
+            comp_s = t
+    wn_s: Optional[str] = None
+    if well_name is not None and not (isinstance(well_name, float) and pd.isna(well_name)):
+        t = str(well_name).strip()
+        if t:
+            wn_s = t
+    if comp_s:
+        return comp_s
+    return wn_s
+
+
+def fetch_pce_uwi_to_survey_well_name(cursor) -> Dict[str, str]:
+    """Lowercased UWI variants -> COALESCE(Composite Name, Well Name) with same key rules as monthly loader."""
+    cursor.execute(
+        "SELECT [Value Navigator UWI], [Composite Name], [Well Name] "
+        "FROM PCE_WM "
+        "WHERE [Value Navigator UWI] IS NOT NULL "
+        "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')"
+    )
+    pce_uwi_dict: Dict[str, str] = {}
+    for pce_uwi, composite, well_name in cursor.fetchall():
+        if not pce_uwi:
+            continue
+        display = _survey_well_display_from_wm(composite, well_name)
+        if not display:
+            continue
+        pce_uwi_str = str(pce_uwi).strip()
+        variations = [pce_uwi_str.lower()]
+        if len(pce_uwi_str) > 1 and pce_uwi_str[0].isdigit():
+            variations.append(pce_uwi_str[1:].lower())
+        if "/" in pce_uwi_str:
+            parts = pce_uwi_str.split("/")
+            if parts:
+                last_part = parts[-1]
+                if last_part.isdigit():
+                    clean_last = str(int(last_part))
+                    new_uwi = "/".join(parts[:-1] + [clean_last])
+                    variations.append(new_uwi.lower())
+                if last_part.isdigit() and len(last_part) == 1:
+                    padded_last = last_part.zfill(2)
+                    new_uwi = "/".join(parts[:-1] + [padded_last])
+                    variations.append(new_uwi.lower())
+        for variation in variations:
+            pce_uwi_dict[variation] = display
+    return pce_uwi_dict
+
+
 def normalize_uwi_for_matching(uwi_str: str) -> str:
     normalized = uwi_str.lower()
     if normalized.endswith("/02"):
@@ -110,6 +166,24 @@ def resolve_accumap_uwi_to_well_name(
         for k in _accumap_uwi_search_keys(u[1:]):
             if k in pce_uwi_dict:
                 return pce_uwi_dict[k]
+    return None
+
+
+def resolve_accumap_uwi_to_survey_well_name(
+    uwi_str: str, pce_uwi_survey_dict: Dict[str, str]
+) -> Optional[str]:
+    """
+    Map one Accumap UWI string to the survey display name from PCE_WM (Composite Name preferred).
+    Returns None if no match.
+    """
+    for k in _accumap_uwi_search_keys(uwi_str):
+        if k in pce_uwi_survey_dict:
+            return pce_uwi_survey_dict[k]
+    u = str(uwi_str).strip()
+    if len(u) > 1 and u[0].isdigit():
+        for k in _accumap_uwi_search_keys(u[1:]):
+            if k in pce_uwi_survey_dict:
+                return pce_uwi_survey_dict[k]
     return None
 
 

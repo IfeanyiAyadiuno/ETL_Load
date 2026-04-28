@@ -407,6 +407,8 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 **Objective:** Load survey rows from Excel into **`PCE_Surveys`** (including **`Latitude`** and **`Longitude`** when mapped or present in the file, per column mapping rules in `survey_import.py`).
 
+When the import resolves a row against **`PCE_WM`** by **`[Value Navigator UWI]`**, **`PCE_Surveys.[Well Name]`** is set from **`[Composite Name]`** when that field is non-empty on the WM row, otherwise from **`[Well Name]`**.
+
 There are **two import paths** in the Survey dialog:
 
 1. **Bulk (Settings path)** — Uses **Survey File** from **Settings** (read-only path in the dialog). This is the **legacy** flat-table flow: the first row is headers; columns are matched by name (matching is **case-insensitive** after normalization). The file may be **Excel** (`.xlsx` / `.xls`) or **comma-separated** `.csv` (Excel-style export). Change **Settings** to repoint the file.
