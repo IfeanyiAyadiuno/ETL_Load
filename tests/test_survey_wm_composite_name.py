@@ -7,6 +7,8 @@ from sales_allocation_updates import (
     resolve_accumap_uwi_to_survey_well_name,
 )
 
+from survey_import import _survey_display_from_wm_match_keys
+
 
 @pytest.mark.parametrize(
     "composite,well_name,expected",
@@ -30,3 +32,11 @@ def test_resolve_accumap_uwi_survey_name_uses_dict():
 def test_resolve_accumap_falls_back_second_char_digit_strip():
     d = {"x-only": "from-variant"}
     assert resolve_accumap_uwi_to_survey_well_name("1x-only", d) == "from-variant"
+
+
+def test_survey_display_from_wm_match_keys_prefers_wm_label():
+    wm_by_key = {"b2-1-85-26w6": "Composite From WM"}
+    assert (
+        _survey_display_from_wm_match_keys("B2-01-85-26W6M-T2-PnP", wm_by_key)
+        == "Composite From WM"
+    )

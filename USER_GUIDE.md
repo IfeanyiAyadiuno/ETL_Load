@@ -407,7 +407,7 @@ Select **Run Update**, acknowledge the confirmation, monitor **Results** and the
 
 **Objective:** Load survey rows from Excel into **`PCE_Surveys`** (including **`Latitude`** and **`Longitude`** when mapped or present in the file, per column mapping rules in `survey_import.py`).
 
-When the import resolves a row against **`PCE_WM`** by **`[Value Navigator UWI]`**, **`PCE_Surveys.[Well Name]`** is set from **`[Composite Name]`** when that field is non-empty on the WM row, otherwise from **`[Well Name]`**.
+For each imported survey row, **`PCE_Surveys.[Well Name]`** is taken from Well Master: **`[Composite Name]`** when non-empty on the matched WM row, otherwise **`[Well Name]`**. Bulk import resolves this via **`[Value Navigator UWI]`** when possible, and otherwise via the same well-name matching keys used to find the WM row.
 
 There are **two import paths** in the Survey dialog:
 

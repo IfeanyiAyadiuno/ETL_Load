@@ -15,7 +15,7 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
-from type_curves_import import _tc_pad_name_from_excel
+from type_curves_import import _is_ye_tc_stored_well_name, _tc_pad_name_from_excel
 
 _INSERT_SQL = """
 INSERT INTO PCE_Production (
@@ -123,7 +123,11 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
     layer_s = None if layer is None or pd.isna(layer) else str(layer).strip() or None
     pad_s = None if pad is None or pd.isna(pad) else str(pad).strip() or None
     if pad_s is not None:
-        pad_s = _tc_pad_name_from_excel(pad_s)
+        wn_s = str(wn).strip()
+        pad_s = _tc_pad_name_from_excel(
+            pad_s,
+            apply_pce_tc_prefix=not _is_ye_tc_stored_well_name(wn_s),
+        )
     formation_s = None if formation is None or pd.isna(formation) else str(formation).strip() or None
     fault_s = None if fault is None or pd.isna(fault) else str(fault).strip() or None
     orient_s = None if orient is None or pd.isna(orient) else str(orient).strip() or None
@@ -212,7 +216,10 @@ def sync_tc_to_production(
             pad_s = None if pad is None or pd.isna(pad) else str(pad).strip() or None
             if pad_s is None:
                 continue
-            new_pad = _tc_pad_name_from_excel(pad_s)
+            new_pad = _tc_pad_name_from_excel(
+                pad_s,
+                apply_pce_tc_prefix=not _is_ye_tc_stored_well_name(str(wn).strip()),
+            )
             if new_pad and new_pad != pad_s:
                 pad_fixes.append((new_pad, str(wn).strip(), imp))
         if pad_fixes:

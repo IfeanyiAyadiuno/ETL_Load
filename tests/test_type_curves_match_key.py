@@ -90,6 +90,14 @@ def test_tc_pad_prefix_idempotent():
     assert _tc_pad_name_from_excel("PCE-TC-7-01-South") == "PCE-TC-7-01-South"
 
 
+def test_tc_pad_non_ye_family_omits_pce_prefix():
+    assert _tc_pad_name_from_excel("7-01 South", apply_pce_tc_prefix=False) == "7-01-South"
+
+
+def test_tc_pad_strip_prefix_when_no_prefix_requested():
+    assert _tc_pad_name_from_excel("PCE-TC-7-01-South", apply_pce_tc_prefix=False) == "7-01-South"
+
+
 @pytest.mark.parametrize(
     "name,expected",
     [

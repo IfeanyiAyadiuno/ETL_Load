@@ -216,21 +216,50 @@ def _mmcf_cum_tab_to_e3m3(mmcf: Optional[float]) -> Optional[float]:
     return float(mmcf) * 1000.0 / E3M3_PER_MCF
 
 
-def _tc_pad_name_from_excel(pad_raw: Optional[str]) -> Optional[str]:
+def _tc_normalize_pad_tail(s: str) -> Optional[str]:
+    """
+    Slugify pad label text. Strips a leading ``PCE-TC-`` prefix first so the same rules apply
+    whether the Excel cell was raw or already prefixed.
+    """
+    t = str(s).strip()
+    if not t:
+        return None
+    pref_len = len(TC_PAD_PREFIX)
+    if t.casefold().startswith(TC_PAD_PREFIX.casefold()):
+        t = t[pref_len:].strip().lstrip("-")
+        if not t:
+            return None
+    t = re.sub(r"\s+", " ", t)
+    tail = re.sub(r"[^\w\-]+", "-", t, flags=re.UNICODE)
+    tail = re.sub(r"-+", "-", tail).strip("-")
+    return tail if tail else None
+
+
+def _tc_pad_name_from_excel(
+    pad_raw: Optional[str], *, apply_pce_tc_prefix: bool = True
+) -> Optional[str]:
+    """
+    Normalize pad name from Excel / DB.
+
+    When ``apply_pce_tc_prefix`` is True (default), returns ``PCE-TC-`` + slug (non-YE type
+    curves). When False (YE2 / YE23 family wells), returns the slug only — no ``PCE-TC-`` prefix.
+
+    If ``pad_raw`` already starts with ``PCE-TC-`` and a prefix is requested, returns the
+    trimmed original string unchanged (idempotent re-import).
+    """
     if not pad_raw:
         return None
     s = str(pad_raw).strip()
     if not s:
         return None
-    # Already normalized (re-import / sync); do not double-prefix.
-    if s.casefold().startswith(TC_PAD_PREFIX.casefold()):
+    if apply_pce_tc_prefix and s.casefold().startswith(TC_PAD_PREFIX.casefold()):
         return s
-    s = re.sub(r"\s+", " ", s)
-    tail = re.sub(r"[^\w\-]+", "-", s, flags=re.UNICODE)
-    tail = re.sub(r"-+", "-", tail).strip("-")
+    tail = _tc_normalize_pad_tail(s)
     if not tail:
         return None
-    return TC_PAD_PREFIX + tail
+    if apply_pce_tc_prefix:
+        return TC_PAD_PREFIX + tail
+    return tail
 
 
 def _assign_column_roles(columns: List) -> Dict[str, int]:
@@ -686,7 +715,6 @@ def append_typecurves_from_excel(
 
         layer = col_str("layer", row)
         pad_raw = col_str("pad", row)
-        pad = _tc_pad_name_from_excel(pad_raw) if pad_raw else None
         formation = col_str("formation_producer", row)
         remarks = col_str("remarks", row)
         lateral = col("lateral_length", row)
@@ -705,6 +733,15 @@ def append_typecurves_from_excel(
                 continue
             w_tc = stored_well_name_file_only(cleaned)
             fault = fault_excel
+
+        pad = (
+            _tc_pad_name_from_excel(
+                pad_raw,
+                apply_pce_tc_prefix=not _is_ye_tc_stored_well_name(w_tc),
+            )
+            if pad_raw
+            else None
+        )
 
         if not pname and raw_well and raw_well not in seen_um:
             seen_um.add(raw_well)
@@ -894,7 +931,7 @@ def ye2_append_rows_to_pce_tc(
 ) -> dict:
     """
     Bulk YE2/YE23-style load: Excel well text is stored verbatim (no WM match, no `` - TC``).
-    Same metric columns as GUI import; pad uses ``PCE-TC-`` prefix when a pad column exists.
+    Same metric columns as GUI import; pad uses ``PCE-TC-`` prefix only for non-YE2-family wells.
     """
 
     def log(msg: str):
@@ -939,7 +976,14 @@ def ye2_append_rows_to_pce_tc(
             cum_cond_m3 = _mbbl_to_cum_m3(col("cond_sales_cum_mbbl", row))
         layer = col_str("layer", row)
         pad_raw = col_str("pad", row)
-        pad = _tc_pad_name_from_excel(pad_raw) if pad_raw else None
+        pad = (
+            _tc_pad_name_from_excel(
+                pad_raw,
+                apply_pce_tc_prefix=not _is_ye_tc_stored_well_name(wn),
+            )
+            if pad_raw
+            else None
+        )
         formation = col_str("formation_producer", row)
         fault = col_str("fault_block", row)
         remarks = col_str("remarks", row)

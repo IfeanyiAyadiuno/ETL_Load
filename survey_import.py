@@ -12,6 +12,7 @@ import re
 import log_format as lf
 from db_connection import get_sql_conn
 from sales_allocation_updates import (
+    _survey_well_display_from_wm,
     fetch_pce_uwi_to_survey_well_name,
     resolve_accumap_uwi_to_survey_well_name,
 )
@@ -195,6 +196,19 @@ def survey_well_name_matches_wm_keys(well_name_cell: Any, valid_wm_keys: set) ->
         if k in valid_wm_keys:
             return True
     return False
+
+
+def _survey_display_from_wm_match_keys(
+    well_name_cell: Any,
+    wm_match_key_to_survey_display: Dict[str, str],
+) -> Optional[str]:
+    """
+    First matching bulk key variant -> WM survey label (Composite Name preferred on that row).
+    """
+    for k in _survey_file_match_key_variants(well_name_cell):
+        if k in wm_match_key_to_survey_display:
+            return wm_match_key_to_survey_display[k]
+    return None
 
 
 def well_name_match_key(name) -> str:
@@ -708,7 +722,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         conn = get_sql_conn()
         valid_wells_df = pd.read_sql(
             """
-            SELECT DISTINCT [Well Name]
+            SELECT DISTINCT [Well Name], [Composite Name]
             FROM PCE_WM
             WHERE [Well Name] IS NOT NULL
               AND LTRIM(RTRIM([Well Name])) <> ''
@@ -720,6 +734,16 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             well_name_match_key
         )
         valid_wells = {k for k in valid_wells_df["Match Key"].tolist() if k}
+        wm_match_key_to_survey_display: Dict[str, str] = {}
+        for _, wm_row in valid_wells_df.iterrows():
+            mk = wm_row["Match Key"]
+            if not mk:
+                continue
+            disp = _survey_well_display_from_wm(
+                wm_row["Composite Name"], wm_row["Well Name"]
+            )
+            if disp:
+                wm_match_key_to_survey_display[str(mk)] = disp
         log(lf.detail(f"Found {lf.num(len(valid_wells))} valid wells in database"))
         db_samples = list(valid_wells)[:3]
         log(lf.detail(f"Sample DB match keys (normalized): {db_samples}"))
@@ -759,10 +783,16 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             )
 
         matched_df = df[df["Well Found"]].copy()
-        resolved_survey = matched_df["UWI"].apply(_survey_name_from_uwi_cell)
-        have_wm_label = resolved_survey.notna()
+        label_from_uwi = matched_df["UWI"].apply(_survey_name_from_uwi_cell)
+        label_from_wm_name = matched_df["Well Name"].apply(
+            lambda w: _survey_display_from_wm_match_keys(
+                w, wm_match_key_to_survey_display
+            )
+        )
+        wm_survey_label = label_from_uwi.where(label_from_uwi.notna(), label_from_wm_name)
+        have_wm_label = wm_survey_label.notna()
         if have_wm_label.any():
-            matched_df.loc[have_wm_label, "Well Name Cleaned"] = resolved_survey[
+            matched_df.loc[have_wm_label, "Well Name Cleaned"] = wm_survey_label[
                 have_wm_label
             ]
         name_only = ~have_wm_label
@@ -770,7 +800,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             log(
                 lf.warn(
                     f"{lf.num(int(name_only.sum()))} matched row(s) have no WM survey label "
-                    "for file UWI (using file-based cleaned name for [Well Name])."
+                    "from file UWI or WM Composite/Well Name (using file-based cleaned name)."
                 )
             )
         unmatched_df = df[~df["Well Found"]].copy()

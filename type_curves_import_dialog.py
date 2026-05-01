@@ -158,7 +158,8 @@ class TypeCurvesImportDialog(QDialog):
             "Loads into dbo.PCE_TC, then materializes into PCE_Production at ImportDate. "
             "WM-backed keys use the longer of Excel vs WM well id plus ' - TC'. "
             "File-only rows: names starting with YE2 (including YE23) stay verbatim; "
-            "other file-only wells get ' - TC'."
+            "other file-only wells get ' - TC'. "
+            "Pad names get the 'PCE-TC-' prefix only for non-YE2-family type curves; YE2/YE23 rows keep pad text without that prefix."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(muted_body_label_style())
