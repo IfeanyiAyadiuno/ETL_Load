@@ -15,7 +15,7 @@ import pandas as pd
 # Days back from local calendar ``date.today()`` for the last included production day.
 PRODVIEW_DATA_LAG_DAYS = 2
 
-# Rolling lookback for Quick Update (calendar months from effective end).
+# Rolling lookback for Prodview Snowflake mode (calendar months from effective end).
 QUICK_UPDATE_LOOKBACK_MONTHS = 18
 
 
@@ -31,7 +31,7 @@ def prodview_effective_end_date() -> date:
 
 def quick_update_start_date(effective_end: date | None = None) -> date:
     """
-    First calendar day for Quick Update: *effective_end* minus QUICK_UPDATE_LOOKBACK_MONTHS
+    First calendar day for Prodview Snowflake rolling window: *effective_end* minus QUICK_UPDATE_LOOKBACK_MONTHS
     on a month-aligned offset (same as ``pd.DateOffset(months=...)``).
     """
     end = effective_end or prodview_effective_end_date()
@@ -39,7 +39,7 @@ def quick_update_start_date(effective_end: date | None = None) -> date:
 
 
 def quick_update_date_range() -> Tuple[date, date]:
-    """Inclusive (start, end) for Quick Update Snowflake + CDA replace window."""
+    """Inclusive (start, end) for Snowflake + CDA replace window (`run_quick_update`)."""
     end = prodview_effective_end_date()
     start = quick_update_start_date(end)
     return start, end

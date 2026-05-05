@@ -17,7 +17,7 @@ The **Production Update System** is a Windows desktop app that keeps SQL Server 
 - **Main window** — Launch operations, show the operation log.
 - **Settings** — SQL server display names; paths to ValNav, Accumap, Survey, Type Curves, and Whitson+ templates (saved in `settings.ini`).
 - **Well Master** — Edit well metadata; import new wells from Snowflake; stage completions. **Tables:** `PCE_WM`.
-- **Prodview / Snowflake** — Pull daily meter data for a date range; quick update or full rebuild paths. **Tables:** `PCE_CDA`, `PCE_Production`.
+- **Prodview / Snowflake** — Pull daily meter data (**Snowflake → CDA + production rebuild**, default) or **full rebuild** from CDA. **Tables:** `PCE_CDA`, `PCE_Production`.
 - **PA (Production Accounting)** — Load ValNav month; update allocation factors and ValNav-driven columns on CDA/production. **Tables:** `Allocation_Factors`, `PCE_CDA`, `PCE_Production`.
 - **Public Sales** — Load Accumap; update public gas sales and sales CGR columns. **Tables:** `Allocation_Factors`, `PCE_CDA`, `PCE_Production`.
 - **Survey import** — Load survey rows from Excel/CSV (bulk or mapped layout). **Tables:** `PCE_Surveys`.

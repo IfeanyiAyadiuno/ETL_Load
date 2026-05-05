@@ -619,11 +619,11 @@ def run_quick_update(progress_callback=None, log_callback=None):
 
     start_first, end_last = quick_update_date_range()
     if start_first > end_last:
-        log(lf.error("Quick update date range is empty"))
-        return {"error": "Quick update date range is empty"}
+        log(lf.error("Snowflake rolling-window date range is empty"))
+        return {"error": "Snowflake rolling-window date range is empty"}
 
     log(lf.header(
-        "QUICK UPDATE MODE - PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
+        "SNOWFLAKE → CDA + PRODUCTION — PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
         Range=f"{start_first} through {end_last} (rolling 18 months)",
     ))
     total_start = time.time()
@@ -782,7 +782,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             "production_records": total_prod,
             "duration": total_time,
         }
-        log(lf.summary("QUICK UPDATE COMPLETE", {
+        log(lf.summary("SNOWFLAKE + PRODUCTION COMPLETE", {
             "Completed": lf.timestamp(),
             "Date range": f"{start_first} → {end_last}",
             "Wells updated": total_wells,

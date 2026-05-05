@@ -9,7 +9,7 @@ Generated for internal continuity / transfer. **Classification:** GUI/ETL chain,
 - **`exports_dialog.py`** — Exports placeholder UI.
 - **`prodview_update_dialog.py`** — Prodview UI.
 - **`prodview_update_gui.py`** — Snowflake/SQL CDA and production update logic.
-- **`prodview_date_bounds.py`** — Rolling quick-update window and “today − lag” end date (shared with `production_update`).
+- **`prodview_date_bounds.py`** — Rolling Snowflake window and “today − lag” end date (shared with `production_update`).
 - **`monthly_loader_dialog.py`** — PA dialog.
 - **`monthly_loader_gui.py`** — PA allocation logic.
 - **`sales_ratios_dialog.py`** — Public Sales UI.

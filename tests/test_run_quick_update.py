@@ -1,4 +1,4 @@
-"""Prodview quick update uses rolling date bounds (see prodview_date_bounds)."""
+"""Prodview Snowflake mode (`run_quick_update`) uses rolling date bounds (see prodview_date_bounds)."""
 
 from datetime import date
 from unittest.mock import patch

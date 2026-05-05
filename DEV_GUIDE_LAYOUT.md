@@ -64,7 +64,7 @@ You can paste this into ChatGPT with a prompt such as:
   - `well_master_gui.py` – Well Master UI (also contains its logic).
 
 - **Core ETL / logic modules:**
-  - `prodview_update_gui.py` – **Prodview/Snowflake update logic** (quick update + full rebuild).
+  - `prodview_update_gui.py` – **Prodview/Snowflake update logic** (**Snowflake → CDA + production rebuild** + full rebuild).
   - `monthly_loader_gui.py` – **Production Accounting monthly loader** core logic.
   - `survey_import.py` – **Survey ETL** logic.
   - `type_curves_import.py` – **Type Curves** ETL logic (`PCE_TC`). Call `append_typecurves_from_excel` / `delete_typecurves_from_tc` from this module (legacy `type.py` wrapper removed).
@@ -207,7 +207,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **What it does:**
   - Reads the type-curve workbook (**first sheet**, **row 1 = headers**), maps columns by normalized header text (vendor “Gas S1” column is stored as **Gas S2** in SQL).
-  - Writes **`dbo.PCE_TC`**, then refreshes **`PCE_Production`** for TC-backed rows via **`sync_tc_to_production`** (also after Prodview quick update / full rebuild where applicable). Stored **`[Well Name]`** for WM-backed rows uses the **longer** of cleaned Excel vs WM **`[Well Name]`**, then **` - TC`**. File-only: names starting with **`YE2`** (covers **`YE23`**) verbatim; other file-only rows append **` - TC`**.
+  - Writes **`dbo.PCE_TC`**, then refreshes **`PCE_Production`** for TC-backed rows via **`sync_tc_to_production`** (also after Prodview **Snowflake → CDA + production rebuild** / full rebuild where applicable). Stored **`[Well Name]`** for WM-backed rows uses the **longer** of cleaned Excel vs WM **`[Well Name]`**, then **` - TC`**. File-only: names starting with **`YE2`** (covers **`YE23`**) verbatim; other file-only rows append **` - TC`**.
   - **Append:** per stored key, `DELETE` then `INSERT` for rows in scope (all rows in the file, or a user-selected subset from the scan list).
   - **Delete:** `DELETE FROM PCE_TC` for selected stored well keys (no Excel); matching **`PCE_Production`** rows for those keys are removed.
 
@@ -293,7 +293,7 @@ This section is the **most important** if you want to know "where is the code th
 For each big operation (Prodview update, PA loader, surveys, type curves, sales ratios):
 
 1. **Dialog** creates a `QThread`-based worker.
-2. **Worker** calls a backend function like `run_quick_update(...)`.
+2. **Worker** calls a backend function such as `run_quick_update(...)` (Snowflake → CDA + production rebuild) or `production_update.main` (full rebuild).
 3. Backend functions accept **`progress_callback`** and **`log_callback`**.
 4. Worker translates those callbacks into **Qt signals**:
    - `progress_signal(int)` → updates the progress bar.
@@ -319,8 +319,8 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
 
 - **Prodview Full Rebuild:**
   - Heavy operation; can take 30–40 minutes.
-  - Clears and rebuilds `PCE_Production` from all `PCE_CDA` (no Snowflake query in that step; CDA refresh is Quick Update’s job).
-  - Orchestrated by `ProdviewUpdateDialog` calling `production_update.main` (Quick Update logic remains in `prodview_update_gui.py`).
+  - Clears and rebuilds `PCE_Production` from all `PCE_CDA` (no Snowflake query in that step; CDA refresh is the **Snowflake → CDA + production rebuild** mode’s job).
+  - Orchestrated by `ProdviewUpdateDialog` calling `production_update.main`.
 
 - **Type Curves Import:**
   - **Append** deletes and re-inserts rows in **`PCE_TC`** per well in scope; **Delete** removes selected wells from **`PCE_TC`** only.
@@ -335,7 +335,7 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
 - **Batch inserts** with `fast_executemany` enabled in:
   - `prodview_update_gui.py` (Prodview updates).
   - `type_curves_import.py` (type curves).
-- **Per-month processing** for quick updates to keep data volumes smaller.
+- **Rolling-window Snowflake pull** in `prodview_update_gui.py` to bound data volume.
 
 ### 7.3 How to Add New Functionality
 
@@ -355,7 +355,7 @@ Provide a **simple table** like this in the final document:
 
 - **Prodview/Snowflake Daily Update**  
   - UI: `prodview_update_dialog.py` (`ProdviewUpdateDialog`)  
-  - Logic: `prodview_update_gui.py` (`run_quick_update`, full rebuild path)  
+  - Logic: `prodview_update_gui.py` (`run_quick_update` = Snowflake → CDA + production rebuild; full rebuild via `production_update.main`)  
   - Data: Snowflake → `PCE_CDA`, `PCE_Production`
 
 - **PA Monthly Loader**  

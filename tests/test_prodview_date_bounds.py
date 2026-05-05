@@ -1,4 +1,4 @@
-"""Calendar bounds for Prodview quick update and full-rebuild caps."""
+"""Calendar bounds for Prodview Snowflake mode (`run_quick_update`) and full-rebuild caps."""
 
 from datetime import date
 from unittest.mock import patch

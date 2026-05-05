@@ -342,7 +342,8 @@ class SalesRatiosDialog(QDialog):
                 "No CDA data in range",
                 "There are allocation factors for this range, but no PCE_CDA rows "
                 "for these calendar dates.\n\n"
-                "Run Prodview / Snowflake (Quick Update) for this period first.\n\n"
+                "Run Prodview / Snowflake (Snowflake → CDA + production rebuild) first "
+                "so PCE_CDA covers these dates.\n\n"
                 "Continue anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No,
