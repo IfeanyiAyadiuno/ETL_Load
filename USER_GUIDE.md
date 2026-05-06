@@ -150,7 +150,6 @@ flowchart TB
     m_db["db_connection.py"]
     m_pv["prodview_update_gui.py"]
     m_pu["production_update.py"]
-    m_wmjob["well_master_cda_worker.py"]
     m_pa["monthly_loader_gui.py"]
     m_pubg["sales_ratios_gui.py"]
     m_salloc["sales_allocation_updates.py"]
@@ -175,7 +174,7 @@ flowchart TB
   qt --> gui_dlgs
 
   d_set --> m_db
-  d_wm --> m_wmjob
+  d_wm --> m_db
   d_pv --> m_pv
   d_pv -->|"Full rebuild"| m_pu
   d_pa --> m_pa
@@ -186,9 +185,6 @@ flowchart TB
   d_exp --> exp_stub["No DB writes Coming soon"]
 
   m_db --> TWM
-  m_wmjob --> sf
-  m_wmjob --> TWM
-  m_wmjob --> TCDA
   m_pv --> sf
   m_pv -->|"Snowflake+CDA"| TCDA
   m_pv --> TPR
@@ -212,6 +208,7 @@ flowchart TB
 
 **Legend (behavior the diagram summarizes):**
 
+- **Well Master — Import New Wells** (`well_master_gui`): inserts into **`PCE_WM`** only; it does **not** update **`PCE_CDA`** or **`PCE_Production`**. Run **Prodview / Snowflake** when you need daily data for new wells.
 - **Prodview — Snowflake → CDA + production rebuild** (`prodview_update_gui.run_quick_update`): uses a **fixed rolling ~18 calendar month** Snowflake window (start/end from `prodview_date_bounds.quick_update_date_range` — end date is **today minus a short lag**, typically **2** days). Pulls Snowflake for that span, replaces matching **`PCE_CDA`** rows, deletes **`PCE_Production`** rows in that date range **except** type-curve keys (`[Well Name]` ending **` - TC`**) and **YE2-family** keys (`[Well Name]` LIKE **`YE2%`**), reloads all **`PCE_CDA`** for the production pass, recomputes sequences/cumulatives/averages in Python, **deletes and re-inserts** **`PCE_Production`** for every well name in the rebuilt dataset (full history per well for those keys), then runs **`sync_tc_to_production`** so **`PCE_TC`** rows are materialized into **`PCE_Production`**. The Prodview dialog **does not** expose **From**/**To** pickers; the window is automatic. *(This is the default radio: **Snowflake → CDA + production rebuild**.)*
 - **Prodview Full Rebuild** (`production_update.main`): **does not** call Snowflake. It first repaints selected sales-related columns on **`PCE_CDA`** from **`Allocation_Factors`** (when allocation rows exist), then **deletes all rows in **`PCE_Production`**** and rebuilds production from **all** of **`PCE_CDA`**, then runs **`sync_tc_to_production`** (same type-curve materialization as the Snowflake path).
 - **`run_prodview_update`** in `prodview_update_gui.py` (range-based Snowflake + SQL insert path) exists in code but is **not** invoked from the current Prodview dialog; the dialog uses **Snowflake → CDA + production rebuild** and **Full rebuild** only.
@@ -286,11 +283,9 @@ PA uses **ValNav Template**; **Public Sales Data and Ratios** uses **Accumap Tem
 
 **Caution (Snowflake `*` and tester-only wells):** Leading **asterisks (`*`)** on well or unit names in the preview come from Snowflake’s naming convention; they are **not kept as part of the stored Well Name**—the application **strips leading asterisks** when you confirm **Add Wells** (including after you edit the name in the preview table). If Snowflake returns wells that exist **only as Tester records** (no Daily meter yet), the app first opens **New Wells – GasIDREC Required**: you must **enter the correct GasIDREC** from ProdView for each row you keep (**PressuresIDREC** is shown read-only from Snowflake on that screen); after you confirm or skip that step, **Preview New Wells** and **Add Wells** work as described above.
 
-### Post-import behavior
+### After importing new wells
 
-The application queues a background job (`well_master_cda_worker`) to load daily data into **`PCE_CDA`** for inserted wells (historical window per application logic, typically from 2009 through the current date). A progress indicator is shown during this task.
-
-**Caution:** That job updates **`PCE_CDA` only**. It does **not** rebuild **`PCE_Production`**. For production refresh (sequences, cumulatives, and so on), run **Prodview / Snowflake** using the default **Snowflake → CDA + production rebuild** mode (rolling ~18 months), or coordinate a **Full rebuild** with the responsible team.
+Importing wells updates **`PCE_WM` only**. The application does **not** automatically load **PCE_CDA** or **PCE_Production**. When you are ready for daily data, run **Prodview / Snowflake** (for example the default **Snowflake → CDA + production rebuild** rolling window, or a **Full rebuild** if that is what your process uses).
 
 `[IMAGE: Well Master View/Edit tab — table, Save Changes, Import New Wells]`
 

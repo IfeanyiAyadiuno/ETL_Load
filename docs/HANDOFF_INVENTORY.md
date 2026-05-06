@@ -18,7 +18,6 @@ Generated for internal continuity / transfer. **Classification:** GUI/ETL chain,
 - **`well_master_gui.py`** — Well Master UI.
 - **`well_master_db.py`** — Well Master data access.
 - **`well_master_delegates.py`** — Table delegates.
-- **`well_master_cda_worker.py`** — Background CDA populate after WM import.
 - **`survey_import_dialog.py`** — Survey UI.
 - **`survey_mapping_dialog.py`** — Directional survey mapping UI.
 - **`survey_import.py`** — Survey ETL + CLI entry.

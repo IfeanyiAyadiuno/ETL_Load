@@ -46,7 +46,7 @@
 ### `prodview_update_gui.py`
 
 **Lines:** 718 (inventory) → **720** (after Phase 2).  
-**Changes:** Phase 2 — module-level `_emit_log`, `from functools import partial`, and `log = partial(_emit_log, log_callback)` in `populate_wells_cda`, `run_prodview_update`, and `run_quick_update`.  
+**Changes:** Phase 2 — module-level `_emit_log`, `from functools import partial`, and `log = partial(_emit_log, log_callback)` in `run_prodview_update` and `run_quick_update`.  
 **Rationale:** Removes three identical nested `log` closures; net +2 lines for explicit helper (same runtime behavior).
 
 ### `monthly_loader_gui.py`
@@ -211,11 +211,9 @@
 **Changes:** None.  
 **Rationale:** Thin launcher; no changes needed.
 
-### `well_master_cda_worker.py`
+### `well_master_cda_worker.py` (removed)
 
-**Lines:** 27  
-**Changes:** None.  
-**Rationale:** Already minimal bridge to `populate_wells_cda`.
+**Note:** Previously a thin `QThread` bridge to per-well CDA populate after Well Master import. **Removed:** new wells update **`PCE_WM`** only; users run **Prodview / Snowflake** manually to refresh **`PCE_CDA`** and **`PCE_Production`**.
 
 ### `app_paths.py`
 
