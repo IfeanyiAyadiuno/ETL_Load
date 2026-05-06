@@ -1742,8 +1742,8 @@ class WellMasterDialog(QDialog):
             'Orient': None,
         } for w in new_wells])
 
-        start_date = "2009-01-01"
-        end_date = str(date.today())
+        start_date = date(2009, 1, 1)
+        end_date = date.today()
 
         self._cda_dialog = QDialog(self)
         self._cda_dialog.setWindowTitle("Populating PCE_CDA")

@@ -282,6 +282,20 @@ def _month_boundaries(dt):
     return first.date(), last.date()
 
 
+def _coerce_to_date(d, field_name="date"):
+    """Normalize *d* to datetime.date for comparisons, date_range, and SQL."""
+    if d is None:
+        raise ValueError(f"{field_name} is required")
+    if isinstance(d, datetime):
+        return d.date()
+    if isinstance(d, date):
+        return d
+    ts = pd.to_datetime(d, errors="coerce")
+    if pd.isna(ts):
+        raise ValueError(f"Invalid {field_name}: {d!r}")
+    return ts.date()
+
+
 def _batch_executemany(cursor, sql, rows, batch_size=5000):
     """Execute INSERT/UPDATE in batches."""
     for i in range(0, len(rows), batch_size):
@@ -318,10 +332,8 @@ def populate_wells_cda(mapping_df, start_date, end_date,
     total_start = time.time()
     well_names = mapping_df['Well Name'].unique().tolist()
 
-    if isinstance(start_date, datetime):
-        start_date = start_date.date()
-    if isinstance(end_date, datetime):
-        end_date = end_date.date()
+    start_date = _coerce_to_date(start_date, "start_date")
+    end_date = _coerce_to_date(end_date, "end_date")
     cap = prodview_effective_end_date()
     if end_date > cap:
         log(lf.detail(f"Capping CDA populate end date {end_date} → {cap} (automatic end)"))

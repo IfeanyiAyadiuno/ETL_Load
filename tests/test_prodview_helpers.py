@@ -4,7 +4,21 @@ from datetime import date, datetime
 
 import pandas as pd
 
-from prodview_update_gui import _build_spine, _merge_sf_data, _month_boundaries
+from prodview_update_gui import (
+    _build_spine,
+    _coerce_to_date,
+    _merge_sf_data,
+    _month_boundaries,
+)
+
+
+def test_coerce_to_date_from_iso_string():
+    assert _coerce_to_date("2009-01-01", "start") == date(2009, 1, 1)
+
+
+def test_coerce_to_date_datetime_and_plain_date():
+    assert _coerce_to_date(datetime(2024, 6, 15, 12, 0), "x") == date(2024, 6, 15)
+    assert _coerce_to_date(date(2024, 6, 15), "x") == date(2024, 6, 15)
 
 
 def test_month_boundaries_january():
