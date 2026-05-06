@@ -271,6 +271,195 @@ _PROD_COLUMNS = [
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
 ]
 
+_CDA_SELECT_SQL = """
+                SELECT 
+                    [Well Name] as Source_Well_Name,
+                    ProdDate as [Date],
+                    [GasWH_Production] as [Gas WH Production (10³m³)],
+                    [Condensate_WH_Production] as [Condensate WH (m³/d)],
+                    [Gas - S2 Production] as [Gas S2 Production (10³m³)],
+                    [Gas - Sales Production] as [Gas Sales Production (10³m³)],
+                    [Condensate - Sales Production] as [Condensate Sales (m³/d)],
+                    [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
+                    [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
+                    [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
+                    [CGR_Ratio] as [CGR (m³/e³m³)],
+                    [WGR_Ratio] as [WGR (m³/e³m³)],
+                    [ECF_Ratio] as [ECF],
+                    [OnProdHours] as [Hours On],
+                    [TubingPressure] as [Tubing Pressure (kPa)],
+                    [CasingPressure] as [Casing Pressure (kPa)],
+                    [ChokeSize] as [Choke Size],
+                    [AllocatedWater_Rate] as [Alloc. Water Rate (m³)],
+                    [NGL_Production] as [NGL (m³)],
+        [Formation Producer], [Layer Producer], [Fault Block],
+        [Pad Name], [Lateral Length],
+                    [Orient] as [Orientation]
+                FROM PCE_CDA
+    ORDER BY
+        CASE
+            WHEN [Well Name] LIKE 'YE2%' THEN 1
+            WHEN [Well Name] LIKE '% - TC' THEN 2
+            ELSE 0
+        END,
+        [Well Name], ProdDate
+"""
+
+
+def rebuild_production_for_wells_from_cda(
+    source_well_names,
+    log_callback=None,
+    progress_callback=None,
+    end_cap_date=None,
+):
+    """
+    Rebuild PCE_Production from PCE_CDA for *source_well_names* only, using the same
+    Python pipeline as ``run_quick_update`` (composite mapping, first-production trim,
+    sequences, cumulatives, monthly averages, on-production year).
+
+    Deletes existing PCE_Production rows for both source and mapped well names, then
+    inserts the rebuilt rows. Also runs ``sync_tc_to_production`` (same as quick update).
+
+    Returns ``{"production_records": int, "production_wells": int}`` or ``{"error": ...}``.
+    """
+    from production_update import (
+        fetch_well_mapping,
+        apply_well_names,
+        filter_to_first_production,
+        calculate_sequences,
+        calculate_cumulatives,
+        calculate_monthly_averages,
+        add_on_production_year,
+    )
+
+    log = partial(_emit_log, log_callback)
+
+    def p(val):
+        if progress_callback:
+            progress_callback(int(val))
+
+    names = sorted(
+        {
+            str(w).strip()
+            for w in source_well_names
+            if w is not None and str(w).strip()
+        }
+    )
+    if not names:
+        return {"production_records": 0, "production_wells": 0}
+
+    conn = None
+    try:
+        conn = get_sql_conn()
+        p(5)
+        chunks = []
+        batch_n = 200
+        for i in range(0, len(names), batch_n):
+            batch = names[i : i + batch_n]
+            ph = ",".join(["?"] * len(batch))
+            sql = _CDA_SELECT_SQL.replace(
+                "FROM PCE_CDA",
+                f"FROM PCE_CDA\n                WHERE [Well Name] IN ({ph})",
+                1,
+            )
+            chunks.append(pd.read_sql(sql, conn, params=batch))
+        p(20)
+        all_cda = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+
+        if end_cap_date is not None and not all_cda.empty:
+            cap = _coerce_to_date(end_cap_date, "end_cap_date")
+            all_cda["_cap_date"] = pd.to_datetime(
+                all_cda["Date"], errors="coerce"
+            ).dt.date
+            before = len(all_cda)
+            all_cda = all_cda.loc[all_cda["_cap_date"] <= cap].drop(
+                columns=["_cap_date"]
+            )
+            if len(all_cda) < before:
+                log(
+                    lf.detail(
+                        f"Excluded {lf.num(before - len(all_cda))} CDA row(s) after {cap}"
+                    )
+                )
+
+        if all_cda.empty:
+            log(lf.warn("No PCE_CDA rows for production rebuild; skipping insert."))
+            return {"production_records": 0, "production_wells": 0}
+
+        log(lf.detail(f"Loaded {lf.num(len(all_cda))} CDA row(s) for {lf.num(len(names))} well(s)"))
+        p(35)
+        composite_map, fallback_map = fetch_well_mapping()
+        all_cda = apply_well_names(all_cda, composite_map, fallback_map)
+        if all_cda.empty:
+            log(lf.warn("No rows after well name mapping; skipping production insert."))
+            return {"production_records": 0, "production_wells": 0}
+        all_cda = filter_to_first_production(all_cda)
+        if all_cda.empty:
+            log(lf.warn("No rows after first-production filter; skipping production insert."))
+            return {"production_records": 0, "production_wells": 0}
+        all_cda = calculate_sequences(all_cda)
+        all_cda = calculate_cumulatives(all_cda)
+        all_cda = calculate_monthly_averages(all_cda)
+        all_cda = add_on_production_year(all_cda)
+        p(55)
+
+        mapped_names = all_cda["Well Name"].dropna().astype(str).str.strip().unique().tolist()
+        delete_names = sorted(set(names) | set(mapped_names))
+
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
+        log(lf.step("Replacing PCE_Production for imported wells..."))
+        for j in range(0, len(delete_names), batch_n):
+            batch = delete_names[j : j + batch_n]
+            ph = ",".join(["?"] * len(batch))
+            cursor.execute(
+                f"DELETE FROM PCE_Production WHERE [Well Name] IN ({ph})",
+                batch,
+            )
+        conn.commit()
+        p(70)
+
+        for col in _PROD_COLUMNS:
+            if col not in all_cda.columns:
+                all_cda[col] = np.nan
+
+        prod_rows = _df_to_insert_rows(all_cda, _PROD_COLUMNS)
+        _batch_executemany(cursor, _PROD_INSERT_SQL, prod_rows)
+        conn.commit()
+        n_wells = len(mapped_names)
+        log(
+            lf.success(
+                f"PCE_Production: {lf.num(len(prod_rows))} row(s) for {lf.num(n_wells)} well(s)"
+            )
+        )
+        p(85)
+
+        log(lf.step("Materializing PCE_TC into PCE_Production..."))
+        try:
+            sync_tc_to_production(log_callback=log, conn=conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
+        conn.commit()
+        p(100)
+
+        return {
+            "production_records": len(prod_rows),
+            "production_wells": n_wells,
+        }
+    except Exception as e:
+        log(lf.error(str(e)))
+        import traceback
+
+        for line in traceback.format_exc().strip().split("\n"):
+            log(lf.detail(line))
+        return {"error": f"ERROR: {e}"}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
 
 def _month_boundaries(dt):
     """Return (first_day, last_day) as date objects for the month of *dt*."""
@@ -307,7 +496,8 @@ def _batch_executemany(cursor, sql, rows, batch_size=5000):
 # ---------------------------------------------------------------------------
 
 def populate_wells_cda(mapping_df, start_date, end_date,
-                       progress_callback=None, log_callback=None):
+                       progress_callback=None, log_callback=None,
+                       also_rebuild_production=False):
     """
     Populate PCE_CDA for the wells described in *mapping_df*.
 
@@ -316,7 +506,9 @@ def populate_wells_cda(mapping_df, start_date, end_date,
         Formation Producer, Layer Producer, Fault Block,
         Pad Name, Lateral Length, Orient
 
-    Only PCE_CDA is touched; PCE_Production is NOT modified.
+    By default only PCE_CDA is touched. If *also_rebuild_production* is True,
+    PCE_Production is rebuilt for those same wells from PCE_CDA (same pipeline as
+    Snowflake quick update: mapping, sequences, cumulatives, TC sync).
 
     *end_date* is capped at ``prodview_effective_end_date()`` so we never write
     daily rows beyond the agreed Prodview lag.
@@ -386,19 +578,47 @@ def populate_wells_cda(mapping_df, start_date, end_date,
         _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
         conn.commit()
         conn.close()
-        progress(100)
-        
+        progress(60)
+
         total_time = time.time() - total_start
         summary = {
             'wells': len(well_names),
             'cda_records': len(rows),
             'duration': total_time,
         }
-        log(lf.summary("CDA POPULATE COMPLETE", {
-            "Wells": len(well_names),
-            "PCE_CDA records": len(rows),
-            "Duration": lf.elapsed(total_time),
-        }))
+
+        if also_rebuild_production:
+            log(lf.step("Rebuilding PCE_Production from PCE_CDA for imported wells..."))
+
+            def sub_progress(pct):
+                if progress_callback:
+                    progress_callback(60 + int(0.4 * pct))
+
+            pr = rebuild_production_for_wells_from_cda(
+                well_names,
+                log_callback=log_callback,
+                progress_callback=sub_progress,
+                end_cap_date=end_date,
+            )
+            summary["duration"] = time.time() - total_start
+            if "error" in pr:
+                log(lf.error(pr["error"]))
+                return {**summary, "error": pr["error"]}
+            summary["production_records"] = pr["production_records"]
+            summary["production_wells"] = pr["production_wells"]
+            log(lf.summary("CDA + PRODUCTION POPULATE COMPLETE", {
+                "Wells": len(well_names),
+                "PCE_CDA records": len(rows),
+                "PCE_Production records": pr["production_records"],
+                "Duration": lf.elapsed(summary["duration"]),
+            }))
+        else:
+            progress(100)
+            log(lf.summary("CDA POPULATE COMPLETE", {
+                "Wells": len(well_names),
+                "PCE_CDA records": len(rows),
+                "Duration": lf.elapsed(total_time),
+            }))
         return summary
         
     except Exception as e:
@@ -586,40 +806,6 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 # ---------------------------------------------------------------------------
 # run_quick_update
 # ---------------------------------------------------------------------------
-
-_CDA_SELECT_SQL = """
-                SELECT 
-                    [Well Name] as Source_Well_Name,
-                    ProdDate as [Date],
-                    [GasWH_Production] as [Gas WH Production (10³m³)],
-                    [Condensate_WH_Production] as [Condensate WH (m³/d)],
-                    [Gas - S2 Production] as [Gas S2 Production (10³m³)],
-                    [Gas - Sales Production] as [Gas Sales Production (10³m³)],
-                    [Condensate - Sales Production] as [Condensate Sales (m³/d)],
-                    [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
-                    [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
-                    [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
-                    [CGR_Ratio] as [CGR (m³/e³m³)],
-                    [WGR_Ratio] as [WGR (m³/e³m³)],
-                    [ECF_Ratio] as [ECF],
-                    [OnProdHours] as [Hours On],
-                    [TubingPressure] as [Tubing Pressure (kPa)],
-                    [CasingPressure] as [Casing Pressure (kPa)],
-                    [ChokeSize] as [Choke Size],
-                    [AllocatedWater_Rate] as [Alloc. Water Rate (m³)],
-                    [NGL_Production] as [NGL (m³)],
-        [Formation Producer], [Layer Producer], [Fault Block],
-        [Pad Name], [Lateral Length],
-                    [Orient] as [Orientation]
-                FROM PCE_CDA
-    ORDER BY
-        CASE
-            WHEN [Well Name] LIKE 'YE2%' THEN 1
-            WHEN [Well Name] LIKE '% - TC' THEN 2
-            ELSE 0
-        END,
-        [Well Name], ProdDate
-"""
 
 
 def run_quick_update(progress_callback=None, log_callback=None):

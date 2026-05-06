@@ -1722,11 +1722,11 @@ class WellMasterDialog(QDialog):
         self.tabs.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
-    # Auto-populate PCE_CDA for newly imported wells
+    # Auto-populate PCE_CDA and PCE_Production for newly imported wells
     # ------------------------------------------------------------------
 
     def _start_cda_populate(self, new_wells):
-        """Kick off background CDA populate for newly imported wells."""
+        """Kick off background CDA + production populate for newly imported wells."""
         import pandas as pd
         from datetime import date
 
@@ -1746,13 +1746,15 @@ class WellMasterDialog(QDialog):
         end_date = date.today()
 
         self._cda_dialog = QDialog(self)
-        self._cda_dialog.setWindowTitle("Populating PCE_CDA")
+        self._cda_dialog.setWindowTitle("Populating CDA and production")
         self._cda_dialog.setMinimumWidth(520)
         self._cda_dialog.setMinimumHeight(300)
         configure_dialog_window_mode(self._cda_dialog)
         lay = QVBoxLayout(self._cda_dialog)
 
-        title = QLabel(f"Populating CDA for {len(new_wells)} new well(s)...")
+        title = QLabel(
+            f"Populating PCE_CDA and PCE_Production for {len(new_wells)} new well(s)..."
+        )
         title.setStyleSheet("font-weight: bold; font-size: 13px; color: #1a4d3e;")
         lay.addWidget(title)
 
@@ -1785,22 +1787,37 @@ class WellMasterDialog(QDialog):
             self._cda_dialog = None
 
         if 'error' in result:
-            self.status_label.setText("CDA populate failed")
+            self.status_label.setText("CDA / production populate failed")
             QMessageBox.critical(
                 self,
-                "PCE_CDA populate failed",
+                "Populate failed",
                 str(result.get("error", "Unknown error")),
             )
         else:
             recs = result.get("cda_records", 0)
             wells_n = result.get("wells", 0)
-            self.status_label.setText(
-                f"CDA populated: {recs:,} records for {wells_n} wells"
-            )
-            QMessageBox.information(
-                self,
-                "PCE_CDA complete",
-                "PCE_CDA population finished successfully.\n\n"
-                f"Wells: {wells_n}\n"
-                f"Records written: {recs:,}",
-            )
+            prod_recs = result.get("production_records")
+            if prod_recs is not None:
+                self.status_label.setText(
+                    f"CDA + production: {recs:,} CDA rows, {prod_recs:,} production rows "
+                    f"({wells_n} wells)"
+                )
+                QMessageBox.information(
+                    self,
+                    "CDA and production complete",
+                    "PCE_CDA and PCE_Production were updated successfully.\n\n"
+                    f"Wells: {wells_n}\n"
+                    f"PCE_CDA records: {recs:,}\n"
+                    f"PCE_Production records: {prod_recs:,}",
+                )
+            else:
+                self.status_label.setText(
+                    f"CDA populated: {recs:,} records for {wells_n} wells"
+                )
+                QMessageBox.information(
+                    self,
+                    "PCE_CDA complete",
+                    "PCE_CDA population finished successfully.\n\n"
+                    f"Wells: {wells_n}\n"
+                    f"Records written: {recs:,}",
+                )

@@ -4,16 +4,24 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 
 class CdaPopulateWorker(QThread):
-    """Background worker to populate PCE_CDA for specific wells."""
+    """Background worker to populate PCE_CDA (and optionally PCE_Production) for specific wells."""
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal(dict)
 
-    def __init__(self, mapping_df, start_date, end_date, parent=None):
+    def __init__(
+        self,
+        mapping_df,
+        start_date,
+        end_date,
+        also_rebuild_production=True,
+        parent=None,
+    ):
         super().__init__(parent)
         self.mapping_df = mapping_df
         self.start_date = start_date
         self.end_date = end_date
+        self.also_rebuild_production = also_rebuild_production
 
     def run(self):
         from prodview_update_gui import populate_wells_cda
@@ -23,5 +31,6 @@ class CdaPopulateWorker(QThread):
             self.end_date,
             progress_callback=self.progress_signal.emit,
             log_callback=self.log_signal.emit,
+            also_rebuild_production=self.also_rebuild_production,
         )
         self.finished_signal.emit(result)
