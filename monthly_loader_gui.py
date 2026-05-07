@@ -70,6 +70,9 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
     """
     Run the PA monthly loader (ValNav only). Accumap / public sales gas is applied from
     Public Sales Data and Ratios. ``accumap_path`` is ignored if passed (backward compatible).
+    When reloading a month that already has ``Allocation_Factors`` rows, existing
+    ``Sales_Gas`` per well is preserved (``WH_to_Sales_AllocFactor`` and
+    ``Gathered_to_Sales`` are recomputed from ValNav/CDA and that value).
 
     Args:
         month_str: Month in format "MMM YYYY" (e.g., "Dec 2025")
@@ -226,8 +229,34 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         """, month_start)
         
         existing_count = cursor.fetchone()[0]
-        
+
+        preserved_sales_gas = {}
         if existing_count > 0:
+            cursor.execute(
+                """
+                SELECT [Well Name], Sales_Gas
+                FROM Allocation_Factors
+                WHERE MonthStartDate = ?
+                """,
+                month_start,
+            )
+            for wn, sg in cursor.fetchall():
+                if not wn:
+                    continue
+                key = str(wn).strip()
+                try:
+                    preserved_sales_gas[key] = float(sg) if sg is not None else 0.0
+                except (TypeError, ValueError):
+                    preserved_sales_gas[key] = 0.0
+            n_pres = len(preserved_sales_gas)
+            n_nonzero = sum(1 for v in preserved_sales_gas.values() if v != 0.0)
+            log(
+                lf.detail(
+                    f"Preserving Sales_Gas for {lf.num(n_pres)} well(s) "
+                    f"({lf.num(n_nonzero)} non-zero) before reload"
+                )
+            )
+
             cursor.execute("""
                 DELETE FROM Allocation_Factors 
                 WHERE MonthStartDate = ?
@@ -512,7 +541,8 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
 
                 s2_gas = valnav_data_for_well['S2_Gas'] if has_valnav else 0
                 sales_cond = valnav_data_for_well['Sales_Cond'] if has_valnav else 0
-                sales_gas = 0.0
+                wkey = str(well_name).strip() if well_name else ""
+                sales_gas = preserved_sales_gas.get(wkey, 0.0)
 
                 wh_to_s2 = 1.0 if prodview_wh_gas == 0 else s2_gas / prodview_wh_gas
                 wh_to_sales_gas = 1.0 if prodview_wh_gas == 0 else sales_gas / prodview_wh_gas
