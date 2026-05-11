@@ -1,3 +1,12 @@
+"""
+Production Update System — main entry point.
+
+Launches the PyQt5 main window, exposes the operations menu (Settings, Well
+Master, Prodview / Snowflake, PA, Public Sales, Surveys, Type Curves, Whitson+,
+Exports), and dispatches CLI flags such as ``--accumap-unmatched``. Run with
+``python production_update_gui.py``.
+"""
+
 import sys
 import os
 import configparser

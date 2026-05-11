@@ -1,4 +1,10 @@
-# well_master_gui.py
+"""
+Well Master dialog — view, edit, and import wells in ``PCE_WM``.
+
+Provides the editable Well Master grid, completion staging, and the Snowflake
+preview / import workflow that adds new wells to ``PCE_WM``. Workers in this
+module run on background ``QThread``s so the UI stays responsive during inserts.
+"""
 
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,

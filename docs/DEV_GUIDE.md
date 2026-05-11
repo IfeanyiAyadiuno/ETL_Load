@@ -31,9 +31,9 @@ Typical sequence for a month: **Well Master** (keys correct) → **Prodview** (d
 
 ## How to run it
 
-**From source (developers):** Install Python 3.10+, open the application folder on your PC or internal share, `pip install -r requirements.txt`, copy `.env.example` to `.env` and fill Snowflake settings, then `python production_update_gui.py`. See [README.md](README.md).
+**From source (developers):** Install Python 3.10+, open the application folder on your PC or internal share, `pip install -r requirements.txt`, copy `.env.example` to `.env` and fill Snowflake settings, then `python production_update_gui.py`. See [../README.md](../README.md).
 
-**Deployed build (analysts):** Use the packaged folder from IT or engineering: `.exe`, `_internal`, `.env`, and `settings.ini` beside the executable. See [COWORKER_SETUP.md](COWORKER_SETUP.md) for ODBC, VPN, and Windows auth expectations.
+**Deployed build (analysts):** Use the packaged folder from IT or engineering: `.exe`, `_internal`, `.env`, and `settings.ini` beside the executable. ODBC Driver 17 (or 18) for SQL Server must be installed; Windows authentication is used unless overridden in `.env`.
 
 **Building an installer:** See [PACKAGING_WINDOWS.md](PACKAGING_WINDOWS.md).
 
@@ -44,8 +44,7 @@ Typical sequence for a month: **Well Master** (keys correct) → **Prodview** (d
 - **Step-by-step operations, runbook, glossary** — [USER_GUIDE.md](USER_GUIDE.md)
 - **SQL module map, file-level responsibilities** — [DEV_GUIDE_LAYOUT.md](DEV_GUIDE_LAYOUT.md)
 - **Logical schema / Mermaid overview** — [APPLICATION_ARCHITECTURE.md](APPLICATION_ARCHITECTURE.md)
-- **Packaged app prerequisites** — [COWORKER_SETUP.md](COWORKER_SETUP.md)
-- **Module list, CLI scripts, what is legacy** — [docs/HANDOFF_INVENTORY.md](docs/HANDOFF_INVENTORY.md)
+- **Module list, CLI scripts, what is legacy** — [HANDOFF_INVENTORY.md](HANDOFF_INVENTORY.md)
 - **IT / access / escalation** — Use your internal service desk or data-owner contacts (fill in per org).
 
 ---
@@ -57,9 +56,3 @@ Typical sequence for a month: **Well Master** (keys correct) → **Prodview** (d
 - **`db_connection.py`**, **`snowflake_connector.py`**, **`app_paths.py`** — connections and paths.
 - **`well_master_*.py`**, **`survey_import.py`**, **`type_curves_import.py`**, **`sales_allocation_updates.py`** — domain logic.
 - **`tests/`** — automated tests (`pytest`).
-
----
-
-## Turning this document into Word
-
-Use the same workflow as the User Guide: attach this Markdown to your Word-generation process (e.g. the prompt block under **“Copy-paste: ChatGPT instructions for Word”** in [USER_GUIDE.md](USER_GUIDE.md)), substituting “Developer overview” where it says “User Guide”.

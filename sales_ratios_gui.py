@@ -1,4 +1,12 @@
-# sales_ratios_gui.py
+"""
+Public Sales / sales-ratios update logic.
+
+Loads the Accumap month-end Excel export, refreshes public-sales gas and the
+related sales CGR columns in ``Allocation_Factors``, and applies the
+month-by-month sales ratios to ``PCE_CDA`` and ``PCE_Production``. Driven by
+the Public Sales dialog and runs on a ``QThread`` worker.
+"""
+
 import os
 import time
 from datetime import datetime, timedelta
