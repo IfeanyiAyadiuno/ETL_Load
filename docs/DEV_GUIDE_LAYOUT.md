@@ -3,10 +3,7 @@
 
 **Short overview for stakeholders and onboarding:** see [`DEV_GUIDE.md`](DEV_GUIDE.md) (non-technical, under two pages). This file is the **deep technical map** for developers and leads.
 
-This document is a **layout/template** for a developer-focused guide, similar in spirit to `USER_GUIDE_LAYOUT.md` but aimed at a semi-technical manager or lead. It explains **where the main update logic lives**, what each major module does, and what is important to know as a developer.
-
-You can paste this into ChatGPT with a prompt such as:
-> "Turn this layout into a polished developer guide, keeping the structure, but smoothing the language for a semi-technical manager who wants to understand where the logic lives and what’s important for maintenance."
+It explains **where the main update logic lives**, what each major module does, and what is important to know as a developer or maintainer.
 
 ---
 
@@ -387,17 +384,3 @@ Provide a **simple table** like this in the final document:
   - Snowflake: `snowflake_connector.py` (`SnowflakeConnector`)  
   - Settings: `settings.ini`  
   - Env: `.env` (Snowflake)
-
----
-
-## 9. NOTES FOR CHATGPT FORMATTING
-
-- Turn this into a **clean, manager-readable developer overview**:
-  - Keep section headings and ordering.
-  - Use plain language but keep the module/function names accurate.
-  - No screenshots or images needed.
-- Emphasize:
-  - Which module/file owns each piece of logic.
-  - Where destructive operations happen.
-  - The separation between UI and ETL logic.
-

@@ -1,5 +1,12 @@
+"""
+Production Accounting (PA) monthly loader.
 
-# monthly_loader_gui.py
+Reads the ValNav month-end Excel export, refreshes ``Allocation_Factors`` for
+the selected month (preserving existing ``Sales_Gas`` values populated from
+Public Sales), and applies the resulting allocation factors to ``PCE_CDA`` and
+``PCE_Production``. Driven by the PA dialog and runs on a ``QThread`` worker.
+"""
+
 import log_format as lf
 import pandas as pd
 import pyodbc

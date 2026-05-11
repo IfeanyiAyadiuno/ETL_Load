@@ -1,3 +1,12 @@
+"""
+Prodview / Snowflake update logic.
+
+Pulls daily production data from Snowflake (Prodview), reshapes it through
+``PCE_WM`` mappings, and lands the result in ``PCE_CDA`` and ``PCE_Production``
+on SQL Server. Used by the Prodview dialog (Snowflake → CDA + production
+rebuild and Quick Update modes); runs inside ``QThread`` workers in the GUI.
+"""
+
 import time
 from functools import partial
 import pandas as pd

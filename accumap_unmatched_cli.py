@@ -11,10 +11,6 @@ Run without opening the main window:
 Override the Excel path:
 
   python production_update_gui.py --accumap-unmatched -m "Aug 2025" -a "I:/other/Accumap.xlsx"
-
-Or use the thin script (optional -a; otherwise settings.ini):
-
-  python scripts/accumap_unmatched_uwis.py -m "Aug 2025"
 """
 
 from __future__ import annotations

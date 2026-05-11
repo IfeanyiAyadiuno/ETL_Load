@@ -33,7 +33,6 @@ Documentation entry points: **[README.md](README.md)** (how to run from source),
 17. [Appendix A — Figures checklist](#appendix-a--figures-checklist-for-screenshots)  
 18. [Appendix B — Glossary](#appendix-b--glossary)  
 19. [Appendix C — Logical database schema (SQL Server)](#appendix-c--logical-database-schema-sql-server)  
-20. [Copy-paste: ChatGPT instructions for Word (.docx)](#copy-paste-chatgpt-instructions-for-word-docx)  
 
 ---
 
@@ -452,8 +451,6 @@ Execute **Run Import**; review the **Import Log**.
 
 **Append:** No selection = every row in the file (WM-backed and file-only). Per stored key in scope, existing TC rows for that key are replaced from the file. Unmatched names → **`unmatched_type_curve_wells_<timestamp>.csv`** next to the workbook when applicable.
 
-**YE2/YE23 bulk:** `python scripts/ye23_typecurves_to_pce_tc.py "<path-to-xlsx>"` — inserts into **`PCE_TC`** with Excel well names verbatim (no **` - TC`** suffix), then runs the same production sync. Use well names beginning with **`YE2`** if you rely on the app’s Prodview delete guards and allocation filters for those keys.
-
 **YE WH mirroring:** For stored **`[Well Name]`** values matching **`LIKE 'YE2%'`** (including **`YE23`**), import sets **`[Gas WH Production (e³m³/d)]`** from the Gas S2 rate and **`[Condensate WH (m³/d)]`** from the condensate sales rate so **`PCE_TC`** (and **`sync_tc_to_production`**) carry both WH and S2/sales columns.
 
 **TC WH cumulatives on production:** **`sync_tc_to_production`** maps **`PCE_TC.[Gas WH Cumulative Production (10³m³)]`** and **`[Condensate WH Cumulative Production (m³)]`** into the same-named cumulative columns on **`PCE_Production`**; if either is null, it uses **`[Cum Gas (e³m³)]`** or **`[Cum Condy (m³)]`** respectively.
@@ -540,14 +537,9 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 |------------------|---------|------------|--------------|--------|
 | `python production_update_gui.py` | Opens main GUI | `.env`, `settings.ini`, ODBC | No | Window opens; Settings saves. |
 | `python production_update_gui.py --accumap-unmatched -m "Aug 2025"` | Prints matched/unmatched Accumap UWIs; optional `-o` CSV | **`PCE_WM`**, Accumap path | No (read-only) | Terminal output or CSV. |
-| `python scripts/accumap_unmatched_uwis.py -m "Aug 2025"` | Same audit without the main GUI entry wrapper | Same | No | Same |
 | `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Populated **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
-| `python cda.py` | Legacy **Snowflake → `PCE_CDA`** pipeline (VBA-style first-production filter); clears CDA in a fixed date range then reloads | Snowflake, **`PCE_WM`** | **Yes** — deletes **`PCE_CDA`** rows in range | Console steps; inspect **`PCE_CDA`**. Prefer **Prodview / Snowflake** (**Snowflake → CDA + production rebuild**) for normal operations unless you maintain this script intentionally. |
-| `python af.py` | **Allocation_Factors** loader from Excel (interactive `input()` at end) | Excel layout expected by script, **`PCE_WM`** mapping | **Yes** — deletes/replaces allocation rows per script logic | Summary block printed at end. |
 | `python survey_import.py "<path>"` then `append` or `overwrite` | Survey import without GUI | File on disk, **`PCE_WM`** for mapping | **Overwrite** deletes existing rows for matching UWIs, then inserts; **append** skips (UWI, depth) pairs already in **`PCE_Surveys`** before insert | Console / exit code. |
 | `python purge_exception_wells.py` | Deletes **`PCE_CDA`**, **`PCE_Production`**, **`Allocation_Factors`**, **`PCE_Surveys`** rows for wells with **`PCE_WM.Exception = 'Y'`** | Exception flags set deliberately | **Yes** | Printed delete counts. |
-| `python gas_idrec_production_peek.py …` | Debug peek at **`PCE_Production`** by **GasIDREC** / **PressuresIDREC** | Well keys in **`PCE_WM`** | No | Printed rows. |
-| `python test_well_lookup.py …` | Ad hoc well / CDA / production / Snowflake samples (if maintained) | Environment | Read-only if only querying | Console output. |
 
 `[IMAGE: Runbook reference — example SSMS row-count query results after a refresh]`
 
@@ -561,8 +553,6 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | Snowflake errors | `SNOWFLAKE_*` variables in `.env`; network path to Snowflake. |
 | Well absent from CDA | Well present in **`PCE_WM`** with **GasIDREC** populated; **Exception** flags; CDA load executed (**Prodview / Snowflake** in **Snowflake → CDA + production rebuild** mode, or post–new-well background job) for dates covering Snowflake data. |
 | Production looks wrong after Prodview / Snowflake | Remember **full-well** **`PCE_Production`** rebuild for wells in the merged CDA set; re-run **PA** / **Public Sales** for months that must be reapplied after CDA changed underneath. |
-
-Optional: `test_well_lookup.py` can print sample rows from `PCE_WM`, CDA, Production, and Snowflake for a given well name when maintained for your environment.
 
 Escalate with **Results** / log excerpts to database or application support per internal procedures.
 
@@ -653,36 +643,6 @@ erDiagram
 ```
 
 `[IMAGE: Rendered ER diagram — logical PCE tables from Appendix C for Word]`
-
----
-
-## Copy-paste: ChatGPT instructions for Word (.docx)
-
-Provide the following instructions **together with** this `USER_GUIDE.md` when generating a Word document.
-
----
-
-**Instructions for the assistant:**
-
-Convert the attached Markdown **User Guide** to a **Microsoft Word** document (.docx).
-
-1. **Title page:** Title **Production Update System — User Guide**, subtitle **User Guide**, organization **Pacific Canbriam Energy LTD** (or as in the document), plus **Version** and **Date** placeholders if shown.
-
-2. **Styles:** Apply **Heading 1** to the document title and major parts; **Heading 2** and **Heading 3** for sections and subsections consistent with the Markdown hierarchy.
-
-3. **Table of contents:** Insert an automatic **Table of Contents** after the title page (Word: References → Table of Contents).
-
-4. **Lists and code:** Preserve bullet and numbered lists. Apply **monospace** to inline code, table names (for example `PCE_CDA`), file names, and environment variable names.
-
-5. **Figures:** For each block beginning **Figure N —**, insert a picture placeholder or frame. Use the italic line under the figure title as the art brief. Caption each figure `Figure N — …`. Where the italic line specifies **Red arrow:**, add **red arrow shapes** in Word (Insert → Shapes → arrow, red outline) to the indicated controls. If image files are missing, use a labeled placeholder with the caption. Where a line begins with **`[IMAGE:`**, treat it as an additional art brief for the same or an adjacent figure block.
-
-6. **Mermaid:** If the Markdown contains fenced **`mermaid`** code blocks, either render them to images and embed, or paste the source into a monospace appendix labeled **Diagram source**.
-
-7. **Callouts:** Apply distinct formatting (for example paragraph border or labeled text box) for **Note**, **Caution**, and similar emphasized blocks.
-
-8. **Accuracy:** Do not add features not described in the source. Retain **Coming soon** where stated.
-
-9. **Appendices:** Include Appendix A (figures table), Appendix B (glossary), and Appendix C (logical database schema and diagram).
 
 ---
 

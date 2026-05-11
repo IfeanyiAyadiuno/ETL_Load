@@ -1,15 +1,15 @@
 # Handoff inventory — Python modules and artifacts
 
-Generated for internal continuity / transfer. **Classification:** GUI/ETL chain, test, CLI-only/legacy, dev utility, or build artifact.
+Inventory of every Python file and other artifact in the repository, classified as part of the **GUI / ETL chain**, **tests**, **CLI helper**, **dev utility**, **build output**, or **configuration**.
 
-## GUI and ETL (keep — active application chain)
+## GUI and ETL (active application chain)
 
 - **`production_update_gui.py`** — Main window, navigation, CLI dispatch for accumap audit.
 - **`settings_dialog.py`** — Settings UI / `settings.ini`.
 - **`exports_dialog.py`** — Exports placeholder UI.
 - **`prodview_update_dialog.py`** — Prodview UI.
 - **`prodview_update_gui.py`** — Snowflake/SQL CDA and production update logic.
-- **`prodview_date_bounds.py`** — Rolling Snowflake window and “today − lag” end date (shared with `production_update`).
+- **`prodview_date_bounds.py`** — Rolling Snowflake window and "today − lag" end date (shared with `production_update`).
 - **`monthly_loader_dialog.py`** — PA dialog.
 - **`monthly_loader_gui.py`** — PA allocation logic.
 - **`sales_ratios_dialog.py`** — Public Sales UI.
@@ -25,57 +25,50 @@ Generated for internal continuity / transfer. **Classification:** GUI/ETL chain,
 - **`type_curves_import.py`** — Type curves ETL.
 - **`sync_typecurves_to_production.py`** — Materialize `PCE_TC` into `PCE_Production` at `ImportDate`.
 - **`whitson_mass_upload_dialog.py`** — Whitson+ UI (stub worker).
-- **`accumap_unmatched_cli.py`** — Accumap UWI audit (GUI and script entry).
+- **`accumap_unmatched_cli.py`** — Accumap UWI audit (GUI and `--accumap-unmatched` CLI entry).
 - **`db_connection.py`** — SQL Server (pyodbc, env).
 - **`snowflake_connector.py`** — Snowflake (env).
 - **`app_paths.py`** — `settings.ini` path resolution.
 - **`log_format.py`** — Log formatting.
 - **`styles.py`** — Shared Qt styles.
-- **`purge_exception_wells.py`** — WM delete dependencies (imported by `well_master_db`).
+- **`purge_exception_wells.py`** — Deletes CDA / Production / Allocation / Survey rows for wells flagged with `PCE_WM.Exception = 'Y'`. Imported by `well_master_db`; also runnable as `python purge_exception_wells.py`.
 - **`production_update.py`** — Full rebuild / legacy CDA pipeline (imported by `prodview_update_dialog` / `prodview_update_gui`).
 
-## Tests (keep)
+## Tests (`tests/`, run with `pytest`)
 
 - `tests/test_prodview_helpers.py`
+- `tests/test_prodview_date_bounds.py`
 - `tests/test_run_quick_update.py`
 - `tests/test_type_curves_match_key.py`
-- `tests/test_prodview_date_bounds.py`
+- `tests/test_survey_well_match.py`
+- `tests/test_survey_wm_composite_name.py`
 
-## CLI / legacy scripts (keep — not imported by GUI; run directly)
+## SQL helpers (`scripts/`)
 
-- **`cda.py`** — Legacy Snowflake → `PCE_CDA` pipeline; document in README; do not delete without sign-off.
-- **`af.py`** — Allocation Factors Excel loader (`input()`); script body still has **hardcoded `I:\...` paths** for historical runs — replace when maintaining; document in README.
-- **`survey_import.py`** — Also runnable as `python survey_import.py "<path>"` with second argument `append` or `overwrite`.
-- **`gas_idrec_production_peek.py`** — Debug / support CLI.
-- **`test_well_lookup.py`** — Ad hoc well/CDA checks.
-- **`purge_exception_wells.py`** — Also runnable as `__main__` for batch purge.
-- **`scripts/accumap_unmatched_uwis.py`** — Thin wrapper → `accumap_unmatched_cli`.
-
-## Orphaned or low-value wrappers (resolved in handoff pass)
-
-- **`type.py`** — **Removed** — use `type_curves_import.append_typecurves_from_excel` / `delete_typecurves_from_tc` directly.
-- **`pyo.py`** — **Removed** — replaced by **`scripts/list_odbc_drivers.py`** for ODBC driver listing.
-
-## Build / generated (not source of truth)
-
-- **`dist/`** — PyInstaller output; build per `PACKAGING_WINDOWS.md`; do not treat as editable source when archiving.
-- **`__pycache__/`** — Generated at runtime; omit from source handoffs; never treat as editable source.
+- `scripts/add_pce_tc_wh_cumulative_columns.sql` — One-time migration: adds the `Gas WH Cumulative Production (10³m³)` and `Condensate WH Cumulative Production (m³)` columns to `PCE_TC` and backfills them from existing cumulative columns. Run once per database; safe to re-run (guarded by `IF NOT EXISTS`).
 
 ## Configuration
 
-- **`settings.ini`** — **Office / team configuration** (SQL labels, ValNav–Accumap–survey paths — usually **shared network paths**, so one file can match every workstation); use `settings.ini.example` when documenting a fresh layout.
-- **`.env`** — Secrets; keep on the machine only — use `.env.example` for variable names when documenting setup.
+- **`settings.ini`** — Office / team configuration (SQL labels, ValNav / Accumap / survey paths — usually shared network paths so one file matches every workstation). Use `settings.ini.example` when documenting a fresh setup.
+- **`.env`** — Secrets (Snowflake credentials, optional SQL overrides). Stays on the workstation only; not tracked by git. Use `.env.example` for the variable names.
 
-## Documentation files
+## Documentation files (this folder)
 
-- **`USER_GUIDE.md`** — Operators — comprehensive.
-- **`DEV_GUIDE.md`** — Stakeholders / onboarding — short overview.
-- **`DEV_GUIDE_LAYOUT.md`** — Developers — deep technical map.
-- **`COWORKER_SETUP.md`** — Deployed exe consumers.
-- **`PACKAGING_WINDOWS.md`** — Build engineers.
-- **`APPLICATION_ARCHITECTURE.md`** — Architecture diagram + notes.
+- **`USER_GUIDE.md`** — Operators — comprehensive procedures and runbook.
+- **`DEV_GUIDE.md`** — Stakeholder / onboarding overview (short).
+- **`DEV_GUIDE_LAYOUT.md`** — Deep technical map for developers / leads.
+- **`PACKAGING_WINDOWS.md`** — Building the Windows executable.
+- **`APPLICATION_ARCHITECTURE.md`** — Schema diagram and notes.
+- **`CODE_OPTIMIZATIONS.md`**, **`CODE_REVIEW_REDUNDANCY.md`** — Internal code review notes.
+- **`presentation.md`** / **`presentation.pptx`** — Project overview deck.
 
-## Verification command (imports)
+## Build / generated (not source of truth)
+
+- **`build/`** — PyInstaller intermediate output; rebuild per `PACKAGING_WINDOWS.md`. Gitignored.
+- **`dist/`** — PyInstaller final output (the `.exe` and `_internal/`). Gitignored.
+- **`__pycache__/`** — Generated at runtime; gitignored.
+
+## Verification commands
 
 ```bash
 python -m compileall -q .
