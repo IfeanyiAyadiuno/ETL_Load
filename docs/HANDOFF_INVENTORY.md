@@ -61,6 +61,7 @@ Inventory of every Python file and other artifact in the repository, classified 
 - **`APPLICATION_ARCHITECTURE.md`** — Schema diagram and notes.
 - **`CODE_OPTIMIZATIONS.md`**, **`CODE_REVIEW_REDUNDANCY.md`** — Internal code review notes.
 - **`presentation.md`** / **`presentation.pptx`** — Project overview deck.
+- **`build_presentation.py`** — Regenerates `presentation.pptx` from project messaging. Run with `python docs/build_presentation.py` after `pip install python-pptx`.
 
 ## Build / generated (not source of truth)
 

@@ -1,212 +1,200 @@
 # Production Update System — Engineering Overview
 
-> 10–15 min talk for engineers and other staff. Goal: show what the app
-> does, why it exists, and how much time and risk it removes from the
-> monthly/daily workflow.
+> 10–15 minute talk for engineers and operations staff. Goal: explain
+> what was built, why it exists, and how much time and risk it removes
+> from daily and monthly production work.
 
 ---
 
 ## Slide 1 — Title
 
-- **Pacific Canbriam Energy — Production Update System**
-- A single application for daily and monthly production data
-- Presented by: <Your Name>, <Date>
+**Production Update System**
 
-**Screenshot:** _figure-01-main-window.png_ (the main window with the 8 operations).
+A centralized data platform for daily and monthly production at Pacific Canbriam Energy.
 
-**Speaker notes:**  
-Quick context: this is the application replacing the spreadsheet-driven
-process the team used for daily Snowflake pulls, monthly allocations,
-public sales, surveys, and type curves. Goal of this session: 10
-minutes on what it is and what it saves us; a few minutes for
-questions.
+Presented by: <Your Name> · <Date>
 
----
-
-## Slide 2 — The problem we’re solving
-
-- Daily/monthly numbers were assembled in **multiple Excel workbooks**
-- **Manual copy/paste** from Snowflake, Accumap, ValNav
-- Allocation factors and sales ratios computed by hand → easy to break
-- Hard to audit; hard to redo a month consistently
-- Onboarding a new engineer was “learn the spreadsheet”
-
-**Screenshot placeholder:** an example of the **old Excel workflow**
-(if you have a sanitized snippet) or a folder full of spreadsheets.
-
-**Speaker notes:**  
-The old process worked, but it was fragile. A broken formula or a
-mis-pasted column meant rerunning everything by hand. There was no
-single source of truth and no easy way to repeat a month exactly.
+**Speaker notes**
+Quick framing: this project replaced an Excel-only workflow. We built two
+things at once — a SQL Server data model that didn't exist before, and a
+desktop application that loads and maintains it. The next 12 minutes are
+about what that gives the team back.
 
 ---
 
-## Slide 3 — What the app is, in one sentence
+## Slide 2 — The problem we were solving
 
-- One desktop app, one team, one source of truth
-- Pulls **Snowflake** + **Accumap** + **ValNav** + **Type Curves**
-- Writes to **SQL Server** tables we already use
-- Each operation is a **dialog** with a clear progress + log
+**Everything lived in Excel.**
 
-**Screenshot placeholder:** main window with the 8 operation buttons.
+- No central database — each task had its own workbook
+- Manual copy-paste between Snowflake, ValNav, Accumap, and spreadsheets
+- Allocation factors and sales ratios derived by hand — easy to break
+- Re-running a month was risky; results varied between engineers
+- Onboarding meant "learn the spreadsheets," not "learn the data"
 
-**Speaker notes:**  
-Everything we need to keep CDA, Production, Allocation Factors,
-Surveys, and Type Curves up to date is now behind one button per task.
-Same database tables, same column names — we didn’t change the
-downstream consumers.
+**Speaker notes**
+The old process worked, but it depended on whoever owned the workbook.
+A broken formula, a misaligned column, or two engineers editing copies
+meant rerunning the whole month from scratch.
 
 ---
 
-## Slide 4 — How data flows (high level)
+## Slide 3 — What we built
 
-- **Snowflake** → daily wellhead, gathered, pressures
-- **ValNav** → monthly S2 / condensate factors
-- **Accumap** → monthly public sales gas
-- **Type Curves Excel** → forecast rows
-- Out: `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`
+Two deliverables, designed to work together.
 
-**Screenshot placeholder:** simplified diagram (we can render the
-mermaid one from the user guide as a PNG, or draw a 5-box sketch).
+**A SQL Server data model**
+- `PCE_WM` — Well Master
+- `PCE_CDA` — daily allocation
+- `PCE_Production` — daily production with sequences and cumulatives
+- `Allocation_Factors` — monthly PA / Public Sales factors
+- `PCE_Surveys`, `PCE_TC` — surveys and type curves
 
-**Speaker notes:**  
-You don’t need to memorize this. The takeaway: each data source has
-**one** ingestion path in the app, and each ingestion path has a clear
-target. No “which spreadsheet wins” questions.
+**A PyQt5 desktop application**
+- One window, one operation per task
+- Loads from Snowflake, ValNav, Accumap, and Excel
+- Writes back to the SQL tables with logged, repeatable runs
+
+One source of truth. One tool to keep it current.
+
+**Speaker notes**
+The database itself is part of the deliverable. Before this project, this
+schema did not exist — production lived in disconnected workbooks. The
+app gives the team a single place to drive every refresh.
+
+---
+
+## Slide 4 — How data flows
+
+**Sources**
+- Snowflake / Prodview (daily wellhead, gathered, pressures)
+- ValNav (monthly S2 / condensate factors)
+- Accumap (monthly public sales gas)
+- Excel imports (surveys, type curves)
+
+**Destination — SQL Server**
+- `PCE_WM` → `PCE_CDA` → `PCE_Production`
+- `Allocation_Factors` propagates into CDA / Production
+- `PCE_Surveys` and `PCE_TC` are kept in sync with production
+
+**Speaker notes**
+Each source has exactly one ingestion path in the app, and each
+ingestion path has a clear target table. There is no longer a "which
+spreadsheet wins" question.
 
 ---
 
 ## Slide 5 — The eight operations
 
-- **Well Master** — maintain `PCE_WM`, import new wells from Snowflake
+- **Well Master** — maintain `PCE_WM`; import new wells from Snowflake
 - **Prodview / Snowflake** — daily production retrieve
 - **PA Allocations** — monthly ValNav factors
 - **Public Sales Data and Ratios** — Accumap sales gas + ratios
-- **Survey Import** — directional/log surveys
+- **Survey Import** — directional / log surveys
 - **Type Curves Import** — Excel type curves into `PCE_TC`
-- **Whitson+ Mass Upload** (placeholder) and **Exports** (placeholder)
+- **Whitson+ Mass Upload** — placeholder
+- **Exports / Reports** — placeholder
 
-**Screenshot placeholder:** the operations panel from the main window.
-
-**Speaker notes:**  
-These map 1-to-1 to what the team already does each month. Whitson and
-Exports are placeholders for the next phase — we’ll get to that at the
-end.
+**Speaker notes**
+These map one-to-one to what the team already does each month. Whitson+
+and Exports are placeholders for the next phase.
 
 ---
 
 ## Slide 6 — Daily flow: Prodview / Snowflake
 
 - Default mode: **Snowflake → CDA + Production rebuild**
-- Window is **automatic** (rolling ~18 months, ends “today minus a
-  short lag”)
-- Replaces matching `PCE_CDA` rows, rebuilds `PCE_Production` for
-  affected wells, and runs the type-curve sync
-- One click. One log. One summary line with row counts and duration
+- Window is automatic: rolling **18 months**, ends at **today − 2 days**
+- Six Snowflake queries pulled in one connection (ECF, Gas WH, CGR / water, WGR, pressures, allocation)
+- Replaces matching `PCE_CDA` rows; rebuilds `PCE_Production` for affected wells
+- Sequences, cumulatives, monthly averages, on-production year — all in code
+- Type curves and exception wells are protected automatically
 
-**Screenshot placeholder:** Prodview / Snowflake dialog mid-run, with
-log lines visible.
-
-**Speaker notes:**  
-This is the daily cadence. Engineers used to chase “which days do I
-re-pull?” The app now picks the right window, deletes only what should
-change, and re-inserts in one go. No date pickers, no surprises.
+**Speaker notes**
+This is the daily cadence. Engineers used to chase "which days do I
+re-pull?" The app picks the window, deletes only what should change,
+re-inserts in one go, and prints a summary line with row counts.
 
 ---
 
 ## Slide 7 — Monthly flow: PA + Public Sales
 
-- **PA Allocations (ValNav)** writes monthly factors to
-  `Allocation_Factors`
-- **Public Sales** merges Accumap sales gas, recomputes sales ratios
-- Allocations propagate to `PCE_CDA` and `PCE_Production`
-  automatically (S2 gas, gas sales, condensate sales, sales CGR)
-- **Re-running PA preserves existing `Sales_Gas`** so Accumap data
-  isn’t lost
-- Existing month? App **deletes and rebuilds that month** consistently
+- **PA Allocations (ValNav)** writes monthly factors to `Allocation_Factors`
+- **Public Sales** merges Accumap sales gas and recomputes sales CGR
+- Allocation changes propagate to `PCE_CDA` and `PCE_Production` automatically
+- Re-running PA **preserves existing `Sales_Gas`** so Accumap data isn't lost
+- Existing month? The app deletes and rebuilds **that month** consistently
 
-**Screenshot placeholder:** PA dialog completion summary; Public
-Sales dialog with month list.
-
-**Speaker notes:**  
-The month-end story used to be: do PA, then redo sales by hand. Now
-the second step is a single dialog, and re-running the first one
-doesn’t wipe the second’s data. This was a real foot-gun in the old
-process.
+**Speaker notes**
+The old month-end story was: do PA, then redo sales by hand. Now sales
+is its own dialog, and re-running PA does not wipe public-sales data.
+That cross-step interaction was the most common foot-gun in the
+spreadsheet world.
 
 ---
 
 ## Slide 8 — Well Master, Surveys, Type Curves
 
-- **Well Master** — Snowflake-driven new well import; safe edits;
-  composite name resolution
-- **Surveys** — UWI matching with composite-name preference; clear
-  unmatched report
-- **Type Curves** — Excel → `PCE_TC`; sync into `PCE_Production` at
-  `ImportDate`; correct prefixing for non-YE2 rows
-- Everything is **logged**, **named**, and **repeatable**
+- **Well Master** — Snowflake-driven new well preview; safe edits; composite-name resolution
+- **Surveys** — UWI matching with composite-name preference; unmatched rows reported as a CSV
+- **Type Curves** — Excel → `PCE_TC` → synced into `PCE_Production` at `ImportDate`
+- Everything is logged, named, and repeatable
 
-**Screenshot placeholder:** one screenshot per item if space allows
-(or a 1×3 collage).
-
-**Speaker notes:**  
-These are the “supporting” imports, but they used to involve as much
-careful spreadsheet work as the main flow. Now they are routine and
-consistent.
+**Speaker notes**
+These supporting imports used to involve as much careful spreadsheet
+work as the main flow. They are routine now, and consistent across
+engineers.
 
 ---
 
 ## Slide 9 — How this saves engineers time
 
-- Daily Snowflake pull: **minutes, hands-off** vs. multi-hour spreadsheet round-trip
-- Month-end: PA + Public Sales runs in a **single sitting**, not a multi-day stitching exercise
-- New well onboarding: **insert in Well Master**, then run Prodview when ready — no separate spreadsheet to update
-- Re-running a month is **safe and idempotent** — no fear of breaking historical data
-- Engineers focus on **interpretation**, not data plumbing
+| Task | Before (Excel only) | After |
+|------|---------------------|-------|
+| Daily Snowflake → CDA → Production | Half-day spreadsheet round-trip | One dialog, hands-off, logged summary |
+| Monthly PA (ValNav) | Manual factor calc + manual propagation | One dialog; CDA / Production update automatically |
+| Public Sales (Accumap) | Manual UWI matching; risk of erasing PA data | One dialog; unmatched UWIs reported; PA data preserved |
+| New well onboarding | Update multiple workbooks | Add in Well Master, run Prodview when ready |
+| Survey / Type Curve imports | Manual mapping and pasting | Bulk + mapped imports with audit reports |
+| Re-running a month | Risky; could overwrite | Safe and idempotent |
 
-**Screenshot placeholder:** before/after timeline image (we can sketch
-two horizontal bars: Excel vs App).
+Engineers stop doing data plumbing and spend their time on interpretation.
 
-**Speaker notes:**  
-This is the slide I want the room to remember. It’s not about “fancy
-software,” it’s about the recurring work the team had to do every
-single month, and how much of that is now automated and consistent.
+**Speaker notes**
+This is the slide I want the room to remember. It is not about "fancy
+software." It is about the recurring work the team had to do every
+month, and how much of that is now automated.
 
 ---
 
 ## Slide 10 — Reliability and auditability
 
-- Every run prints a **header**, **steps**, and a **summary** with
-  row counts and duration
-- **Cancel** during long jobs is supported
-- **Date caps** prevent writing into days Snowflake isn’t ready for
-- **Exception-flagged** wells in `PCE_WM` are skipped automatically
-- Type curve and YE2 well rows are **protected** during rebuilds
+- Every run prints a header, step lines, and a summary with row counts and duration
+- Cancel during long jobs is supported
+- Date caps prevent writing into days Snowflake isn't ready for
+- Exception-flagged wells in `PCE_WM` are skipped automatically
+- Type-curve and YE2 well rows are protected during rebuilds
+- Concurrent engineers work against the same SQL tables — no merging workbooks
 
-**Screenshot placeholder:** log panel showing a successful run summary.
-
-**Speaker notes:**  
-Quick reassurance for the engineering audience: no silent overwrites,
-the app is verbose about what it did, and there are guardrails for the
-data we don’t want touched.
+**Speaker notes**
+Quick reassurance: no silent overwrites; the app is verbose about what
+it did; there are guardrails for the data we don't want touched; and
+the database removes the "whose copy is correct" problem.
 
 ---
 
-## Slide 11 — What’s next
+## Slide 11 — What's next
 
-- **Whitson+ mass upload** (currently placeholder)
-- **Exports / reports** dialog (placeholder)
-- More **automated reconciliation** between sources
-- Smaller asks: better progress indicators, more name-resolution rules
-- Owners and timelines — _<fill in for your team>_
+- **Whitson+ mass upload** — replace the current placeholder
+- **Exports / reports** — first-class dialog, scheduled extracts
+- **Automated reconciliation** between Snowflake, Accumap, and ValNav
+- Smaller asks — better progress signals, more name-resolution rules
+- Owners and timelines: <fill in for your team>
 
-**Screenshot placeholder:** Whitson and Exports buttons on the main
-window (or a roadmap sketch).
-
-**Speaker notes:**  
-We’re shipping value now, but there’s a clear next phase. I want to
-prioritize based on what causes the most manual work today — please
-push items at me after this talk.
+**Speaker notes**
+Shipping value now, but there is a clear next phase. I want to
+prioritize based on what causes the most manual work today — push items
+at me after this talk.
 
 ---
 
@@ -214,9 +202,7 @@ push items at me after this talk.
 
 - Questions
 - Where to file requests / bugs: <link or email>
-- User guide: `USER_GUIDE.md` in the repo
+- Documentation: `docs/USER_GUIDE.md` and `docs/DEV_GUIDE.md` in the repo
 
-**Screenshot placeholder:** logo / closing.
-
-**Speaker notes:**  
+**Speaker notes**
 Thanks. Two minutes of Q&A or grab me after.
