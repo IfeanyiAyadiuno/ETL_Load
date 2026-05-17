@@ -97,7 +97,7 @@ python -m pytest -q
 | `PCE_Surveys` | Survey stations and geometry loaded from Excel or CSV; keyed by **`SurveyID`** with **`UWI`**, **`[Well Name]`**, and optional **`Latitude`** / **`Longitude`** (decimal), plus legacy-style offset columns as applicable. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
-**Optional reporting views:** Your DBA may deploy read-only views (for example joins between production and type curves). The desktop app does **not** ship view DDL in this repository; routine ETL uses **`PCE_TC`**, **`PCE_Production`**, and Python-side **`sync_tc_to_production`** instead of view-based writes.
+**Optional reporting views:** Your DBA may deploy read-only views (for example joins between production and type curves). The desktop app does **not** ship view DDL in the application package; routine ETL uses **`PCE_TC`**, **`PCE_Production`**, and Python-side **`sync_tc_to_production`** instead of view-based writes.
 
 **Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors), via **`monthly_loader_gui.py`** calling **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**.
 
@@ -595,7 +595,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 
 The following **entity-relationship diagram is logical**: the application and well keys imply the relationships below. SQL Server might not declare every relationship as a foreign key. Column inventory is maintained from **`INFORMATION_SCHEMA.COLUMNS`** exports (see `output.txt` in the project folder for a recent tab-separated example).
 
-**Tables included:** `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`. Optional database views (if any) are DBA-maintained; this repo does not ship view DDL. Type-curve data is joined in reporting via **`PCE_TC`** and materialized **`PCE_Production`** rows, not via application-bundled SQL view scripts.
+**Tables included:** `PCE_WM`, `PCE_CDA`, `PCE_Production`, `Allocation_Factors`, `PCE_Surveys`, `PCE_TC`. Optional database views (if any) are DBA-maintained; the application does not ship view DDL. Type-curve data is joined in reporting via **`PCE_TC`** and materialized **`PCE_Production`** rows, not via application-bundled SQL view scripts.
 
 ```mermaid
 erDiagram

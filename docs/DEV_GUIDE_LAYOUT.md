@@ -199,7 +199,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **Logic files:**
   - **`type_curves_import.py`** — **`append_typecurves_from_excel`**, **`delete_typecurves_from_tc`**, **`scan_typecurve_wells`**, **`ye2_append_rows_to_pce_tc`** (bulk YE2 path), Excel base-name rule + match to **`PCE_WM.[Well Name]`** via **`_tc_well_match_key`**, **`_tc_storage_base_name`** (longer of Excel vs WM + **` - TC`**), Vincent unit conversions, `executemany` into **`dbo.PCE_TC`**.
-  - **`sync_typecurves_to_production.py`** — **`sync_tc_to_production`**: materializes **`PCE_TC`** into **`PCE_Production`** at **`ImportDate`** (Python column map only; no repo-shipped view DDL).
+  - **`sync_typecurves_to_production.py`** — **`sync_tc_to_production`**: materializes **`PCE_TC`** into **`PCE_Production`** at **`ImportDate`** (Python column map only; no view DDL bundled with the application).
   - **`type_curves_import.py`** — primary API for type curve load/delete (legacy `type.py` removed).
 
 - **What it does:**

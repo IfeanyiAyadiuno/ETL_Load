@@ -1,6 +1,6 @@
-# Handoff inventory — Python modules and artifacts
+# Module inventory — Python modules and artifacts
 
-Inventory of every Python file and other artifact in the repository, classified as part of the **GUI / ETL chain**, **tests**, **CLI helper**, **dev utility**, **build output**, or **configuration**.
+Inventory of every Python file and other artifact in the **local project folder** (the directory you open in VS Code — same level as `production_update_gui.py`), classified as part of the **GUI / ETL chain**, **tests**, **CLI helper**, **dev utility**, **build output**, or **configuration**.
 
 ## GUI and ETL (active application chain)
 
@@ -50,7 +50,7 @@ Inventory of every Python file and other artifact in the repository, classified 
 ## Configuration
 
 - **`settings.ini`** — Office / team configuration (SQL labels, ValNav / Accumap / survey paths — usually shared network paths so one file matches every workstation). Use `settings.ini.example` when documenting a fresh setup.
-- **`.env`** — Secrets (Snowflake credentials, optional SQL overrides). Stays on the workstation only; not tracked by git. Use `.env.example` for the variable names.
+- **`.env`** — Secrets (Snowflake credentials, optional SQL overrides). Keep on the workstation only; do not email or place on open shares. Use `.env.example` for the variable names.
 
 ## Documentation files (this folder)
 
@@ -65,9 +65,9 @@ Inventory of every Python file and other artifact in the repository, classified 
 
 ## Build / generated (not source of truth)
 
-- **`build/`** — PyInstaller intermediate output; rebuild per `PACKAGING_WINDOWS.md`. Gitignored.
-- **`dist/`** — PyInstaller final output (the `.exe` and `_internal/`). Gitignored.
-- **`__pycache__/`** — Generated at runtime; gitignored.
+- **`build/`** — PyInstaller intermediate output; rebuild per `PACKAGING_WINDOWS.md`. Omit from source zip packages (regenerated on each build).
+- **`dist/`** — PyInstaller final output (the `.exe` and `_internal/`). Omit from source handoffs; ship only when distributing the built app.
+- **`__pycache__/`** — Generated at runtime; safe to delete; not part of the editable source set.
 
 ## Verification commands
 

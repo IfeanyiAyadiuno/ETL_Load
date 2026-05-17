@@ -32,7 +32,7 @@ from sales_allocation_updates import (
 
 
 def accumap_path_from_settings() -> str:
-    """PATHS/accumap_template from settings.ini next to the app (or repo)."""
+    """PATHS/accumap_template from settings.ini next to the app (or project folder)."""
     ini = get_settings_path()
     if not os.path.isfile(ini):
         return ""

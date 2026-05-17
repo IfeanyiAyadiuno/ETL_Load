@@ -202,7 +202,7 @@ at me after this talk.
 
 - Questions
 - Where to file requests / bugs: <link or email>
-- Documentation: `docs/USER_GUIDE.md` and `docs/DEV_GUIDE.md` in the repo
+- Documentation: `docs/USER_GUIDE.md` and `docs/DEV_GUIDE.md` (same folder tree as the source you open in VS Code)
 
 **Speaker notes**
 Thanks. Two minutes of Q&A or grab me after.

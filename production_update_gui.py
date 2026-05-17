@@ -267,13 +267,28 @@ class ProductionUpdateGUI(QMainWindow):
         """)
         log_card_layout.addWidget(self.status_label)
         layout.addWidget(log_card)
-        
+
         # Add stretch at the bottom
         layout.addStretch()
-        
+
         # Set the scroll content
         scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        main_layout.addWidget(scroll, 1)
+
+        vendor_footer = QLabel("Adobel Services Inc \u00A9")
+        vendor_footer.setAlignment(Qt.AlignCenter)
+        vendor_footer.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 8px 12px 10px 12px;
+                background-color: #f1f5f9;
+                border: none;
+                border-top: 1px solid #e2e8f0;
+            }
+        """)
+        main_layout.addWidget(vendor_footer)
         
         # Apply styles
         self.apply_styles()

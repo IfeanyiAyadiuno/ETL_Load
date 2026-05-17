@@ -11,7 +11,7 @@ Use **64-bit Python from [python.org](https://www.python.org/downloads/windows/)
 In **Command Prompt** or **PowerShell**, go to the project folder (where `production_update_gui.py` lives):
 
 ```bat
-cd C:\path\to\ETL_Load
+cd C:\path\to\your\project
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -23,7 +23,7 @@ pip install pyinstaller
 
 ## 2. Build (use the spec file)
 
-The repo already includes **`ProductionUpdate.spec`** (it lists hidden imports and bundles **`settings.ini`**). After the step above:
+The project folder already includes **`ProductionUpdate.spec`** (it lists hidden imports and bundles **`settings.ini`**). After the step above:
 
 ```bat
 pyinstaller --clean ProductionUpdate.spec

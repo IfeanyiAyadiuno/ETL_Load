@@ -796,9 +796,9 @@ def build_qa(prs, n, total):
     add_card(slide, Inches(6.85), Inches(4.55), Inches(6.0), Inches(2.1),
              title="Documentation",
              items=[
-                 "docs/USER_GUIDE.md — operators",
-                 "docs/DEV_GUIDE.md — overview",
-                 "docs/DEV_GUIDE_LAYOUT.md — deep technical map",
+                 "Markdown files in the docs folder next to the source",
+                 "USER_GUIDE.md — operators",
+                 "DEV_GUIDE.md — overview · DEV_GUIDE_LAYOUT.md — module map",
              ],
              accent=BLUE_BRIGHT, fill=SURFACE_BLUE, title_size=16, body_size=13)
 

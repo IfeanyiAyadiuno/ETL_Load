@@ -11,7 +11,7 @@ All operational and developer documentation lives under [`docs/`](docs/):
 - **[docs/DEV_GUIDE_LAYOUT.md](docs/DEV_GUIDE_LAYOUT.md)** — Deep technical map (module / SQL responsibilities).
 - **[docs/APPLICATION_ARCHITECTURE.md](docs/APPLICATION_ARCHITECTURE.md)** — Logical schema + Mermaid diagram.
 - **[docs/PACKAGING_WINDOWS.md](docs/PACKAGING_WINDOWS.md)** — Building the Windows executable.
-- **[docs/HANDOFF_INVENTORY.md](docs/HANDOFF_INVENTORY.md)** — Module/script inventory.
+- **[docs/HANDOFF_INVENTORY.md](docs/HANDOFF_INVENTORY.md)** — Module inventory (all Python files and supporting artifacts).
 - **[docs/CODE_OPTIMIZATIONS.md](docs/CODE_OPTIMIZATIONS.md)**, **[docs/CODE_REVIEW_REDUNDANCY.md](docs/CODE_REVIEW_REDUNDANCY.md)** — Internal review notes.
 - **[docs/presentation.md](docs/presentation.md)** / **[docs/presentation.pptx](docs/presentation.pptx)** — Project overview deck.
 
@@ -24,7 +24,7 @@ All operational and developer documentation lives under [`docs/`](docs/):
 ## Run from source
 
 ```bash
-cd /path/to/ETL_Load
+cd /path/to/your/local/project/folder
 python -m pip install -r requirements.txt
 python production_update_gui.py
 ```

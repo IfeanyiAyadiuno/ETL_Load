@@ -1,6 +1,6 @@
 # Code review: redundancies and optimization (behavior-preserving)
 
-**Scope:** All Python modules under the repo root. **Server DDL** for `PCE_TC` and optional views is DBA-maintained; the app ships Python-embedded SQL only.
+**Scope:** All Python modules in the project folder (root level next to `production_update_gui.py`). **Server DDL** for `PCE_TC` and optional views is DBA-maintained; the app ships Python-embedded SQL only.
 
 **Inventory (Phase 1):** 35 files, **13,691** total lines (`wc -l`) before Phase 2; **13,693** after Phase 2 (`prodview_update_gui.py` +2 lines).
 
