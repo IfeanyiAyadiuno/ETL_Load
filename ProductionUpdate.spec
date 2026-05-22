@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+#
+# One-folder build (onedir): ProductionUpdate.exe + _internal/ beside it.
+# Faster cold start than a single-file exe for PyQt + pandas.
+# Ship the entire dist/ProductionUpdate/ folder (do not omit _internal).
 
 a = Analysis(
     ['production_update_gui.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['PyQt5.sip', 'pyodbc', 'pandas', 'numpy', 'snowflake.connector'],
+    hiddenimports=[
+        'PyQt5.sip',
+        'pyodbc',
+        'pandas',
+        'numpy',
+        'snowflake.connector',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -19,9 +28,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='ProductionUpdate',
     debug=False,
     bootloader_ignore_signals=False,
@@ -35,4 +43,15 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ProductionUpdate',
 )
