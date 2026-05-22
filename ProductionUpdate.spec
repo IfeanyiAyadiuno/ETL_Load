@@ -35,8 +35,6 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -44,11 +42,17 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+<<<<<<< HEAD
 
 coll = COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
+=======
+coll = COLLECT(
+    exe,
+    a.binaries,
+>>>>>>> f5ee999d712ff5d5d8c35142a0ad09dec93a524a
     a.datas,
     strip=False,
     upx=True,
