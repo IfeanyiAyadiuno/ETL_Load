@@ -159,6 +159,108 @@ def fetch_well_mapping():
     
     return composite_map, fallback_map
 
+
+def fetch_well_master_pad_lookup():
+    """
+    Build a lookup: trimmed production label -> ``PCE_WM.[Pad Name]`` (may be ``None``).
+
+    Keys include both ``[Well Name]`` and ``[Composite Name]`` (when set) so rows
+    labeled either way resolve to the same pad as Well Master.
+    """
+    query = """
+    SELECT [Well Name], [Composite Name], [Pad Name]
+    FROM PCE_WM
+    WHERE [Well Name] IS NOT NULL
+      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
+    """
+    with get_sql_conn() as conn:
+        wm = pd.read_sql(query, conn)
+
+    lookup = {}
+    for _, row in wm.iterrows():
+        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
+        pad = row["Pad Name"]
+        if pd.isna(pad) or (isinstance(pad, str) and not str(pad).strip()):
+            pad_val = None
+        else:
+            pad_val = str(pad).strip()
+        if wn:
+            lookup[wn] = pad_val
+        comp = row["Composite Name"]
+        if comp is not None and str(comp).strip():
+            lookup[str(comp).strip()] = pad_val
+    return lookup
+
+
+def apply_pad_name_from_well_master(df, pad_lookup=None):
+    """
+    Overwrite ``Pad Name`` from Well Master wherever ``[Well Name]`` matches
+    ``PCE_WM.[Well Name]`` or ``PCE_WM.[Composite Name]`` (trimmed).
+
+    Rows whose label does not appear in Well Master (for example type-curve
+    suffix wells) are left unchanged.
+    """
+    if df is None or df.empty or "Well Name" not in df.columns:
+        return df
+    if "Pad Name" not in df.columns:
+        df = df.copy()
+        df["Pad Name"] = np.nan
+    lookup = pad_lookup if pad_lookup is not None else fetch_well_master_pad_lookup()
+    if not lookup:
+        return df
+    out = df.copy()
+    keys = out["Well Name"].astype(str).str.strip()
+    mask = keys.isin(lookup)
+    if mask.any():
+        out.loc[mask, "Pad Name"] = keys[mask].map(lookup).values
+    return out
+
+
+def sync_production_pad_names_from_wm_sql(cursor, date_start=None, date_end=None, log=print):
+    """
+    Set ``PCE_Production.[Pad Name]`` from ``PCE_WM`` for rows whose ``[Well Name]``
+    matches WM ``[Well Name]`` or ``[Composite Name]``. Type-curve and YE2-style
+    wells are skipped (same guards as other Prodview deletes).
+
+    If *date_start* and *date_end* are both set, only rows with ``[Date]`` in that
+    inclusive range are updated; otherwise all matching non-TC / non-YE2 rows
+    are updated (used after a full rebuild).
+    """
+    date_filter = ""
+    params = []
+    if date_start is not None and date_end is not None:
+        date_filter = " AND p.[Date] BETWEEN ? AND ?"
+        params = [date_start, date_end]
+
+    sql = f"""
+UPDATE p
+SET p.[Pad Name] = ca.pad
+FROM PCE_Production AS p
+CROSS APPLY (
+    SELECT TOP 1 wm.[Pad Name] AS pad
+    FROM PCE_WM AS wm
+    WHERE (
+            wm.[Well Name] = p.[Well Name]
+         OR (
+                NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+            AND wm.[Composite Name] = p.[Well Name]
+            )
+        )
+      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
+) AS ca
+WHERE p.[Well Name] NOT LIKE N'%% - TC'
+  AND p.[Well Name] NOT LIKE N'YE2%%'
+{date_filter}
+"""
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+    n = cursor.rowcount if cursor.rowcount is not None else -1
+    if log:
+        log(lf.detail(f"PCE_Production [Pad Name] aligned from PCE_WM ({n} row(s) touched where applicable)."))
+
+
 def apply_well_names(df, composite_map, fallback_map):
     """
     Apply well name mapping: use Composite Name if available, otherwise use Well Name.
@@ -498,6 +600,7 @@ def main(cancel_event=None):
 
     # Step 5: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
+    df = apply_pad_name_from_well_master(df)
 
     if df.empty:
         print(lf.warn("No data after well name mapping. Exiting."))
@@ -550,6 +653,15 @@ def main(cancel_event=None):
         sync_tc_to_production(log_callback=print)
     except Exception as e:
         print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
+
+    print(lf.step("Aligning PCE_Production [Pad Name] with Well Master…"))
+    try:
+        with get_sql_conn() as conn:
+            cur = conn.cursor()
+            sync_production_pad_names_from_wm_sql(cur, None, None, log=print)
+            conn.commit()
+    except Exception as e:
+        print(lf.warn(f"PCE_Production pad alignment from WM: {e}"))
 
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)

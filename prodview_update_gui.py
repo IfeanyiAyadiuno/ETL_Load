@@ -477,6 +477,15 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         log(lf.success(f"Sequences recalculated for date range"))
         progress(90)
 
+        from production_update import sync_production_pad_names_from_wm_sql
+
+        log(lf.step("Aligning PCE_Production [Pad Name] with Well Master…"))
+        try:
+            sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end, log=log)
+            conn.commit()
+        except Exception as e:
+            log(lf.warn(f"PCE_Production pad alignment from WM: {e}"))
+
         affected_wells_count = mapping_df['Well Name'].nunique()
         conn.close()
 
@@ -533,6 +542,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             calculate_sequences, calculate_cumulatives,
             calculate_monthly_averages, add_on_production_year,
             fetch_well_mapping, apply_well_names, filter_to_first_production,
+            apply_pad_name_from_well_master, sync_production_pad_names_from_wm_sql,
         )
 
         conn = get_sql_conn()
@@ -626,6 +636,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
+            all_cda = apply_pad_name_from_well_master(all_cda)
         if not all_cda.empty:
             all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
@@ -669,6 +680,13 @@ def run_quick_update(progress_callback=None, log_callback=None):
             sync_tc_to_production(log_callback=log, conn=conn)
         except Exception as e:
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
+
+        log(lf.step("Aligning PCE_Production [Pad Name] with Well Master…"))
+        try:
+            sync_production_pad_names_from_wm_sql(cursor, start_first, end_last, log=log)
+            conn.commit()
+        except Exception as e:
+            log(lf.warn(f"PCE_Production pad alignment from WM: {e}"))
 
         progress(95)
         conn.close()
