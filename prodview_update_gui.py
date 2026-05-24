@@ -479,12 +479,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
         from production_update import sync_production_pad_names_from_wm_sql
 
-        log(lf.step("Aligning PCE_Production [Pad Name] with Well Master…"))
-        try:
-            sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end, log=log)
-            conn.commit()
-        except Exception as e:
-            log(lf.warn(f"PCE_Production pad alignment from WM: {e}"))
+        sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end)
+        conn.commit()
 
         affected_wells_count = mapping_df['Well Name'].nunique()
         conn.close()
@@ -681,12 +677,8 @@ def run_quick_update(progress_callback=None, log_callback=None):
         except Exception as e:
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
 
-        log(lf.step("Aligning PCE_Production [Pad Name] with Well Master…"))
-        try:
-            sync_production_pad_names_from_wm_sql(cursor, start_first, end_last, log=log)
-            conn.commit()
-        except Exception as e:
-            log(lf.warn(f"PCE_Production pad alignment from WM: {e}"))
+        sync_production_pad_names_from_wm_sql(cursor, start_first, end_last)
+        conn.commit()
 
         progress(95)
         conn.close()

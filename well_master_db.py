@@ -158,6 +158,59 @@ class WellMasterDB:
         return f"{w} - {l} - {t} - {o}"
 
     @staticmethod
+    def backfill_shared_nad83_location_columns(cursor):
+        """Copy shared NAD83 surface/bottom coordinates from another PCE_WM row onto rows with any NULL."""
+        sql = """
+UPDATE tgt
+SET
+  tgt.[Surface Location Latitude (NAD83)] = src.[Surface Location Latitude (NAD83)],
+  tgt.[Surface Location Longitude (NAD83)] = src.[Surface Location Longitude (NAD83)],
+  tgt.[Surface Location Easting (NAD83)] = src.[Surface Location Easting (NAD83)],
+  tgt.[Surface Location Northing (NAD83)] = src.[Surface Location Northing (NAD83)],
+  tgt.[Bottom Location Latitude (NAD83)] = src.[Bottom Location Latitude (NAD83)],
+  tgt.[Bottom Location Longitude (NAD83)] = src.[Bottom Location Longitude (NAD83)],
+  tgt.[Bottom Location Easting (NAD83)] = src.[Bottom Location Easting (NAD83)],
+  tgt.[Bottom Location Northing (NAD83)] = src.[Bottom Location Northing (NAD83)]
+FROM PCE_WM AS tgt
+CROSS APPLY (
+  SELECT TOP (1)
+    d.[Surface Location Latitude (NAD83)],
+    d.[Surface Location Longitude (NAD83)],
+    d.[Surface Location Easting (NAD83)],
+    d.[Surface Location Northing (NAD83)],
+    d.[Bottom Location Latitude (NAD83)],
+    d.[Bottom Location Longitude (NAD83)],
+    d.[Bottom Location Easting (NAD83)],
+    d.[Bottom Location Northing (NAD83)]
+  FROM PCE_WM AS d
+  WHERE d.[Well Name] <> tgt.[Well Name]
+    AND d.[Surface Location Latitude (NAD83)] IS NOT NULL
+  ORDER BY
+    CASE WHEN
+      d.[Surface Location Latitude (NAD83)] IS NOT NULL
+      AND d.[Surface Location Longitude (NAD83)] IS NOT NULL
+      AND d.[Surface Location Easting (NAD83)] IS NOT NULL
+      AND d.[Surface Location Northing (NAD83)] IS NOT NULL
+      AND d.[Bottom Location Latitude (NAD83)] IS NOT NULL
+      AND d.[Bottom Location Longitude (NAD83)] IS NOT NULL
+      AND d.[Bottom Location Easting (NAD83)] IS NOT NULL
+      AND d.[Bottom Location Northing (NAD83)] IS NOT NULL
+    THEN 0 ELSE 1 END,
+    d.[Well Name]
+) AS src
+WHERE
+  tgt.[Surface Location Latitude (NAD83)] IS NULL
+  OR tgt.[Surface Location Longitude (NAD83)] IS NULL
+  OR tgt.[Surface Location Easting (NAD83)] IS NULL
+  OR tgt.[Surface Location Northing (NAD83)] IS NULL
+  OR tgt.[Bottom Location Latitude (NAD83)] IS NULL
+  OR tgt.[Bottom Location Longitude (NAD83)] IS NULL
+  OR tgt.[Bottom Location Easting (NAD83)] IS NULL
+  OR tgt.[Bottom Location Northing (NAD83)] IS NULL
+"""
+        cursor.execute(sql)
+
+    @staticmethod
     def delete_well(well_name):
         """Permanently delete a well from PCE_WM by Well Name.
 
@@ -274,6 +327,8 @@ class WellMasterDB:
                     updated += 1
                 else:
                     errors.append(f"Well not found: {well_name}")
+
+            WellMasterDB.backfill_shared_nad83_location_columns(cursor)
 
             conn.commit()
 

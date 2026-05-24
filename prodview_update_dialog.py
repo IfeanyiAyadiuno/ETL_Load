@@ -89,7 +89,7 @@ class ProdviewUpdateDialog(QDialog):
         full_rebuild_desc = QLabel(
             "  • Refreshes CDA from Allocation_Factors, then rebuilds all of PCE_Production from PCE_CDA\n"
             "  • No Snowflake — use the other mode first if CDA needs a Snowflake refresh\n"
-            "  • ~5–10 min"
+            "  • ~5 min"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
@@ -102,7 +102,7 @@ class ProdviewUpdateDialog(QDialog):
 
         quick_update_desc = QLabel(
             "  • Snowflake → PCE_CDA (~18‑month rolling window), then rebuild PCE_Production from CDA\n"
-            "  • ~10–20 min"
+            "  • ~5 min"
         )
         quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
@@ -224,7 +224,7 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         if self.mode_full_rebuild.isChecked():
             self.quick_scope_body.setText(
-                "Rebuild PCE_Production from CDA; no Snowflake. ~5–10 min."
+                "Rebuild PCE_Production from CDA; no Snowflake. ~5 min."
             )
             self.info_text.setText(
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
@@ -232,7 +232,7 @@ class ProdviewUpdateDialog(QDialog):
             )
         else:
             self.quick_scope_body.setText(
-                "Snowflake (~18 mo), then full PCE_Production rebuild (+ TC sync). ~10–20 min."
+                "Snowflake (~18 mo), then full PCE_Production rebuild (+ TC sync). ~5 min."
             )
             self.info_text.setText(
                 "  • Load Snowflake into PCE_CDA for the rolling window\n"

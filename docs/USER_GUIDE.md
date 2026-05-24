@@ -312,7 +312,7 @@ Importing wells updates **`PCE_WM` only**. The application does **not** automati
 
 ### Dialog layout
 
-- **Overview** — One-line scope for the selected mode (typical duration **~5–10 min** for Full rebuild, **~10–20 min** for Snowflake + production, including type-curve sync on the Quick path).  
+- **Overview** — One-line scope for the selected mode (typical duration **~5 min** for either mode, including type-curve sync on the Quick path).  
 - **Update mode** — Two radio buttons (**Snowflake → CDA + production rebuild** is selected by default):
   - **Full rebuild — PCE_Production from all PCE_CDA** — Refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then deletes **all** rows in **`PCE_Production`** and rebuilds from **all** of **`PCE_CDA`**. **Does not** call Snowflake. Progress bar runs **indeterminate** with an **elapsed-time** status while the job runs.  
   - **Snowflake → CDA + production rebuild** — Single Snowflake pull for the **rolling ~18 calendar months** ending on the application’s **effective end date** (**about today minus 2 days** by default — see `PRODVIEW_DATA_LAG_DAYS` in `prodview_date_bounds.py`). **No From/To pickers** in the dialog; the calendar span is **computed automatically**. Replaces **`PCE_CDA`** for that window, rebuilds **`PCE_Production`** for wells in the merged dataset (see **Caution** below), then runs **`sync_tc_to_production`**.  
@@ -336,7 +336,7 @@ Importing wells updates **`PCE_WM` only**. The application does **not** automati
 3. **Does not** query Snowflake.  
 4. Call **`sync_tc_to_production`** (via **`production_update.main`**).
 
-Extended runtime (on the order of tens of minutes for a large database). There are **no date-range controls** for Full rebuild.
+Typical runs are on the order of **~5 minutes**; very large databases can take longer. There are **no date-range controls** for Full rebuild.
 
 ### Procedure
 

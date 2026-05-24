@@ -1058,6 +1058,8 @@ class WellMasterDialog(QDialog):
                 except Exception as e:
                     errors.append(f"{wn}: {str(e)}")
 
+            WellMasterDB.backfill_shared_nad83_location_columns(cursor)
+
             conn.commit()
             conn.close()
 
