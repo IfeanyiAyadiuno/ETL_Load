@@ -1,4 +1,4 @@
-# monthly_forecasts_import_dialog.py — Excel monthly forecast rows -> PCE_Monthly_Forcasts
+# monthly_forecasts_import_dialog.py — Excel monthly forecast rows -> PCE_Monthly_Forecasts
 
 import os
 from PyQt5.QtWidgets import (
@@ -66,7 +66,7 @@ class MonthlyForecastsImportWorker(QThread):
 
 
 class MonthlyForecastsImportDialog(QDialog):
-    """Import monthly forecast workbook from Settings path into dbo.PCE_Monthly_Forcasts."""
+    """Import monthly forecast workbook from Settings path into dbo.PCE_Monthly_Forecasts."""
 
     def __init__(self, settings_section, parent=None):
         super().__init__(parent)
@@ -116,7 +116,7 @@ class MonthlyForecastsImportDialog(QDialog):
 
         hint = QLabel(
             "First sheet, row 1 headers. Column names are inserted into SQL exactly as in Excel "
-            "(trimmed). Every row is appended to dbo.PCE_Monthly_Forcasts."
+            "(trimmed). Every row is appended to dbo.PCE_Monthly_Forecasts."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")

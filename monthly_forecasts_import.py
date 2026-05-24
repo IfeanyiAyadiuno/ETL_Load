@@ -1,5 +1,5 @@
 """
-Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Forcasts``.
+Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Forecasts``.
 
 Imports rows as-is: column names come straight from Excel (trimmed/BOM stripped only),
 all data rows are inserted. No duplicate checking or header renaming.
@@ -16,7 +16,7 @@ import pandas as pd
 import log_format as lf
 from db_connection import get_sql_conn
 
-TARGET_TABLE = "dbo.PCE_Monthly_Forcasts"
+TARGET_TABLE = "dbo.PCE_Monthly_Forecasts"
 
 
 def _strip_header(h: object) -> str:
