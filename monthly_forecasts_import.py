@@ -1,13 +1,14 @@
 """
-Monthly forecast workbook (sheet 1, header row) -> ``dbo.PCE_Monthly_Forcasts``.
+Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Forcasts``.
 
-Append-only: skips rows whose ``(Date, UWI)`` already exists in the table.
+Imports rows as-is: column names come straight from Excel (trimmed/BOM stripped only),
+all data rows are inserted. No duplicate checking or header renaming.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -17,35 +18,8 @@ from db_connection import get_sql_conn
 
 TARGET_TABLE = "dbo.PCE_Monthly_Forcasts"
 
-_INSERT_COLUMNS_SQL = (
-    "[Date], [UWI], [CDGR_Mcf_d], [CD_Cond_bbl_d], [CD_Water_bbl_d], "
-    '[Enersight Well Name], [Month], [Pad], [Fault_Block]'
-)
 
-# Canonical column keys after normalization -> DataFrame column name we keep internally
-HEADER_ALIASES: Dict[str, str] = {
-    "date": "Date",
-    "uwi": "UWI",
-    "cdgr(mcf/d)": "CDGR_Mcf_d",
-    "cdgr_mcf_d": "CDGR_Mcf_d",
-    "cdgr mcf/d": "CDGR_Mcf_d",
-    "cd cond.(bbl/d)": "CD_Cond_bbl_d",
-    "cd_cond_bbld": "CD_Cond_bbl_d",
-    "cd_cond_bbl_d": "CD_Cond_bbl_d",
-    "cd water(bbl/d)": "CD_Water_bbl_d",
-    "cd_water_bbld": "CD_Water_bbl_d",
-    "cd_water_bbl_d": "CD_Water_bbl_d",
-    "cei enersight wellname": "Enersight Well Name",
-    "enersight well name": "Enersight Well Name",
-    "enersight_well_name": "Enersight Well Name",
-    "month": "Month",
-    "pad": "Pad",
-    "fault block": "Fault_Block",
-    "fault_block": "Fault_Block",
-}
-
-
-def _fold_header_key(h: object) -> str:
+def _strip_header(h: object) -> str:
     if h is None or (isinstance(h, float) and np.isnan(h)):
         return ""
     return (
@@ -53,117 +27,68 @@ def _fold_header_key(h: object) -> str:
         .replace("\ufeff", "")
         .strip()
         .replace("\u00a0", " ")
-        .casefold()
     )
 
 
-def normalize_monthly_forecast_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Map flexible Excel headers to canonical names used for SQL INSERT."""
-    if df.empty:
-        raise ValueError("Worksheet has no rows.")
-    rename: Dict[str, str] = {}
-    for col in df.columns:
-        fk = _fold_header_key(col)
-        if fk in HEADER_ALIASES:
-            rename[col] = HEADER_ALIASES[fk]
-    out = df.rename(columns=rename)
-    missing = [r for r in ("Date", "UWI") if r not in out.columns]
-    if missing:
-        raise ValueError(
-            "Missing required column(s): "
-            + ", ".join(missing)
-            + ". Found columns: "
-            + repr(list(df.columns))
-        )
-    return out
+def _sql_bracket_identifier(name: str) -> str:
+    """Bracketed identifier for SQL Server (escape ] as ]])."""
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _cell_value_sql(val: object):
+    """Map Excel/pandas cell to a value pyodbc can bind."""
+    if val is None:
+        return None
+    if isinstance(val, float) and np.isnan(val):
+        return None
+    if pd.isna(val):
+        return None
+
+    if isinstance(val, pd.Timestamp):
+        pydt = val.to_pydatetime()
+        if isinstance(pydt, datetime):
+            return pydt.date()
+        return val
+
+    if isinstance(val, datetime):
+        return val.date()
+
+    if isinstance(val, date):
+        return val
+
+    if isinstance(val, np.integer):
+        return int(val)
+
+    if isinstance(val, (np.floating, float)):
+        f = float(val)
+        return f if np.isfinite(f) else None
+
+    if isinstance(val, bool):
+        return val
+
+    return val
 
 
 def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame:
-    """Read Excel; first sheet, first row headers."""
+    """Load first sheet with header row 0; strip whitespace from column titles only."""
     df = pd.read_excel(path, sheet_name=sheet_index, header=0, dtype=object)
-    return normalize_monthly_forecast_columns(df)
+    if df.empty:
+        raise ValueError("Worksheet has no data rows.")
 
+    rename: Dict[object, str] = {}
+    seen: set = set()
+    new_cols: List[str] = []
+    for c in df.columns:
+        stripped = _strip_header(c)
+        if not stripped:
+            raise ValueError(f"Empty column header after trim: {c!r}")
+        if stripped in seen:
+            raise ValueError(f"Duplicate column name after trim: {stripped!r}")
+        seen.add(stripped)
+        rename[c] = stripped
+        new_cols.append(stripped)
 
-def _to_py_date(val: object) -> Optional[date]:
-    if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
-        return None
-    if isinstance(val, datetime):
-        return val.date()
-    if isinstance(val, date):
-        return val
-    try:
-        ts = pd.Timestamp(val)
-        if pd.isna(ts):
-            return None
-        return ts.date()
-    except (ValueError, TypeError, OverflowError):
-        return None
-
-
-def _to_optional_float(val: object) -> Optional[float]:
-    if val is None or val == "":
-        return None
-    if isinstance(val, float) and np.isnan(val):
-        return None
-    if pd.isna(val):
-        return None
-    try:
-        return float(str(val).strip().replace(",", ""))
-    except (ValueError, TypeError):
-        return None
-
-
-def _to_optional_str(val: object) -> Optional[str]:
-    if val is None or val == "":
-        return None
-    if isinstance(val, float) and np.isnan(val):
-        return None
-    if pd.isna(val):
-        return None
-    s = str(val).strip()
-    return s if s else None
-
-
-def _distinct_pairs(rows: Iterable[Tuple[date, str]]) -> List[Tuple[date, str]]:
-    seen: Set[Tuple[date, str]] = set()
-    out: List[Tuple[date, str]] = []
-    for d, u in rows:
-        t = (d, u)
-        if t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out
-
-
-def _existing_pairs(cursor, pairs: Sequence[Tuple[date, str]]) -> Set[Tuple[date, str]]:
-    """Return subset of pairs that already exist in PCE_Monthly_Forcasts."""
-    if not pairs:
-        return set()
-    cursor.execute(
-        """
-CREATE TABLE #mf_dupcheck (
-    d DATE NOT NULL,
-    uwi NVARCHAR(512) NOT NULL
-)
-"""
-    )
-    cursor.fast_executemany = True
-    cursor.executemany(
-        "INSERT INTO #mf_dupcheck (d, uwi) VALUES (?, ?)",
-        list(pairs),
-    )
-    cursor.execute(
-        f"""
-SELECT CAST(m.[Date] AS DATE) AS dt, LTRIM(RTRIM(CAST(m.[UWI] AS NVARCHAR(512)))) AS uwi
-FROM {TARGET_TABLE} AS m
-INNER JOIN #mf_dupcheck AS k
-  ON CAST(m.[Date] AS DATE) = k.d
- AND LTRIM(RTRIM(CAST(m.[UWI] AS NVARCHAR(512)))) = k.uwi
-"""
-    )
-    found: Set[Tuple[date, str]] = {(r[0], r[1]) for r in cursor.fetchall()}
-    cursor.execute("DROP TABLE #mf_dupcheck")
-    return found
+    return df.rename(columns=rename)
 
 
 def append_monthly_forecasts_from_excel(
@@ -173,8 +98,9 @@ def append_monthly_forecasts_from_excel(
     conn=None,
 ) -> Dict[str, int]:
     """
-    Insert rows from *path*. Returns counts:
-    inserted, skipped_duplicate, skipped_invalid, total_rows_read.
+    Insert every data row using the workbook column names as SQL column names.
+
+    Returns: ``inserted`` (rows written), ``total_rows_read``.
     """
 
     def log(msg: str):
@@ -186,40 +112,19 @@ def append_monthly_forecasts_from_excel(
             progress_callback(min(100, max(0, pct)))
 
     df = read_monthly_forecast_excel(path)
-    prog(10)
+    nrows = len(df)
+    colnames = list(df.columns)
+    cols_sql = ", ".join(_sql_bracket_identifier(c) for c in colnames)
+    ph = ", ".join(["?"] * len(colnames))
+    insert_sql = f"INSERT INTO {TARGET_TABLE} ({cols_sql}) VALUES ({ph})"
 
-    prepared: List[Tuple] = []
-    skipped_invalid = 0
-    for _, row in df.iterrows():
-        d = _to_py_date(row.get("Date"))
-        uwi = _to_optional_str(row.get("UWI"))
-        if d is None or not uwi:
-            skipped_invalid += 1
-            continue
-        prepared.append(
-            (
-                d,
-                uwi,
-                _to_optional_float(row.get("CDGR_Mcf_d")),
-                _to_optional_float(row.get("CD_Cond_bbl_d")),
-                _to_optional_float(row.get("CD_Water_bbl_d")),
-                _to_optional_str(row.get("Enersight Well Name")),
-                _to_optional_str(row.get("Month")),
-                _to_optional_str(row.get("Pad")),
-                _to_optional_str(row.get("Fault_Block")),
-            )
-        )
+    prog(15)
 
-    prog(25)
-
-    if not prepared:
-        log(lf.detail("Monthly forecasts: no valid rows (Date + UWI required)."))
-        return {
-            "inserted": 0,
-            "skipped_duplicate": 0,
-            "skipped_invalid": skipped_invalid,
-            "total_rows_read": len(df),
-        }
+    params: List[tuple] = []
+    for idx, (_, row) in enumerate(df.iterrows()):
+        params.append(tuple(_cell_value_sql(row[col]) for col in colnames))
+        if nrows > 1 and idx % max(1, nrows // 15) == 0:
+            prog(15 + int(75 * idx / nrows))
 
     own_conn = conn is None
     if conn is None:
@@ -227,45 +132,24 @@ def append_monthly_forecasts_from_excel(
 
     try:
         cur = conn.cursor()
-        uniq = _distinct_pairs([(p[0], p[1]) for p in prepared])
-        existing = _existing_pairs(cur, uniq)
-        prog(50)
-
-        insert_sql = f"INSERT INTO {TARGET_TABLE} ({_INSERT_COLUMNS_SQL}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-
-        inserted = 0
-        skipped_duplicate = 0
-        n = len(prepared)
-        for i, rec in enumerate(prepared):
-            d, uwi = rec[0], rec[1]
-            pair = (d, uwi)
-            if pair in existing:
-                skipped_duplicate += 1
-            else:
-                cur.execute(insert_sql, rec)
-                inserted += 1
-                existing.add(pair)
-
-            if n > 1 and i % max(1, n // 20) == 0:
-                prog(50 + int(35 * i / n))
-
+        cur.fast_executemany = True
+        cur.executemany(insert_sql, params)
         conn.commit()
         prog(100)
+
+        inserted = len(params)
         log(
             lf.detail(
                 "Monthly forecasts: "
                 f"imported {lf.num(inserted)} row(s); "
-                f"skipped duplicate Date+UWI: {lf.num(skipped_duplicate)}; "
-                f"skipped invalid: {lf.num(skipped_invalid)}; "
-                f"spreadsheet rows: {lf.num(len(df))}"
+                f"{lf.num(len(colnames))} column(s): {', '.join(colnames)}; "
+                f"spreadsheet data rows: {lf.num(nrows)}"
             )
         )
 
         return {
             "inserted": inserted,
-            "skipped_duplicate": skipped_duplicate,
-            "skipped_invalid": skipped_invalid,
-            "total_rows_read": len(df),
+            "total_rows_read": nrows,
         }
     except Exception:
         try:

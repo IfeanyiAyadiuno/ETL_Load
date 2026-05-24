@@ -115,8 +115,8 @@ class MonthlyForecastsImportDialog(QDialog):
         src.layout().addLayout(row)
 
         hint = QLabel(
-            "First sheet, row 1 headers. Required columns: Date, UWI. "
-            "Duplicates (same Date + UWI as existing SQL rows) are skipped."
+            "First sheet, row 1 headers. Column names are inserted into SQL exactly as in Excel "
+            "(trimmed). Every row is appended to dbo.PCE_Monthly_Forcasts."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")
@@ -216,8 +216,6 @@ class MonthlyForecastsImportDialog(QDialog):
                 "Complete",
                 {
                     "Inserted": lf.num(summary.get("inserted", 0)),
-                    "Skipped duplicate": lf.num(summary.get("skipped_duplicate", 0)),
-                    "Skipped invalid": lf.num(summary.get("skipped_invalid", 0)),
                     "Rows read": lf.num(summary.get("total_rows_read", 0)),
                 },
             )
