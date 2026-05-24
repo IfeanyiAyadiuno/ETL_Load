@@ -8,3 +8,4 @@ accumap_template = C:/Company/Data/Accumap/Public-Data-Accumap.xlsx
 survey_file = C:/Company/Data/Survey/Survey.xlsx
 type_curves_file = C:/Company/Data/TypeCurves/PCE_TCs.xlsx
 whitson_file = C:/Company/Data/Whitson/Whitson_Mass_Upload.xlsx
+monthly_forecasts_template = C:/Company/Data/Forecasts/Monthly_Forecasts_Template.xlsx

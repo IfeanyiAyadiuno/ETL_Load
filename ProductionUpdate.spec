@@ -15,6 +15,8 @@ a = Analysis(
         'pandas',
         'numpy',
         'snowflake.connector',
+        'monthly_forecasts_import',
+        'monthly_forecasts_import_dialog',
     ],
     hookspath=[],
     hooksconfig={},

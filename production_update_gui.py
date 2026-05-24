@@ -2,8 +2,8 @@
 Production Update System — main entry point.
 
 Launches the PyQt5 main window, exposes the operations menu (Settings, Well
-Master, Prodview / Snowflake, PA, Public Sales, Surveys, Type Curves, Whitson+,
-Exports), and dispatches CLI flags such as ``--accumap-unmatched``. Run with
+Master, Prodview / Snowflake, PA, Public Sales, Surveys, Type Curves, Monthly Forecasts,
+Whitson+, Exports), and dispatches CLI flags such as ``--accumap-unmatched``. Run with
 ``python production_update_gui.py``.
 """
 
@@ -26,6 +26,7 @@ from prodview_update_dialog import ProdviewUpdateDialog
 from well_master_gui import WellMasterDialog
 from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
+from monthly_forecasts_import_dialog import MonthlyForecastsImportDialog
 from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 from app_paths import get_settings_path
 from settings_dialog import SettingsDialog
@@ -175,13 +176,14 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(8)
         
-        # Create 7 main buttons (Settings moved to header)
+        # Create main operation buttons (Settings moved to header)
         self.btn_well_master = self.create_main_button("Well Master List", "#1e40af")
         self.btn_prodview = self.create_main_button("Prodview / Snowflake — Daily Production Retrieve", "#1e40af")
         self.btn_allocations = self.create_main_button("Production Accounting Allocations (PA)", "#1e40af")
         self.btn_ratios = self.create_main_button("Public Sales Data and Ratios", "#1e40af")
         self.btn_survey = self.create_main_button("Survey Data Import", "#1e40af")
         self.btn_type_curves = self.create_main_button("Type Curves Import", "#1e40af")
+        self.btn_monthly_forecasts = self.create_main_button("Monthly Forecasts Import", "#1e40af")
         self.btn_exports = self.create_main_button("Exports / Reports", "#1e40af")
         self.btn_whitson = self.create_main_button("Whitson+ Mass Upload", "#1e40af")
         
@@ -192,6 +194,7 @@ class ProductionUpdateGUI(QMainWindow):
         buttons_layout.addWidget(self.btn_ratios)
         buttons_layout.addWidget(self.btn_survey)
         buttons_layout.addWidget(self.btn_type_curves)
+        buttons_layout.addWidget(self.btn_monthly_forecasts)
         buttons_layout.addWidget(self.btn_whitson)
         buttons_layout.addWidget(self.btn_exports)
         
@@ -202,6 +205,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_ratios.clicked.connect(lambda: self.select_operation("Sales Ratios Update"))
         self.btn_survey.clicked.connect(lambda: self.select_operation("Survey Import"))
         self.btn_type_curves.clicked.connect(lambda: self.select_operation("Type Curves Import"))
+        self.btn_monthly_forecasts.clicked.connect(lambda: self.select_operation("Monthly Forecasts Import"))
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
         self.btn_whitson.clicked.connect(lambda: self.select_operation("Whitson Mass Upload"))
         
@@ -352,6 +356,8 @@ class ProductionUpdateGUI(QMainWindow):
             self.open_survey_import()
         elif operation_name == "Type Curves Import":
             self.open_type_curves_import()
+        elif operation_name == "Monthly Forecasts Import":
+            self.open_monthly_forecasts_import()
         elif operation_name == "Exports/Reports":
             self.open_exports()
         elif operation_name == "Whitson Mass Upload":
@@ -451,6 +457,22 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Clear selection
         self.btn_type_curves.setChecked(False)
+
+    def open_monthly_forecasts_import(self):
+        """Open monthly forecasts Excel import dialog."""
+        self.log("Opening Monthly Forecasts Import...")
+
+        config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
+        else:
+            config['PATHS'] = {}
+
+        dialog = MonthlyForecastsImportDialog(config['PATHS'], self)
+        dialog.exec_()
+
+        self.btn_monthly_forecasts.setChecked(False)
         
     
     def open_settings(self):
@@ -500,6 +522,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_ratios.setEnabled(enabled)
         self.btn_survey.setEnabled(enabled)
         self.btn_type_curves.setEnabled(enabled)
+        self.btn_monthly_forecasts.setEnabled(enabled)
         self.btn_whitson.setEnabled(enabled)
         self.btn_exports.setEnabled(enabled)
     

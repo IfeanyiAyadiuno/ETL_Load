@@ -211,6 +211,29 @@ class SettingsDialog(QDialog):
         whitson_layout.addWidget(whitson_browse)
         paths_layout.addLayout(whitson_layout)
 
+        # Monthly forecasts workbook
+        mf_layout = QHBoxLayout()
+        mf_layout.addWidget(QLabel("Monthly Forecasts workbook:"))
+        self.monthly_forecasts_input = QLineEdit()
+        self.monthly_forecasts_input.setPlaceholderText("Path to monthly forecasts Excel template…")
+        mf_layout.addWidget(self.monthly_forecasts_input)
+        mf_browse = QPushButton("Browse")
+        mf_browse.setStyleSheet("""
+            QPushButton {
+                background-color: #0066b3;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+            }
+            QPushButton:hover {
+                background-color: #2c7fc9;
+            }
+        """)
+        mf_browse.clicked.connect(self.browse_monthly_forecasts)
+        mf_layout.addWidget(mf_browse)
+        paths_layout.addLayout(mf_layout)
+
         layout.addWidget(paths_group)
 
         # Buttons
@@ -311,6 +334,17 @@ class SettingsDialog(QDialog):
         if filename:
             self.whitson_input.setText(filename)
 
+    def browse_monthly_forecasts(self):
+        """Browse for monthly forecasts Excel file"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Monthly Forecasts Excel File",
+            self.monthly_forecasts_input.text() or "",
+            "Excel files (*.xlsx *.xls);;All Files (*)",
+        )
+        if filename:
+            self.monthly_forecasts_input.setText(filename)
+
     def load_settings(self):
         """Load settings from file"""
         config = configparser.ConfigParser()
@@ -329,6 +363,9 @@ class SettingsDialog(QDialog):
             self.survey_input.setText(config.get("PATHS", "survey_file", fallback=""))
             self.type_curves_input.setText(config.get("PATHS", "type_curves_file", fallback=""))
             self.whitson_input.setText(config.get("PATHS", "whitson_file", fallback=""))
+            self.monthly_forecasts_input.setText(
+                config.get("PATHS", "monthly_forecasts_template", fallback="")
+            )
         else:
             # Set defaults
             self.server_input.setText("CALVMSQL02")
@@ -349,6 +386,7 @@ class SettingsDialog(QDialog):
             "survey_file": self.survey_input.text(),
             "type_curves_file": self.type_curves_input.text(),
             "whitson_file": self.whitson_input.text(),
+            "monthly_forecasts_template": self.monthly_forecasts_input.text(),
         }
 
         settings_file = get_settings_path()
