@@ -1,14 +1,15 @@
 """
 Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Forecasts``.
 
-Imports rows as-is: column names come straight from Excel (trimmed/BOM stripped only),
-all data rows are inserted. No duplicate checking or header renaming.
+Excel headers are mapped to the table’s real column names (template uses labels like
+``CDGR(Mcf/d)``; SQL uses ``CDGR_Mcf_d``, etc.). Unmapped columns are ignored.
+Every data row is inserted (no duplicate skip).
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,69 @@ import log_format as lf
 from db_connection import get_sql_conn
 
 TARGET_TABLE = "dbo.PCE_Monthly_Forecasts"
+
+# Insert order matches typical table design; only columns present in the file are used.
+SQL_COLUMN_ORDER: List[str] = [
+    "Date",
+    "UWI",
+    "CDGR_Mcf_d",
+    "CD_Cond_bbl_d",
+    "CD_Water_bbl_d",
+    "Month",
+    "Pad",
+    "Fault_Block",
+    "Enersight Well Name",
+]
+
+_SQL_ALIASES_FOLD: Dict[str, str] = {
+    # Core
+    "date": "Date",
+    "uwi": "UWI",
+    # Gas / condensate / water (template vs SSMS names)
+    "cdgr(mcf/d)": "CDGR_Mcf_d",
+    "cdgr_mcf_d": "CDGR_Mcf_d",
+    "cdgr mcf/d": "CDGR_Mcf_d",
+    "cd cond.(bbl/d)": "CD_Cond_bbl_d",
+    "cd_cond_bbld": "CD_Cond_bbl_d",
+    "cd_cond_bbl_d": "CD_Cond_bbl_d",
+    "cd cond.(bbld)": "CD_Cond_bbl_d",
+    "cd water(bbl/d)": "CD_Water_bbl_d",
+    "cd_water_bbld": "CD_Water_bbl_d",
+    "cd_water_bbl_d": "CD_Water_bbl_d",
+    "cd water(bbld)": "CD_Water_bbl_d",
+    # Enersight (Excel / truncated header)
+    "cei enersight wellname": "Enersight Well Name",
+    "cei enersight wellna": "Enersight Well Name",
+    "enersight well name": "Enersight Well Name",
+    "enersight_well_name": "Enersight Well Name",
+    "month": "Month",
+    "pad": "Pad",
+    "fault block": "Fault_Block",
+    "fault_block": "Fault_Block",
+}
+
+_ALLOWED = set(SQL_COLUMN_ORDER)
+
+
+def _init_identity_aliases():
+    """Allow headers that already match SSMS names (any case)."""
+    for col in SQL_COLUMN_ORDER:
+        _SQL_ALIASES_FOLD.setdefault(col.casefold(), col)
+
+
+_init_identity_aliases()
+
+
+def _fold_header_key(h: object) -> str:
+    if h is None or (isinstance(h, float) and np.isnan(h)):
+        return ""
+    return (
+        str(h)
+        .replace("\ufeff", "")
+        .strip()
+        .replace("\u00a0", " ")
+        .casefold()
+    )
 
 
 def _strip_header(h: object) -> str:
@@ -31,12 +95,10 @@ def _strip_header(h: object) -> str:
 
 
 def _sql_bracket_identifier(name: str) -> str:
-    """Bracketed identifier for SQL Server (escape ] as ]])."""
     return "[" + name.replace("]", "]]") + "]"
 
 
 def _cell_value_sql(val: object):
-    """Map Excel/pandas cell to a value pyodbc can bind."""
     if val is None:
         return None
     if isinstance(val, float) and np.isnan(val):
@@ -70,25 +132,50 @@ def _cell_value_sql(val: object):
 
 
 def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame:
-    """Load first sheet with header row 0; strip whitespace from column titles only."""
-    df = pd.read_excel(path, sheet_name=sheet_index, header=0, dtype=object)
-    if df.empty:
+    """
+    Load first sheet; map headers to SQL column names; keep only known columns.
+    Requires Date and UWI after mapping.
+    """
+    raw = pd.read_excel(path, sheet_name=sheet_index, header=0, dtype=object)
+    if raw.empty:
         raise ValueError("Worksheet has no data rows.")
 
-    rename: Dict[object, str] = {}
-    seen: set = set()
-    new_cols: List[str] = []
-    for c in df.columns:
+    pairs: List[Tuple[object, str]] = []
+    target_hit: Dict[str, object] = {}
+
+    for c in raw.columns:
         stripped = _strip_header(c)
         if not stripped:
             raise ValueError(f"Empty column header after trim: {c!r}")
-        if stripped in seen:
-            raise ValueError(f"Duplicate column name after trim: {stripped!r}")
-        seen.add(stripped)
-        rename[c] = stripped
-        new_cols.append(stripped)
+        k = _fold_header_key(c)
+        sql_col = _SQL_ALIASES_FOLD.get(k)
+        if sql_col is None or sql_col not in _ALLOWED:
+            continue
+        if sql_col in target_hit and target_hit[sql_col] != c:
+            raise ValueError(
+                f"Two columns map to '{sql_col}': {target_hit[sql_col]!r} and {c!r}"
+            )
+        target_hit[sql_col] = c
+        pairs.append((c, sql_col))
 
-    return df.rename(columns=rename)
+    if not pairs:
+        raise ValueError(
+            "No recognized columns found. Expected template headers such as "
+            "Date, UWI, CDGR(Mcf/d), CD Cond.(bbl/d), etc."
+        )
+
+    df = raw[[p[0] for p in pairs]].copy()
+    df.columns = [p[1] for p in pairs]
+
+    missing = [r for r in ("Date", "UWI") if r not in df.columns]
+    if missing:
+        raise ValueError(
+            "After header mapping, required column(s) missing: "
+            + ", ".join(missing)
+            + f". Mapped columns: {list(df.columns)}"
+        )
+
+    return df
 
 
 def append_monthly_forecasts_from_excel(
@@ -97,12 +184,6 @@ def append_monthly_forecasts_from_excel(
     progress_callback: Optional[Callable[[int], None]] = None,
     conn=None,
 ) -> Dict[str, int]:
-    """
-    Insert every data row using the workbook column names as SQL column names.
-
-    Returns: ``inserted`` (rows written), ``total_rows_read``.
-    """
-
     def log(msg: str):
         if log_callback:
             log_callback(msg)
@@ -113,7 +194,8 @@ def append_monthly_forecasts_from_excel(
 
     df = read_monthly_forecast_excel(path)
     nrows = len(df)
-    colnames = list(df.columns)
+
+    colnames = [c for c in SQL_COLUMN_ORDER if c in df.columns]
     cols_sql = ", ".join(_sql_bracket_identifier(c) for c in colnames)
     ph = ", ".join(["?"] * len(colnames))
     insert_sql = f"INSERT INTO {TARGET_TABLE} ({cols_sql}) VALUES ({ph})"
@@ -142,8 +224,8 @@ def append_monthly_forecasts_from_excel(
             lf.detail(
                 "Monthly forecasts: "
                 f"imported {lf.num(inserted)} row(s); "
-                f"{lf.num(len(colnames))} column(s): {', '.join(colnames)}; "
-                f"spreadsheet data rows: {lf.num(nrows)}"
+                f"columns: {', '.join(colnames)}; "
+                f"rows: {lf.num(nrows)}"
             )
         )
 

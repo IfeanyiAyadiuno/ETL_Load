@@ -115,8 +115,9 @@ class MonthlyForecastsImportDialog(QDialog):
         src.layout().addLayout(row)
 
         hint = QLabel(
-            "First sheet, row 1 headers. Column names are inserted into SQL exactly as in Excel "
-            "(trimmed). Every row is appended to dbo.PCE_Monthly_Forecasts."
+            "First sheet, row 1 headers. Excel column titles are mapped to PCE_Monthly_Forecasts "
+            "(e.g. CDGR(Mcf/d) → CDGR_Mcf_d, Fault Block → Fault_Block, CEI Enersight Wellname → "
+            "Enersight Well Name). Unmapped columns are ignored. Every row is inserted."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")
