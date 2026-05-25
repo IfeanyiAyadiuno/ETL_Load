@@ -520,9 +520,13 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         log(lf.success(f"Sequences recalculated for date range"))
         progress(90)
 
-        from production_update import sync_production_pad_names_from_wm_sql
+        from production_update import (
+            sync_production_enersight_well_names_from_wm_sql,
+            sync_production_pad_names_from_wm_sql,
+        )
 
         sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end)
+        sync_production_enersight_well_names_from_wm_sql(cursor, overall_start, overall_end)
         conn.commit()
 
         affected_wells_count = mapping_df['Well Name'].nunique()
@@ -581,7 +585,9 @@ def run_quick_update(progress_callback=None, log_callback=None):
             calculate_sequences, calculate_cumulatives,
             calculate_monthly_averages, add_on_production_year,
             fetch_well_mapping, apply_well_names, filter_to_first_production,
-            apply_pad_name_from_well_master, sync_production_pad_names_from_wm_sql,
+            apply_pad_name_from_well_master,
+            sync_production_enersight_well_names_from_wm_sql,
+            sync_production_pad_names_from_wm_sql,
         )
 
         conn = get_sql_conn()
@@ -721,6 +727,9 @@ def run_quick_update(progress_callback=None, log_callback=None):
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
 
         sync_production_pad_names_from_wm_sql(cursor, start_first, end_last)
+        # Full well history is re-inserted above; Enersight is not on the dataframe—repopulate
+        # from WM for all non-TC rows (date filter would leave pre-window rows NULL).
+        sync_production_enersight_well_names_from_wm_sql(cursor, None, None)
         conn.commit()
 
         progress(95)

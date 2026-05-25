@@ -4,7 +4,8 @@
   1. Adds nullable [Enersight Well Name] (matches PCE_WM / monthly forecasts naming).
 
   2. Backfills from dbo.PCE_WM.[Enersight Well Name] using the same match rules as
-     production_update.sync_production_pad_names_from_wm_sql:
+     production_update.sync_production_pad_names_from_wm_sql and the in-app function
+     sync_production_enersight_well_names_from_wm_sql (runs after each production rebuild).
        - wm.[Well Name] = p.[Well Name], OR
        - wm.[Composite Name] = p.[Well Name] (when composite is populated)
        - excludes WM exception rows unless [Exception] is NULL / '' / 'N'

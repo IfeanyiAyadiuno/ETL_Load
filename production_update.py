@@ -239,6 +239,45 @@ WHERE p.[Well Name] NOT LIKE N'%% - TC'
         cursor.execute(sql)
 
 
+def sync_production_enersight_well_names_from_wm_sql(cursor, date_start=None, date_end=None):
+    """
+    Set ``PCE_Production.[Enersight Well Name]`` from ``PCE_WM`` (Well or Composite name match).
+    Same join rules as ``sync_production_pad_names_from_wm_sql``; only rows with non-blank WM
+    Enersight are updated. Run after production rebuilds that re-insert without this column.
+    """
+    date_filter = ""
+    params = []
+    if date_start is not None and date_end is not None:
+        date_filter = " AND p.[Date] BETWEEN ? AND ?"
+        params = [date_start, date_end]
+
+    sql = f"""
+UPDATE p
+SET p.[Enersight Well Name] = ca.en
+FROM PCE_Production AS p
+CROSS APPLY (
+    SELECT TOP 1 wm.[Enersight Well Name] AS en
+    FROM PCE_WM AS wm
+    WHERE (
+            wm.[Well Name] = p.[Well Name]
+         OR (
+                NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+            AND wm.[Composite Name] = p.[Well Name]
+            )
+        )
+      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
+      AND NULLIF(RTRIM(CAST(wm.[Enersight Well Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+) AS ca
+WHERE p.[Well Name] NOT LIKE N'%% - TC'
+  AND p.[Well Name] NOT LIKE N'YE2%%'
+{date_filter}
+"""
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+
+
 def apply_well_names(df, composite_map, fallback_map):
     """
     Apply well name mapping: use Composite Name if available, otherwise use Well Name.
@@ -639,6 +678,7 @@ def main(cancel_event=None):
     with get_sql_conn() as conn:
         cur = conn.cursor()
         sync_production_pad_names_from_wm_sql(cur, None, None)
+        sync_production_enersight_well_names_from_wm_sql(cur, None, None)
         conn.commit()
 
     wells_processed = len(df["Well Name"].unique())
