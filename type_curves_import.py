@@ -7,6 +7,7 @@ Vincent conversion constants (imperial -> metric):
   bcf cumulative -> e³m³: 1 bcf = 1_000_000 mcf; e³m³ = mcf / E3M3_PER_MCF
   Mbbl cumulative -> m³: Mbbl * 1000 bbl, then m³ = bbl / M3_PER_BBL
   Gas S2 cum (mmcf column): (mmcf * 1000) / E3M3_PER_MCF -> e³m³ (legacy YE convention)
+  CGR Ratio (Excel bbl/MMcf): multiply by CGR_BBLS_PER_MMCF_TO_M3_PER_E3M3 for m³/e³m³
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ TC_PAD_PREFIX = "PCE-TC-"
 
 M3_PER_BBL = 6.29287017808823
 E3M3_PER_MCF = 35.4937299999999
+# Type-curve Excel "CGR Ratio" (bbl/MMcf) -> PCE/PCE_TC [CGR (m³/e³m³)].
+CGR_BBLS_PER_MMCF_TO_M3_PER_E3M3 = 0.05488
 
 INSERT_SQL = """
 INSERT INTO dbo.PCE_TC (
@@ -207,6 +210,13 @@ def _bbl_d_to_m3_d(bbl_d: Optional[float]) -> Optional[float]:
     if bbl_d is None:
         return None
     return float(bbl_d) / M3_PER_BBL
+
+
+def _cgr_bb_per_mmcf_to_m3_per_e3m3(raw: Optional[float]) -> Optional[float]:
+    """Workbook ``CGR Ratio`` (bbl/MMcf) → ``[CGR (m³/e³m³)]``."""
+    if raw is None:
+        return None
+    return float(raw) * CGR_BBLS_PER_MMCF_TO_M3_PER_E3M3
 
 
 def _mmcf_cum_tab_to_e3m3(mmcf: Optional[float]) -> Optional[float]:
@@ -709,7 +719,7 @@ def append_typecurves_from_excel(
         if cond_sales is None:
             cond_sales = _bbl_d_to_m3_d(col("cond_sales_bbl_d", row))
         sales_cgr = col("sales_cgr", row)
-        cgr_m3 = col("cgr_m3_e3m3", row)
+        cgr_m3 = _cgr_bb_per_mmcf_to_m3_per_e3m3(col("cgr_m3_e3m3", row))
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
@@ -973,7 +983,7 @@ def ye2_append_rows_to_pce_tc(
         if cond_sales is None:
             cond_sales = _bbl_d_to_m3_d(col("cond_sales_bbl_d", row))
         sales_cgr = col("sales_cgr", row)
-        cgr_m3 = col("cgr_m3_e3m3", row)
+        cgr_m3 = _cgr_bb_per_mmcf_to_m3_per_e3m3(col("cgr_m3_e3m3", row))
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
