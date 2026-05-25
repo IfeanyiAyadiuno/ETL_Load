@@ -210,7 +210,7 @@ This section is the **most important** if you want to know "where is the code th
 
 - **SQL:** DDL for **`PCE_TC`** is maintained on the server by the DBA; the app embeds insert/update SQL in Python only.
 
-> **Manager summary:** Operators confirm scope in the dialog; unmatched file wells can produce **`unmatched_type_curve_wells_*.csv`** next to the Excel file after a run.
+> **Manager summary:** Operators confirm scope in the dialog; unmatched file wells are listed in the type-curve log on scan/import.
 
 ---
 

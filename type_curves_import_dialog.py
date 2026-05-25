@@ -407,7 +407,11 @@ class TypeCurvesImportDialog(QDialog):
             )
         )
         if unmatched:
-            self.log_output.append(lf.warn("Unmatched list → unmatched_type_curve_wells_*.csv on import."))
+            self.log_output.append(
+                lf.warn(f"Unmatched (no WM match), {len(unmatched)} well name(s):")
+            )
+            for u in unmatched:
+                self.log_output.append(lf.detail(f"  {u}"))
 
     def load_delete_wells(self):
         self.delete_list.clear()

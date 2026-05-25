@@ -449,7 +449,7 @@ Execute **Run Import**; review the **Import Log**.
 
 **Pad names:** Values from the workbook **Pad** column are normalized to a hyphenated slug. The **`PCE-TC-`** prefix is applied to **`[Pad Name]`** only for **non–YE2-family** type curves (stored **`[Well Name]`** does **not** match the application’s YE2-style rule — i.e. does not start with **`YE2`**). **YE2** / **YE23**-style rows keep the slug **without** the **`PCE-TC-`** prefix.
 
-**Append:** No selection = every row in the file (WM-backed and file-only). Per stored key in scope, existing TC rows for that key are replaced from the file. Unmatched names → **`unmatched_type_curve_wells_<timestamp>.csv`** next to the workbook when applicable.
+**Append:** No selection = every row in the file (WM-backed and file-only). Per stored key in scope, existing TC rows for that key are replaced from the file. Unmatched (no WM) names appear in the type-curve log on scan/import.
 
 **YE WH mirroring:** For stored **`[Well Name]`** values matching **`LIKE 'YE2%'`** (including **`YE23`**), import sets **`[Gas WH Production (e³m³/d)]`** from the Gas S2 rate and **`[Condensate WH (m³/d)]`** from the condensate sales rate so **`PCE_TC`** (and **`sync_tc_to_production`**) carry both WH and S2/sales columns.
 

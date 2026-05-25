@@ -12,10 +12,9 @@ Vincent conversion constants (imperial -> metric):
 
 from __future__ import annotations
 
-import csv
 import os
 import re
-from datetime import date, datetime
+from datetime import date
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -796,17 +795,9 @@ def append_typecurves_from_excel(
 
     result["unmatched"] = unmatched
     if unmatched:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_csv = os.path.join(os.path.dirname(excel_path) or ".", f"unmatched_type_curve_wells_{ts}.csv")
-        try:
-            with open(out_csv, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f)
-                w.writerow(["Well Name (file)"])
-                for u in unmatched:
-                    w.writerow([u])
-            log(lf.warn(f"Unmatched wells written to: {out_csv}"))
-        except OSError as e:
-            log(lf.warn(f"Could not write unmatched CSV: {e}"))
+        log(lf.warn(f"Unmatched (no WM match), {len(unmatched)} well name(s):"))
+        for u in unmatched:
+            log(lf.detail(f"  {u}"))
 
     if not rows_out:
         log(lf.warn("No rows to import from file."))
