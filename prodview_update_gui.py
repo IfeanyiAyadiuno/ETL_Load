@@ -255,8 +255,9 @@ _PROD_INSERT_SQL = """
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
     [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
-    [Alloc. Water Avg (m³)]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    [Alloc. Water Avg (m³)],
+    [Month]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _PROD_COLUMNS = [
@@ -280,6 +281,7 @@ _PROD_COLUMNS = [
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
     'Alloc. Water Avg (m³)',
+    'Month',
 ]
 
 _CDA_SELECT_SQL = """
@@ -349,6 +351,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
     total_start = time.time()
     
     try:
+        from production_update import PCE_PRODUCTION_MONTH_LABEL
+
         start_date = datetime.strptime(start_month, "%b %Y")
         end_date = datetime.strptime(end_month, "%b %Y")
         if start_date > end_date:
@@ -430,7 +434,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
                 [Choke Size], [Alloc. Water Rate (m³)], [NGL (m³)],
                 [Formation Producer], [Layer Producer], [Fault Block],
-                [Pad Name], [Lateral Length], [Orientation]
+                [Pad Name], [Lateral Length], [Orientation],
+                [Month]
             )
             SELECT
                 c.ProdDate, c.[Well Name], 0, 0,
@@ -442,10 +447,11 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 c.OnProdHours, c.TubingPressure, c.CasingPressure,
                 c.ChokeSize, c.AllocatedWater_Rate, c.NGL_Production,
                 c.[Formation Producer], c.[Layer Producer], c.[Fault Block],
-                c.[Pad Name], c.[Lateral Length], c.Orient
+                c.[Pad Name], c.[Lateral Length], c.Orient,
+                ?
             FROM PCE_CDA c
             WHERE c.ProdDate BETWEEN ? AND ?
-        """, overall_start, overall_end)
+        """, PCE_PRODUCTION_MONTH_LABEL, overall_start, overall_end)
         total_prod = cursor.rowcount
         conn.commit()
         progress(65)
@@ -582,9 +588,14 @@ def run_quick_update(progress_callback=None, log_callback=None):
 
     try:
         from production_update import (
-            calculate_sequences, calculate_cumulatives,
-            calculate_monthly_averages, add_on_production_year,
-            fetch_well_mapping, apply_well_names, filter_to_first_production,
+            PCE_PRODUCTION_MONTH_LABEL,
+            calculate_sequences,
+            calculate_cumulatives,
+            calculate_monthly_averages,
+            add_on_production_year,
+            fetch_well_mapping,
+            apply_well_names,
+            filter_to_first_production,
             apply_pad_name_from_well_master,
             sync_production_enersight_well_names_from_wm_sql,
             sync_production_pad_names_from_wm_sql,
@@ -707,6 +718,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             for col in _PROD_COLUMNS:
                 if col not in all_cda.columns:
                     all_cda[col] = np.nan
+            all_cda["Month"] = PCE_PRODUCTION_MONTH_LABEL
 
             prod_rows = _df_to_insert_rows(all_cda, _PROD_COLUMNS)
             _batch_executemany(cursor, _PROD_INSERT_SQL, prod_rows)

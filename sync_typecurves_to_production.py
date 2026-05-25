@@ -15,6 +15,7 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
+from production_update import PCE_PRODUCTION_MONTH_LABEL
 from type_curves_import import _is_ye_tc_stored_well_name, _tc_pad_name_from_excel
 
 _INSERT_SQL = """
@@ -39,8 +40,9 @@ INSERT INTO PCE_Production (
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
     [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
     [Alloc. Water Avg (m³)],
+    [Month],
     [Remarks]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _TC_SELECT = """
@@ -180,6 +182,7 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         None,
+        PCE_PRODUCTION_MONTH_LABEL,
         remarks_s,
     )
 

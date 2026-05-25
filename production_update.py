@@ -11,6 +11,9 @@ from prodview_date_bounds import prodview_effective_end_date
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+# PCE_Production tag column — set on every INSERT (gathered-production source).
+PCE_PRODUCTION_MONTH_LABEL = "Gathered PRD"
+
 
 def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
     """
@@ -461,6 +464,7 @@ _INSERT_COLS = [
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
     'Alloc. Water Avg (m³)',
+    'Month',
 ]
 
 def insert_pce_production(df):
@@ -493,12 +497,14 @@ def insert_pce_production(df):
         [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
         [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
         [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
-        [Alloc. Water Avg (m³)]
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        [Alloc. Water Avg (m³)],
+        [Month]
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     # Ensure int columns are cast properly before NaN->None conversion
     df = df.copy()
+    df["Month"] = PCE_PRODUCTION_MONTH_LABEL
     df['Days Seq'] = pd.to_numeric(df['Days Seq'], errors='coerce').fillna(0).astype(int)
     df['Day Seq UPRT'] = pd.to_numeric(df['Day Seq UPRT'], errors='coerce').fillna(0).astype(int)
     df['On Production Year'] = pd.to_numeric(df['On Production Year'], errors='coerce')
