@@ -46,7 +46,7 @@ _TC_SELECT = """
 SELECT
     [Well Name], [ImportDate],
     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)],
+    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
@@ -103,6 +103,7 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
     gas_sales = _num(row.get("Gas Sales Production (10³m³)"))
     cond_sales = _num(row.get("Condensate Sales (m³/d)"))
     sales_cgr = _num(row.get("Sales CGR (m³/e³m³)"))
+    cgr_tc = _num(row.get("CGR (m³/e³m³)"))
     cum_gas = _num(row.get("Cum Gas (e³m³)"))
     cum_condy = _num(row.get("Cum Condy (m³)"))
     cum_gas_wh = _num(row.get("Gas WH Cumulative Production (10³m³)"))
@@ -150,7 +151,7 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         sales_cgr,
-        None,
+        cgr_tc,
         None,
         None,
         None,

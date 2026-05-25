@@ -35,14 +35,14 @@ INSERT_SQL = """
 INSERT INTO dbo.PCE_TC (
     [Well Name], [ImportDate],
     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)],
+    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
     [Lateral Length], [On Production Year], [Orientation]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -365,10 +365,15 @@ def _assign_column_roles(columns: List) -> Dict[str, int]:
         roles["cond_sales"] = idx
 
     idx = take(lambda n: "cgr" in n and "sales" in n)
-    if idx is None:
-        idx = take(lambda n: "cgr" in n)
     if idx is not None:
         roles["sales_cgr"] = idx
+
+    idx = take(
+        lambda n: "sales" not in n
+        and (n == "cgr ratio" or ("cgr" in n and "ratio" in n))
+    )
+    if idx is not None:
+        roles["cgr_m3_e3m3"] = idx
 
     idx = take(
         lambda n: "gas" in n and "wh" in n and "mcf" in n and "cum" not in n
@@ -704,6 +709,7 @@ def append_typecurves_from_excel(
         if cond_sales is None:
             cond_sales = _bbl_d_to_m3_d(col("cond_sales_bbl_d", row))
         sales_cgr = col("sales_cgr", row)
+        cgr_m3 = col("cgr_m3_e3m3", row)
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
@@ -759,6 +765,7 @@ def append_typecurves_from_excel(
                 gas_sales,
                 cond_sales,
                 sales_cgr,
+                cgr_m3,
                 gas_wh_e3,
                 cond_wh_m3,
                 cum_gas_e3,
@@ -966,6 +973,7 @@ def ye2_append_rows_to_pce_tc(
         if cond_sales is None:
             cond_sales = _bbl_d_to_m3_d(col("cond_sales_bbl_d", row))
         sales_cgr = col("sales_cgr", row)
+        cgr_m3 = col("cgr_m3_e3m3", row)
         gas_wh_e3 = _mcf_d_to_e3m3_d(col("gas_wh_mcf", row))
         cond_wh_m3 = _bbl_d_to_m3_d(col("cond_wh_bbl", row))
         cum_gas_e3 = _cum_gas_e3(row, roles, col)
@@ -1003,6 +1011,7 @@ def ye2_append_rows_to_pce_tc(
                 gas_sales,
                 cond_sales,
                 sales_cgr,
+                cgr_m3,
                 gas_wh_e3,
                 cond_wh_m3,
                 cum_gas_e3,
