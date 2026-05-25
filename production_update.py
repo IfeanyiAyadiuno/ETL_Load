@@ -366,8 +366,9 @@ def calculate_cumulatives(df):
 
 def calculate_monthly_averages(df):
     """
-    Calculate monthly averages per well.
-    Vectorized via groupby().transform('mean') -- replaces triple-nested loop.
+    Calculate per-well averages over each **calendar month** (not a trailing 30‑day window).
+    Rows are grouped with ``pandas Period('M')`` on ``Date`` (~ ``YEAR``/``MONTH`` semantics).
+    Vectorized via groupby().transform('mean').
     """
     print(lf.step("Calculating monthly averages..."))
     df['_YM'] = pd.to_datetime(df['Date']).dt.to_period('M')
@@ -377,6 +378,7 @@ def calculate_monthly_averages(df):
         ('Gas S2 Production (10³m³)', 'Gas S2 Avg (10³m³)'),
         ('Gathered Gas (e³m³/d)', 'Gas Gathered Avg (e³m³/d)'),
         ('Gathered Condensate (m³/d)', 'Condensate Gathered Avg (m³/d)'),
+        ('Alloc. Water Rate (m³)', 'Alloc. Water Avg (m³)'),
     ]
 
     group_keys = [df['Well Name'], df['_YM']]
@@ -419,6 +421,7 @@ _INSERT_COLS = [
     'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+    'Alloc. Water Avg (m³)',
 ]
 
 def insert_pce_production(df):
@@ -450,8 +453,9 @@ def insert_pce_production(df):
         [Pad Name], [Lateral Length], [Orientation],
         [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
         [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-        [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+        [Alloc. Water Avg (m³)]
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     # Ensure int columns are cast properly before NaN->None conversion

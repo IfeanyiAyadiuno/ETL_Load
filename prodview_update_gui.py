@@ -254,8 +254,9 @@ _PROD_INSERT_SQL = """
     [Pad Name], [Lateral Length], [Orientation],
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+    [Alloc. Water Avg (m³)]
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _PROD_COLUMNS = [
@@ -278,6 +279,7 @@ _PROD_COLUMNS = [
     'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+    'Alloc. Water Avg (m³)',
 ]
 
 _CDA_SELECT_SQL = """
@@ -447,6 +449,47 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         total_prod = cursor.rowcount
         conn.commit()
         progress(65)
+
+        log(lf.step("Applying calendar-month averages to production..."))
+        # AVG() OVER PARTITION BY YEAR/MONTH (not trailing 30 days). Mirrors Python Period('M').
+        # SKIP NULL semantics for source values (pandas path uses fillna(0)—see calculate_monthly_averages).
+        cursor.execute(
+            """
+            ;WITH avg_src AS (
+                SELECT p.[Well Name], p.[Date],
+                    AVG(CAST(p.[Gas WH Production (10³m³)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gw_avg,
+                    AVG(CAST(p.[Gas S2 Production (10³m³)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gs2_avg,
+                    AVG(CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gg_avg,
+                    AVG(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gc_avg,
+                    AVG(CAST(p.[Alloc. Water Rate (m³)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS aw_avg
+                FROM dbo.PCE_Production p
+                WHERE p.[Date] BETWEEN ? AND ?
+                  AND p.[Well Name] NOT LIKE N'% - TC'
+                  AND p.[Well Name] NOT LIKE N'YE2%'
+            )
+            UPDATE tgt SET
+                tgt.[Gas WH Avg (10³m³)] = s.gw_avg,
+                tgt.[Gas S2 Avg (10³m³)] = s.gs2_avg,
+                tgt.[Gas Gathered Avg (e³m³/d)] = s.gg_avg,
+                tgt.[Condensate Gathered Avg (m³/d)] = s.gc_avg,
+                tgt.[Alloc. Water Avg (m³)] = s.aw_avg
+            FROM dbo.PCE_Production tgt
+            INNER JOIN avg_src s ON tgt.[Well Name] = s.[Well Name] AND tgt.[Date] = s.[Date]
+            WHERE tgt.[Date] BETWEEN ? AND ?
+              AND tgt.[Well Name] NOT LIKE N'% - TC'
+              AND tgt.[Well Name] NOT LIKE N'YE2%'
+            """,
+            overall_start,
+            overall_end,
+            overall_start,
+            overall_end,
+        )
+        conn.commit()
 
         log(lf.step("Materializing PCE_TC into PCE_Production..."))
         try:
