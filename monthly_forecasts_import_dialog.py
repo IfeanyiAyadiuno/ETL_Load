@@ -115,10 +115,10 @@ class MonthlyForecastsImportDialog(QDialog):
         src.layout().addLayout(row)
 
         hint = QLabel(
-            "First sheet, row 1 headers. Excel column titles are mapped to PCE_Monthly_Forecasts "
-            "(e.g. CDGR(Mcf/d) → CDGR_Mcf_d, Fault Block → Fault_Block, CEI Enersight Wellname → "
-            "Enersight Well Name). Date, UWI, and CDGR(Mcf/d) are required. Re-import replaces "
-            "existing rows that match (Date + UWI + CDGR_Mcf_d); overlapping triples repeat as one row."
+            "First sheet, row 1 headers. Mapped to PCE_Monthly_Forecasts (e.g. CDGR(Mcf/d) → "
+            "CDGR_Mcf_d). Date and UWI are required. Run import wipes all forecast rows in the "
+            "table then loads this file; PCE_FRCST_PRD is rebuilt (gathered slice uses production "
+            "through today minus the Prodview lag, same as Snowflake/production refresh)."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")

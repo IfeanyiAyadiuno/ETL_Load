@@ -4,11 +4,9 @@ Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Fo
 Excel headers are mapped to the table’s real column names (template uses labels like
 ``CDGR(Mcf/d)``; SQL uses ``CDGR_Mcf_d``, etc.). Unmapped columns are ignored.
 
-Imports require **Date**, **UWI**, and **CDGR_Mcf_d**. Rows are deduplicated in-file on
-``(Date, UWI, CDGR_Mcf_d)`` (last wins). Before insert, existing table rows matching any
-of those triples are **deleted**, then inserts run in batches so reruns replace rather than
-duplicate. Optionally deploy ``scripts/add_pce_monthly_forecasts_unique_date_uwi_cdgr.sql``
-for a database-level unique index with normalized keys.
+Each import **clears** ``dbo.PCE_Monthly_Forecasts``, then inserts all rows from the file
+(in batches). Afterwards ``rebuild_pce_frcst_prd`` refreshes ``dbo.PCE_FRCST_PRD``
+(forecasts + gathered production capped at ``prodview_effective_end_date()``).
 """
 
 from __future__ import annotations
@@ -25,7 +23,6 @@ from db_connection import get_sql_conn
 TARGET_TABLE = "dbo.PCE_Monthly_Forecasts"
 
 INSERT_BATCH_SIZE = 2500
-KEY_BATCH_SIZE = 5000
 
 # Insert order matches typical table design; only columns present in the file are used.
 SQL_COLUMN_ORDER: List[str] = [
@@ -142,7 +139,7 @@ def _cell_value_sql(val: object):
 def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame:
     """
     Load first sheet; map headers to SQL column names; keep only known columns.
-    Requires Date, UWI, and CDGR_Mcf_d after mapping (triple-key imports).
+    Requires Date and UWI after mapping.
     """
     raw = pd.read_excel(path, sheet_name=sheet_index, header=0, dtype=object)
     if raw.empty:
@@ -175,74 +172,15 @@ def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame
     df = raw[[p[0] for p in pairs]].copy()
     df.columns = [p[1] for p in pairs]
 
-    missing = [r for r in ("Date", "UWI", "CDGR_Mcf_d") if r not in df.columns]
+    missing = [r for r in ("Date", "UWI") if r not in df.columns]
     if missing:
         raise ValueError(
             "After header mapping, required column(s) missing: "
             + ", ".join(missing)
-            + ". CDGR(Mcf/d) or CDGR_Mcf_d is required for deduplication-by-triple-key. "
-            + f"Mapped columns: {list(df.columns)}"
+            + f". Mapped columns: {list(df.columns)}"
         )
 
     return df
-
-
-def _prepare_monthly_forecast_import_df(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
-    """
-    Normalize Date, UWI, CDGR_Mcf_d; drop duplicates on triple (keep last).
-
-    Returns (deduped dataframe, count of duplicate rows dropped).
-    """
-    d = df.copy()
-    excel_row_offset = 2  # header row 1 + 0-based pandas + 1 for human row number
-
-    norm_dates = []
-    for i, raw in enumerate(d["Date"].tolist()):
-        v = _cell_value_sql(raw)
-        if not isinstance(v, date):
-            raise ValueError(
-                "Invalid Date in Excel data row "
-                f"{excel_row_offset + i}: expected calendar date (got {v!r})."
-            )
-        norm_dates.append(v)
-    d["Date"] = norm_dates
-
-    norm_uwi = []
-    for i, raw in enumerate(d["UWI"].tolist()):
-        if raw is None or (isinstance(raw, float) and np.isnan(raw)) or pd.isna(raw):
-            raise ValueError(
-                "Blank UWI in Excel data row "
-                f"{excel_row_offset + i}; UWI must be populated."
-            )
-        u = str(raw).strip()
-        if not u:
-            raise ValueError(
-                "Blank UWI in Excel data row "
-                f"{excel_row_offset + i}; UWI must be non-whitespace."
-            )
-        if len(u) > 512:
-            raise ValueError(
-                f"UWI in Excel row {excel_row_offset + i} exceeds 512 characters (not supported for import key)."
-            )
-        norm_uwi.append(u)
-    d["UWI"] = norm_uwi
-
-    norm_cdgr = []
-    for i, raw in enumerate(d["CDGR_Mcf_d"].tolist()):
-        v = _cell_value_sql(raw)
-        if v is None:
-            raise ValueError(
-                "Missing or non-numeric CDGR_Mcf_d in Excel data row "
-                f"{excel_row_offset + i}; a finite rate is required for this import."
-            )
-        norm_cdgr.append(float(v))
-    d["CDGR_Mcf_d"] = norm_cdgr
-
-    before = len(d)
-    d = d.drop_duplicates(subset=["Date", "UWI", "CDGR_Mcf_d"], keep="last").reset_index(
-        drop=True
-    )
-    return d, before - len(d)
 
 
 def append_monthly_forecasts_from_excel(
@@ -270,29 +208,7 @@ def append_monthly_forecasts_from_excel(
             f"{lf.num(len(colnames))} column(s): {', '.join(colnames)}."
         )
     )
-    prog(12)
-
-    df, dup_drop = _prepare_monthly_forecast_import_df(df)
-    n_prep = len(df)
-    log(
-        lf.detail(
-            f"Prepared {lf.num(n_prep)} row(s) after Date/UWI/CDGR normalization"
-            + (f"; dropped {lf.num(dup_drop)} duplicate triple(s) (kept last)" if dup_drop else "")
-            + "."
-        )
-    )
-    if dup_drop > 0:
-        log(lf.warn(f"Dropped {lf.num(dup_drop)} in-file duplicate row(s) matching (Date, UWI, CDGR_Mcf_d)."))
-    prog(18)
-
-    if not n_prep:
-        log(lf.warn("No rows remaining after normalization; skipping database write."))
-        prog(100)
-        return {"inserted": 0, "total_rows_read": n_raw}
-
-    cols_sql = ", ".join(_sql_bracket_identifier(c) for c in colnames)
-    ph = ", ".join(["?"] * len(colnames))
-    insert_sql = f"INSERT INTO {TARGET_TABLE} ({cols_sql}) VALUES ({ph})"
+    prog(15)
 
     params: List[tuple] = []
     for _, row in df.iterrows():
@@ -300,27 +216,9 @@ def append_monthly_forecasts_from_excel(
 
     prog(22)
 
-    create_keys_sql = """
-    CREATE TABLE #ForecastKeys (
-        k_date DATE NOT NULL,
-        k_uwi NVARCHAR(512) NOT NULL,
-        k_cdgr FLOAT NOT NULL,
-        CONSTRAINT PK_ForecastKeys PRIMARY KEY CLUSTERED (k_date, k_uwi, k_cdgr)
-    );
-    """
-    key_insert_sql = "INSERT INTO #ForecastKeys (k_date, k_uwi, k_cdgr) VALUES (?, ?, ?)"
-    delete_matching_sql = f"""
-    DELETE mf
-    FROM dbo.PCE_Monthly_Forecasts AS mf
-    INNER JOIN #ForecastKeys AS k
-           ON CAST(mf.[Date] AS DATE) = k.k_date
-          AND LTRIM(RTRIM(CAST(mf.[UWI] AS NVARCHAR(512)))) = k.k_uwi
-          AND mf.[CDGR_Mcf_d] = k.k_cdgr
-    """
-
-    key_rows: List[Tuple] = list(
-        zip(df["Date"].tolist(), df["UWI"].tolist(), df["CDGR_Mcf_d"].tolist())
-    )
+    cols_sql = ", ".join(_sql_bracket_identifier(c) for c in colnames)
+    ph = ", ".join(["?"] * len(colnames))
+    insert_sql = f"INSERT INTO {TARGET_TABLE} ({cols_sql}) VALUES ({ph})"
 
     own_conn = conn is None
     if conn is None:
@@ -330,34 +228,28 @@ def append_monthly_forecasts_from_excel(
         cur = conn.cursor()
         cur.fast_executemany = True
 
-        log(lf.step("Replacing existing rows for this file (Date + UWI + CDGR_Mcf_d)…"))
+        log(lf.step("Clearing dbo.PCE_Monthly_Forecasts (full replace for this import)…"))
         prog(24)
-        cur.execute(create_keys_sql)
-        for i in range(0, len(key_rows), KEY_BATCH_SIZE):
-            chunk = key_rows[i : i + KEY_BATCH_SIZE]
-            cur.executemany(key_insert_sql, chunk)
-        cur.execute(delete_matching_sql)
+        cur.execute(f"DELETE FROM {TARGET_TABLE}")
         deleted_prior = getattr(cur, "rowcount", -1)
-
         if deleted_prior is not None and deleted_prior >= 0:
-            log(lf.detail(f"Removed overlapping existing row(s): {lf.num(deleted_prior)}."))
-        else:
-            log(lf.detail("Removed overlapping forecast row(s) where (Date, UWI, CDGR_Mcf_d) matched this import."))
+            log(lf.detail(f"Cleared prior forecast row(s): {lf.num(deleted_prior)}."))
 
         log(lf.step(f"Inserting into {TARGET_TABLE}…"))
-        prog(30)
+        prog(28)
 
         total = len(params)
         for i in range(0, total, INSERT_BATCH_SIZE):
             chunk = params[i : i + INSERT_BATCH_SIZE]
             cur.executemany(insert_sql, chunk)
             done = min(i + len(chunk), total)
-            log(lf.detail(f"Inserted {lf.num(done)} / {lf.num(total)} row(s)..."))
-            prog(30 + int(62 * done / total))
+            if total:
+                log(lf.detail(f"Inserted {lf.num(done)} / {lf.num(total)} row(s)..."))
+                prog(28 + int(64 * done / total))
 
         conn.commit()
         log(lf.detail("Committed PCE_Monthly_Forecasts; syncing PCE_FRCST_PRD…"))
-        prog(95)
+        prog(93)
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd

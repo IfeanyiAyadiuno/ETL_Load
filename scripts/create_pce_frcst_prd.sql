@@ -4,8 +4,7 @@
   Run once per database in SSMS before using the rebuild in the Python app.
 
   Shapes identical business columns from dbo.PCE_Monthly_Forecasts (excludes
-  MonthlyForecast_Id if present) so dtypes match forecasts. Optionally enforce unique
-  (Date,UWI,CDGR) on the forecasts table via add_pce_monthly_forecasts_unique_date_uwi_cdgr.sql.
+  MonthlyForecast_Id if present) so dtypes match forecasts.
 
   Rows are wiped and
   repopulated by pce_frcst_prd_rebuild.rebuild_pce_frcst_prd() when:

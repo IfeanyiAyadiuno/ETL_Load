@@ -2,6 +2,9 @@
 Full replace of dbo.PCE_FRCST_PRD: copy PCE_Monthly_Forecasts business columns,
 then append gathered production daily rows (WM-enriched) into the same column shape.
 
+Gathered rows use production where ``CAST([Date] AS date) <= prodview_effective_end_date()``
+(same ``today - PRODVIEW_DATA_LAG_DAYS`` rule as Prodview / quick update).
+
 See scripts/create_pce_frcst_prd.sql for DDL.
 """
 
@@ -11,6 +14,7 @@ from typing import Any, Callable, Dict, Optional
 
 import log_format as lf
 from db_connection import get_sql_conn
+from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 from production_update import PCE_PRODUCTION_MONTH_LABEL
 
 _LOG = print
@@ -68,6 +72,7 @@ CROSS APPLY (
 WHERE p.[Well Name] NOT LIKE N'% - TC'
   AND p.[Well Name] NOT LIKE N'YE2%'
   AND NULLIF(RTRIM(CAST(ca.[Value Navigator UWI] AS NVARCHAR(4000))), N'') IS NOT NULL
+  AND CAST(p.[Date] AS DATE) <= ?
 """
 
 
@@ -114,11 +119,20 @@ def rebuild_pce_frcst_prd(
             out["reason"] = "PCE_FRCST_PRD does not exist"
             return out
 
-        log_fn(lf.step("Rebuilding dbo.PCE_FRCST_PRD (forecasts + gathered production)…"))
+        eff_end = prodview_effective_end_date()
+        log_fn(
+            lf.step(
+                "Rebuilding dbo.PCE_FRCST_PRD (forecasts + gathered production, "
+                f"production through {eff_end.isoformat()} — today minus {PRODVIEW_DATA_LAG_DAYS} day(s))…"
+            )
+        )
         cur.execute("DELETE FROM dbo.PCE_FRCST_PRD")
         cur.execute(_INSERT_FORECAST)
         out["forecast_rows"] = cur.rowcount
-        cur.execute(_INSERT_GATHERED, (PCE_PRODUCTION_MONTH_LABEL,))
+        cur.execute(
+            _INSERT_GATHERED,
+            (PCE_PRODUCTION_MONTH_LABEL, eff_end),
+        )
         out["gathered_rows"] = cur.rowcount
 
         conn.commit()
