@@ -117,7 +117,8 @@ class MonthlyForecastsImportDialog(QDialog):
         hint = QLabel(
             "First sheet, row 1 headers. Excel column titles are mapped to PCE_Monthly_Forecasts "
             "(e.g. CDGR(Mcf/d) → CDGR_Mcf_d, Fault Block → Fault_Block, CEI Enersight Wellname → "
-            "Enersight Well Name). Unmapped columns are ignored. Every row is inserted."
+            "Enersight Well Name). Date, UWI, and CDGR(Mcf/d) are required. Re-import replaces "
+            "existing rows that match (Date + UWI + CDGR_Mcf_d); overlapping triples repeat as one row."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")
