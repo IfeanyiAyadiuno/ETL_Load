@@ -2,6 +2,9 @@
 Full replace of dbo.PCE_FRCST_PRD: copy PCE_Monthly_Forecasts business columns,
 then append gathered production daily rows (WM-enriched) into the same column shape.
 
+Gathered rows populate ``[UWI]`` from WM **Composite Name** when set; otherwise **Value
+Navigator UWI** (forecasts unchanged).
+
 Gathered rows use production where ``CAST([Date] AS date) <= prodview_effective_end_date()``
 (same ``today - PRODVIEW_DATA_LAG_DAYS`` rule as Prodview / quick update).
 
@@ -44,7 +47,10 @@ INSERT INTO dbo.PCE_FRCST_PRD (
 )
 SELECT
       p.[Date]
-    , ca.[Value Navigator UWI]
+    , COALESCE(
+          NULLIF(LTRIM(RTRIM(CAST(ca.[Composite Name] AS NVARCHAR(4000)))), N''),
+          ca.[Value Navigator UWI]
+      )
     , p.[Gathered Gas (e³m³/d)]
     , p.[Gathered Condensate (m³/d)]
     , p.[Alloc. Water Rate (m³)]
@@ -56,6 +62,7 @@ FROM dbo.PCE_Production AS p
 CROSS APPLY (
     SELECT TOP 1
           wm.[Value Navigator UWI]
+        , wm.[Composite Name]
         , wm.[Pad Name]
         , wm.[Fault Block]
         , wm.[Enersight Well Name]
