@@ -687,6 +687,13 @@ def main(cancel_event=None):
         sync_production_enersight_well_names_from_wm_sql(cur, None, None)
         conn.commit()
 
+    try:
+        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+        rebuild_pce_frcst_prd(log=print)
+    except Exception as e:
+        print(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
+
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)
 

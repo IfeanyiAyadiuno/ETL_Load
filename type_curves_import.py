@@ -869,6 +869,12 @@ def append_typecurves_from_excel(
         sync_tc_to_production(log_callback=log)
     except Exception as e:
         log(lf.warn(f"PCE_Production sync after TC import: {e}"))
+    try:
+        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+        rebuild_pce_frcst_prd(log=log)
+    except Exception as e:
+        log(lf.warn(f"PCE_FRCST_PRD rebuild after TC import: {e}"))
     progress(100)
     result["ok"] = True
     result["rows_inserted"] = total_inserted
@@ -908,6 +914,12 @@ def delete_typecurves_from_tc(
         _delete_production_for_tc_well_names(cur, names)
         conn.commit()
     log(lf.detail(f"Deleted {lf.num(total)} PCE_TC row(s) for {lf.num(len(names))} well key(s)"))
+    try:
+        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+        rebuild_pce_frcst_prd(log=log)
+    except Exception as e:
+        log(lf.warn(f"PCE_FRCST_PRD rebuild after TC delete: {e}"))
     return total
 
 
@@ -1048,6 +1060,12 @@ def ye2_append_rows_to_pce_tc(
         sync_tc_to_production(log_callback=log)
     except Exception as e:
         log(lf.warn(f"PCE_Production sync after YE2 load: {e}"))
+    try:
+        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+        rebuild_pce_frcst_prd(log=log)
+    except Exception as e:
+        log(lf.warn(f"PCE_FRCST_PRD rebuild after YE2 load: {e}"))
 
     log(lf.success(f"YE2 PCE_TC insert: {lf.num(len(rows_out))} row(s)."))
     return {"ok": True, "rows_inserted": len(rows_out)}

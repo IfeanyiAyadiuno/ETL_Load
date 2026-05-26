@@ -219,6 +219,13 @@ def append_monthly_forecasts_from_excel(
         conn.commit()
         prog(100)
 
+        try:
+            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+            rebuild_pce_frcst_prd(log=log, conn=None if own_conn else conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_FRCST_PRD rebuild after forecasts import: {e}"))
+
         inserted = len(params)
         log(
             lf.detail(

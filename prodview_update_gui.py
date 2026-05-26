@@ -535,6 +535,13 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         sync_production_enersight_well_names_from_wm_sql(cursor, overall_start, overall_end)
         conn.commit()
 
+        try:
+            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+            rebuild_pce_frcst_prd(log=log, conn=conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
+
         affected_wells_count = mapping_df['Well Name'].nunique()
         conn.close()
 
@@ -743,6 +750,13 @@ def run_quick_update(progress_callback=None, log_callback=None):
         # from WM for all non-TC rows (date filter would leave pre-window rows NULL).
         sync_production_enersight_well_names_from_wm_sql(cursor, None, None)
         conn.commit()
+
+        try:
+            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+            rebuild_pce_frcst_prd(log=log, conn=conn)
+        except Exception as e:
+            log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
 
         progress(95)
         conn.close()
