@@ -393,6 +393,10 @@ class SettingsDialog(QDialog):
         with open(settings_file, "w") as f:
             config.write(f)
 
+        from db_connection import configure_sql_targets
+
+        configure_sql_targets(self.server_input.text(), self.db_input.text())
+
         # Show success message
         QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.")
 
