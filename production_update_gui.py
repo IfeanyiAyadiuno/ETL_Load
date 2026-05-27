@@ -138,9 +138,21 @@ class ProductionUpdateGUI(QMainWindow):
         header_row = QHBoxLayout()
         header_row.setSpacing(12)
 
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        logo_path = get_logo_path()
+        if os.path.isfile(logo_path):
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                scaled = pixmap.scaledToHeight(56, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled)
+        else:
+            logo_label.setText("")
+        header_row.addWidget(logo_label, 0, Qt.AlignTop | Qt.AlignLeft)
+
         title_block = QVBoxLayout()
         title_block.setSpacing(6)
-        title_block.setContentsMargins(12, 0, 0, 0)
+        title_block.setContentsMargins(8, 0, 0, 0)
 
         company_header = QLabel("Pacific Canbriam Energy Ltd")
         company_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -172,6 +184,8 @@ class ProductionUpdateGUI(QMainWindow):
         title_block.addWidget(sub_header)
         header_row.addLayout(title_block, 1)
 
+        header_row.addStretch(1)
+
         header_btn_style = """
             QPushButton {
                 background-color: #f8fafc;
@@ -202,18 +216,6 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_settings.setStyleSheet(header_btn_style)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
         header_row.addWidget(self.btn_settings, 0, Qt.AlignTop)
-
-        logo_label = QLabel()
-        logo_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        logo_path = get_logo_path()
-        if os.path.isfile(logo_path):
-            pixmap = QPixmap(logo_path)
-            if not pixmap.isNull():
-                scaled = pixmap.scaledToHeight(56, Qt.SmoothTransformation)
-                logo_label.setPixmap(scaled)
-        else:
-            logo_label.setText("")
-        header_row.addWidget(logo_label, 0, Qt.AlignTop | Qt.AlignRight)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
