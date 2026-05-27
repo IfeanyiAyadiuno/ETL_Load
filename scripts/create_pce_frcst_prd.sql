@@ -11,8 +11,9 @@
     - Monthly forecast Excel import completes, or
     - Production is rebuilt / Prodview refreshes Production + TC sync, etc.
 
-  Gathered-append rows reuse CDGR_Mcf_d / CD_Cond_bbl_d / CD_Water_bbl_d for
-  production metrics; [Month] = N'Gath PRD {Enersight}' (e.g. N'Gath PRD L-16') distinguishes them from forecast uploads.
+  Gathered-append rows convert production metrics into CDGR_Mcf_d / CD_Cond_bbl_d /
+  CD_Water_bbl_d (e³m³/d×35.49373, cond m³/d×6.29287, water m³/d×6.29010); [Month] =
+  N'Gath PRD {Enersight}' (e.g. N'Gath PRD L-16') distinguishes them from forecast uploads.
 
   See plan: PCE_FRCST_PRD table.
 */

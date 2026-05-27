@@ -5,6 +5,12 @@ then append gathered production daily rows (WM-enriched) into the same column sh
 Gathered rows populate ``[UWI]`` from WM **Composite Name** when set; otherwise **Value
 Navigator UWI** (forecasts unchanged).
 
+Gathered rate columns are converted from PCE_Production metric units to the imperial
+forecast columns before insert:
+  e³m³/d × 35.49373 → CDGR_Mcf_d
+  m³/d × 6.29287 → CD_Cond_bbl_d
+  m³/d × 6.29010 → CD_Water_bbl_d
+
 Gathered rows use production where ``CAST([Date] AS date) <= prodview_effective_end_date()``
 (same ``today - PRODVIEW_DATA_LAG_DAYS`` rule as Prodview / quick update).
 
@@ -21,6 +27,11 @@ from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_
 from production_update import gathered_prd_month_sql_from_enersight
 
 _LOG = print
+
+# PCE_Production (metric) → PCE_FRCST_PRD forecast columns (imperial daily rates)
+E3M3_TO_MCF = 35.49373
+M3_TO_BBL_COND = 6.29287
+M3_TO_BBL_WATER = 6.29010
 
 _INSERT_FORECAST = """
 INSERT INTO dbo.PCE_FRCST_PRD (
@@ -51,9 +62,9 @@ SELECT
           NULLIF(LTRIM(RTRIM(CAST(ca.[Composite Name] AS NVARCHAR(4000)))), N''),
           ca.[Value Navigator UWI]
       )
-    , p.[Gathered Gas (e³m³/d)]
-    , p.[Gathered Condensate (m³/d)]
-    , p.[Alloc. Water Rate (m³)]
+    , CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT) * {gas_factor}
+    , CAST(p.[Gathered Condensate (m³/d)] AS FLOAT) * {cond_factor}
+    , CAST(p.[Alloc. Water Rate (m³)] AS FLOAT) * {water_factor}
     , {gathered_month}
     , ca.[Pad Name]
     , ca.[Fault Block]
@@ -82,6 +93,9 @@ WHERE p.[Well Name] NOT LIKE N'% - TC'
   AND CAST(p.[Date] AS DATE) <= ?
 """.format(
     gathered_month=gathered_prd_month_sql_from_enersight("ca.[Enersight Well Name]"),
+    gas_factor=E3M3_TO_MCF,
+    cond_factor=M3_TO_BBL_COND,
+    water_factor=M3_TO_BBL_WATER,
 )
 
 
