@@ -47,6 +47,34 @@ def _strip_valnav_column_names(df: pd.DataFrame) -> None:
     df.columns = [str(c).strip().replace("\xa0", " ") for c in df.columns]
 
 
+def resolve_valnav_sheet_name(sheet_names, month_start: datetime) -> str:
+    """
+    Find the ValNav worksheet for *month_start*.
+
+    Sheet name must contain the 4-digit year and either abbreviated or full month
+    (e.g. ``Apr 2026`` or ``April 2026``). Raises ValueError if no sheet matches.
+    """
+    month_abbr = month_start.strftime("%b %Y")
+    month_full = month_start.strftime("%B %Y")
+    year = str(month_start.year)
+    abbr_key = month_abbr.lower()
+    full_key = month_full.lower()
+
+    for sheet in sheet_names:
+        sheet_lower = sheet.lower()
+        if year not in sheet_lower:
+            continue
+        if abbr_key in sheet_lower or full_key in sheet_lower:
+            return sheet
+
+    available = ", ".join(sheet_names) if sheet_names else "(none)"
+    raise ValueError(
+        f"{month_abbr} is not in the ValNav Excel file. "
+        f"Add a worksheet named like '{month_abbr}' or '{month_full}'. "
+        f"Available sheets: {available}."
+    )
+
+
 def _resolve_valnav_column(df: pd.DataFrame, logical_name: str, *candidates: str) -> str:
     """
     Return the actual column name in df for the first matching candidate (exact, then
@@ -138,21 +166,19 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         
         xl_file = pd.ExcelFile(valnav_path)
         sheet_names = xl_file.sheet_names
-        
-        # Try to find sheet with month name
-        target_valnav_sheet = None
-        month_search_full = month_start.strftime("%B %Y").lower()
-        month_search_abbr = month_start.strftime("%b %Y").lower()
 
-        for sheet in sheet_names:
-            sheet_lower = sheet.lower()
-            if month_search_full in sheet_lower or month_search_abbr in sheet_lower:
-                target_valnav_sheet = sheet
-                break
+        try:
+            target_valnav_sheet = resolve_valnav_sheet_name(sheet_names, month_start)
+        except ValueError as exc:
+            log(lf.error(str(exc)))
+            return {"error": str(exc)}
 
-        if target_valnav_sheet is None:
-            target_valnav_sheet = sheet_names[0]
-        
+        log(
+            lf.detail(
+                f"Using ValNav sheet {target_valnav_sheet!r} for {month_start.strftime('%b %Y')}"
+            )
+        )
+
         # Read ValNav data
         df_valnav = pd.read_excel(valnav_path, sheet_name=target_valnav_sheet)
         _strip_valnav_column_names(df_valnav)

@@ -138,6 +138,34 @@ def merge_sql_from_settings_ini_into_runtime() -> None:
 merge_sql_from_settings_ini_into_runtime()
 
 
+def sql_target_label() -> str:
+    """Human-readable server.database from Settings / runtime config."""
+    return f"{SQL_SERVER}.{SQL_DATABASE}"
+
+
+def probe_sql_connection() -> tuple[bool, str]:
+    """
+    Open a connection and verify the active database.
+
+    Returns (success, message) including configured target and live DB_NAME().
+    """
+    try:
+        conn = get_sql_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT DB_NAME()")
+            row = cur.fetchone()
+            live_db = row[0] if row else "?"
+            return (
+                True,
+                f"Connected to {sql_target_label()} (active database: {live_db})",
+            )
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, f"Cannot connect to {sql_target_label()}: {exc}"
+
+
 def get_sql_conn():
     """Create connection to SQL Server with error handling"""
     conn_str = (

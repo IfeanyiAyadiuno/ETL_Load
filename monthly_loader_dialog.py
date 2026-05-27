@@ -91,6 +91,13 @@ class MonthlyLoaderDialog(QDialog):
         self.valnav_label.setWordWrap(True)
         valnav_layout.addWidget(self.valnav_label, 1)
         valnav_group.layout().addLayout(valnav_layout)
+        valnav_hint = QLabel(
+            "Worksheet tab must include the selected month abbreviation and year "
+            "(e.g. Apr 2026 or April 2026)."
+        )
+        valnav_hint.setWordWrap(True)
+        valnav_hint.setStyleSheet("color: #64748b; font-size: 12px;")
+        valnav_group.layout().addWidget(valnav_hint)
         layout.addWidget(valnav_group)
 
         # Status Group

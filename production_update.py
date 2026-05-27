@@ -1,4 +1,5 @@
 import time
+import re
 
 import pandas as pd
 import numpy as np
@@ -11,11 +12,91 @@ from prodview_date_bounds import prodview_effective_end_date
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-# PCE_Production tag column — set on every INSERT (gathered-production source).
-PCE_PRODUCTION_MONTH_LABEL = "Gathered PRD"
+# Prefix for gathered-production [Month] tags on PCE_Production / PCE_FRCST_PRD.
+GATH_PRD_MONTH_PREFIX = "Gath PRD"
+
+# Backward-compatible alias (prefix only; per-well labels use gathered_prd_month_label()).
+PCE_PRODUCTION_MONTH_LABEL = GATH_PRD_MONTH_PREFIX
 
 
-def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
+def gathered_prd_month_label(enersight_well_name) -> str:
+    """
+    Build gathered-production [Month] label: ``Gath PRD L-16`` from Enersight well name
+    with the word ``well`` removed (case-insensitive).
+    """
+    if enersight_well_name is None or (isinstance(enersight_well_name, float) and pd.isna(enersight_well_name)):
+        return GATH_PRD_MONTH_PREFIX
+    s = str(enersight_well_name).strip()
+    if not s:
+        return GATH_PRD_MONTH_PREFIX
+    core = re.sub(r"\bwell\b", "", s, flags=re.IGNORECASE)
+    core = " ".join(core.split())
+    if not core:
+        return GATH_PRD_MONTH_PREFIX
+    return f"{GATH_PRD_MONTH_PREFIX} {core}"
+
+
+def gathered_prd_month_sql_from_enersight(enersight_sql: str) -> str:
+    """T-SQL expression for [Month] from an Enersight Well Name column/SQL fragment."""
+    en = (
+        f"NULLIF(LTRIM(RTRIM(CAST(({enersight_sql}) AS NVARCHAR(4000)))), N'')"
+    )
+    core = (
+        f"LTRIM(RTRIM(REPLACE(REPLACE(REPLACE("
+        f"{en}, N' Well', N''), N' well', N''), N' WELL', N'')))"
+    )
+    return f"""CASE
+        WHEN {en} IS NULL THEN N'{GATH_PRD_MONTH_PREFIX}'
+        WHEN {core} = N'' THEN N'{GATH_PRD_MONTH_PREFIX}'
+        ELSE N'{GATH_PRD_MONTH_PREFIX} ' + {core}
+    END"""
+
+
+def fetch_well_master_enersight_lookup():
+    """WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Enersight Well Name]``."""
+    query = """
+    SELECT [Well Name], [Composite Name], [Enersight Well Name]
+    FROM PCE_WM
+    WHERE [Well Name] IS NOT NULL
+      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
+    """
+    with get_sql_conn() as conn:
+        wm = pd.read_sql(query, conn)
+
+    lookup = {}
+    for _, row in wm.iterrows():
+        en = row["Enersight Well Name"]
+        if pd.isna(en) or (isinstance(en, str) and not str(en).strip()):
+            en_val = None
+        else:
+            en_val = str(en).strip()
+        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
+        if wn:
+            lookup[wn] = en_val
+        comp = row["Composite Name"]
+        if comp is not None and str(comp).strip():
+            lookup[str(comp).strip()] = en_val
+    return lookup
+
+
+def apply_gathered_prd_month_labels(df, enersight_lookup=None):
+    """Set ``[Month]`` on gathered production rows from WM Enersight names."""
+    if df is None or df.empty or "Well Name" not in df.columns:
+        return df
+    lookup = (
+        enersight_lookup
+        if enersight_lookup is not None
+        else fetch_well_master_enersight_lookup()
+    )
+    out = df.copy()
+    keys = out["Well Name"].astype(str).str.strip()
+    out["Month"] = keys.map(lambda k: gathered_prd_month_label(lookup.get(k)))
+    return out
+
+
+def _refresh_cda_sales_from_allocation_factors(
+    log=print, cancel_event=None, update_production=True
+):
     """
     Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
     Allocation_Factors (same logic as PA + Public Sales ratio passes).
@@ -59,8 +140,12 @@ def _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=None):
             if aborted():
                 log(lf.warn("Cancelled during PCE_CDA sales refresh."))
                 return False
-            apply_valnav_allocation_to_cda_and_production(conn, month_start, log=log)
-            apply_full_sales_ratios_for_month(conn, month_start, log=log)
+            apply_valnav_allocation_to_cda_and_production(
+                conn, month_start, log=log, update_production=update_production
+            )
+            apply_full_sales_ratios_for_month(
+                conn, month_start, log=log, update_production=update_production
+            )
             if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
                 log(lf.detail(f"CDA sales refresh progress: {i + 1}/{n} months"))
 
@@ -270,6 +355,41 @@ CROSS APPLY (
         )
       AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
       AND NULLIF(RTRIM(CAST(wm.[Enersight Well Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+) AS ca
+WHERE p.[Well Name] NOT LIKE N'%% - TC'
+  AND p.[Well Name] NOT LIKE N'YE2%%'
+{date_filter}
+"""
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+
+
+def sync_production_gathered_month_labels_from_wm_sql(cursor, date_start=None, date_end=None):
+    """Set ``PCE_Production.[Month]`` to ``Gath PRD {Enersight}`` from ``PCE_WM``."""
+    date_filter = ""
+    params = []
+    if date_start is not None and date_end is not None:
+        date_filter = " AND p.[Date] BETWEEN ? AND ?"
+        params = [date_start, date_end]
+
+    month_expr = gathered_prd_month_sql_from_enersight("ca.en")
+    sql = f"""
+UPDATE p
+SET p.[Month] = {month_expr}
+FROM PCE_Production AS p
+CROSS APPLY (
+    SELECT TOP 1 wm.[Enersight Well Name] AS en
+    FROM PCE_WM AS wm
+    WHERE (
+            wm.[Well Name] = p.[Well Name]
+         OR (
+                NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+            AND wm.[Composite Name] = p.[Well Name]
+            )
+        )
+      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
 ) AS ca
 WHERE p.[Well Name] NOT LIKE N'%% - TC'
   AND p.[Well Name] NOT LIKE N'YE2%%'
@@ -504,7 +624,8 @@ def insert_pce_production(df):
 
     # Ensure int columns are cast properly before NaN->None conversion
     df = df.copy()
-    df["Month"] = PCE_PRODUCTION_MONTH_LABEL
+    enersight_lookup = fetch_well_master_enersight_lookup()
+    df = apply_gathered_prd_month_labels(df, enersight_lookup)
     df['Days Seq'] = pd.to_numeric(df['Days Seq'], errors='coerce').fillna(0).astype(int)
     df['Day Seq UPRT'] = pd.to_numeric(df['Day Seq UPRT'], errors='coerce').fillna(0).astype(int)
     df['On Production Year'] = pd.to_numeric(df['On Production Year'], errors='coerce')
@@ -577,15 +698,42 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled before start."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    end_cap = prodview_effective_end_date()
+    from prodview_date_bounds import snowflake_cda_gap_range
+    from prodview_update_gui import query_pce_cda_max_date, refresh_pce_cda_from_snowflake
+
+    cda_max_before = query_pce_cda_max_date()
+    print(lf.detail(f"PCE_CDA max date before Snowflake check: {cda_max_before or '—'}"))
+    print(lf.detail(f"Automatic end date (today − lag): {end_cap}"))
+
+    gap_range = snowflake_cda_gap_range(cda_max_before, end_cap)
+    if gap_range is None:
+        print(lf.detail(f"PCE_CDA is current through {end_cap}; skipping Snowflake refresh."))
+    else:
+        gap_start, gap_end = gap_range
+        print(
+            lf.step(
+                f"Incremental Snowflake → PCE_CDA refresh ({gap_start} through {gap_end})…"
+            )
+        )
+        refresh_pce_cda_from_snowflake(gap_start, gap_end, log_callback=print)
+        cda_max_after = query_pce_cda_max_date()
+        print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+
+    if aborted():
+        print(lf.warn("Cancelled after Snowflake CDA refresh."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
     # Step 1: Ensure CDA sales / S2 columns match Allocation_Factors before copying to Production
-    if not _refresh_cda_sales_from_allocation_factors(log=print, cancel_event=cancel_event):
+    if not _refresh_cda_sales_from_allocation_factors(
+        log=print, cancel_event=cancel_event, update_production=False
+    ):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     if aborted():
         print(lf.warn("Cancelled after PCE_CDA sales refresh."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    end_cap = prodview_effective_end_date()
     with get_sql_conn() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_cap,))
@@ -685,6 +833,7 @@ def main(cancel_event=None):
         cur = conn.cursor()
         sync_production_pad_names_from_wm_sql(cur, None, None)
         sync_production_enersight_well_names_from_wm_sql(cur, None, None)
+        sync_production_gathered_month_labels_from_wm_sql(cur, None, None)
         conn.commit()
 
     try:
@@ -698,8 +847,11 @@ def main(cancel_event=None):
     total_records = len(df)
 
     # Step 12: Final summary
+    cda_max_final = query_pce_cda_max_date()
     print(lf.summary("Complete", {
         "Completed": lf.timestamp(),
+        "Automatic end date": end_cap,
+        "PCE_CDA max date": cda_max_final or "—",
         "Wells processed": wells_processed,
         "Total records": total_records,
         "Records inserted": rows_inserted,

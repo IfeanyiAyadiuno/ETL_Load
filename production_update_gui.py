@@ -16,9 +16,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QHBoxLayout, QPushButton, QTextEdit, QLabel,
                              QFrame, QMessageBox, QComboBox, QProgressBar, QScrollArea,
                              QTabWidget, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QCheckBox, QRadioButton)
+                             QHeaderView, QCheckBox, QRadioButton, QDialog)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor
+from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor, QPixmap
 from db_connection import get_sql_conn
 from monthly_loader_dialog import MonthlyLoaderDialog
 from sales_ratios_dialog import SalesRatiosDialog
@@ -28,9 +28,61 @@ from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
 from monthly_forecasts_import_dialog import MonthlyForecastsImportDialog
 from whitson_mass_upload_dialog import WhitsonMassUploadDialog
-from app_paths import get_settings_path
+from app_paths import get_settings_path, get_logo_path
 from settings_dialog import SettingsDialog
 from exports_dialog import ExportsDialog
+
+
+# Pacific Canbriam logo / wordmark navy (matches corporate logo text)
+_PCE_BRAND_BLUE = "#002654"
+
+
+class LicensingDialog(QDialog):
+    """Credits for engineering and design."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Licensing & Credits")
+        self.setModal(True)
+        self.setMinimumWidth(420)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 22, 24, 22)
+
+        title = QLabel("Licensing & Credits")
+        title.setStyleSheet(
+            f"font-size: 18px; font-weight: 700; color: {_PCE_BRAND_BLUE};"
+        )
+        layout.addWidget(title)
+
+        coded = QLabel("Coded by: Ifeanyi Ayadiuno")
+        coded.setStyleSheet("font-size: 14px; color: #0f172a;")
+        layout.addWidget(coded)
+
+        designed = QLabel(
+            "Designed by: Hugo Martinez, Camila Medina, Vincent Wei, Anton Siyatskiy"
+        )
+        designed.setWordWrap(True)
+        designed.setStyleSheet("font-size: 14px; color: #0f172a;")
+        layout.addWidget(designed)
+
+        layout.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f8fafc;
+                color: #334155;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 10px 18px;
+                min-height: 36px;
+            }
+            QPushButton:hover { background-color: #f1f5f9; border-color: #94a3b8; }
+        """)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignRight)
 
 
 class ProductionUpdateGUI(QMainWindow):
@@ -40,7 +92,7 @@ class ProductionUpdateGUI(QMainWindow):
         
     def initUI(self):
         """Initialize the user interface"""
-        self.setWindowTitle("Pacific Canbriam Energy - Production Update System")
+        self.setWindowTitle("Pacific Canbriam Energy - Reservoir Production Update System")
         self.setGeometry(100, 100, 920, 780)
         
         # Set window icon (if you have one)
@@ -84,30 +136,33 @@ class ProductionUpdateGUI(QMainWindow):
         header_card_layout.setSpacing(6)
         
         header_row = QHBoxLayout()
+        header_row.setSpacing(12)
+
         title_block = QVBoxLayout()
-        title_block.setSpacing(4)
-        
-        company_header = QLabel("Pacific Canbriam Energy LTD")
+        title_block.setSpacing(6)
+        title_block.setContentsMargins(12, 0, 0, 0)
+
+        company_header = QLabel("Pacific Canbriam Energy Ltd")
         company_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        company_header.setStyleSheet("""
-            QLabel {
-                color: #0f172a;
+        company_header.setStyleSheet(f"""
+            QLabel {{
+                color: {_PCE_BRAND_BLUE};
                 font-size: 22px;
                 font-weight: 700;
                 letter-spacing: -0.3px;
                 background: transparent;
                 border: none;
                 padding: 0px;
-            }
+            }}
         """)
-        
-        sub_header = QLabel("Production Update System")
+
+        sub_header = QLabel("Reservoir Production Update System")
         sub_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         sub_header.setStyleSheet("""
             QLabel {
-                color: #64748b;
-                font-size: 13px;
-                font-weight: normal;
+                color: #000000;
+                font-size: 17px;
+                font-weight: 700;
                 padding: 0px;
                 background: transparent;
                 border: none;
@@ -116,9 +171,8 @@ class ProductionUpdateGUI(QMainWindow):
         title_block.addWidget(company_header)
         title_block.addWidget(sub_header)
         header_row.addLayout(title_block, 1)
-        
-        self.btn_settings = QPushButton("Settings")
-        self.btn_settings.setStyleSheet("""
+
+        header_btn_style = """
             QPushButton {
                 background-color: #f8fafc;
                 color: #334155;
@@ -137,9 +191,29 @@ class ProductionUpdateGUI(QMainWindow):
             QPushButton:pressed {
                 background-color: #e2e8f0;
             }
-        """)
+        """
+
+        self.btn_licensing = QPushButton("Licensing")
+        self.btn_licensing.setStyleSheet(header_btn_style)
+        self.btn_licensing.clicked.connect(self.open_licensing)
+        header_row.addWidget(self.btn_licensing, 0, Qt.AlignTop)
+
+        self.btn_settings = QPushButton("Settings")
+        self.btn_settings.setStyleSheet(header_btn_style)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
         header_row.addWidget(self.btn_settings, 0, Qt.AlignTop)
+
+        logo_label = QLabel()
+        logo_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        logo_path = get_logo_path()
+        if os.path.isfile(logo_path):
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                scaled = pixmap.scaledToHeight(56, Qt.SmoothTransformation)
+                logo_label.setPixmap(scaled)
+        else:
+            logo_label.setText("")
+        header_row.addWidget(logo_label, 0, Qt.AlignTop | Qt.AlignRight)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
@@ -298,7 +372,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.apply_styles()
         
         # Log startup
-        self.log("Production Update System initialized")
+        self.log("Reservoir Production Update System initialized")
         self.log("Select an operation to begin")
         
     def create_main_button(self, text, color):
@@ -475,6 +549,12 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_monthly_forecasts.setChecked(False)
         
     
+    def open_licensing(self):
+        """Open licensing / credits dialog."""
+        self.log("Opening Licensing dialog...")
+        dialog = LicensingDialog(self)
+        dialog.exec_()
+
     def open_settings(self):
         """Open the settings dialog"""
         self.log("Opening Settings dialog...")
