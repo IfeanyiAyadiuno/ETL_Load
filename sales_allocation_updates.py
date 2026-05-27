@@ -325,6 +325,7 @@ def apply_valnav_allocation_to_cda_and_production(
     conn,
     month_start: MonthStart,
     log: Optional[Callable[[str], None]] = None,
+    update_production: bool = True,
 ) -> None:
     """PCE_CDA + PCE_Production: S2 gas and condensate sales only (ValNav path)."""
     def _log(msg: str) -> None:
@@ -356,6 +357,9 @@ def apply_valnav_allocation_to_cda_and_production(
     conn.commit()
     _log(lf.detail(f"PCE_CDA rows touched (S2 + condensate sales): {lf.num(cda_n)}"))
 
+    if not update_production:
+        return
+
     _log(lf.detail("Syncing PCE_Production (Gas S2, condensate sales only)…"))
     cursor.execute(
         """
@@ -382,6 +386,7 @@ def apply_full_sales_ratios_for_month(
     conn,
     month_start: MonthStart,
     log: Optional[Callable[[str], None]] = None,
+    update_production: bool = True,
 ) -> Tuple[int, int, int]:
     """
     Public Sales pass: on PCE_CDA, only [Gas - Sales Production] (Accumap) and [Sales CGR Ratio]
@@ -447,6 +452,9 @@ def apply_full_sales_ratios_for_month(
         month_start,
     )
     wells_count = cursor.fetchone()[0]
+
+    if not update_production:
+        return cda_rows, 0, wells_count
 
     cursor.execute(
         """

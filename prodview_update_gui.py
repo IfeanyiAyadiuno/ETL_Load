@@ -15,7 +15,11 @@ from datetime import datetime, timedelta
 
 import log_format as lf
 from db_connection import get_sql_conn
-from prodview_date_bounds import prodview_effective_end_date, quick_update_date_range
+from prodview_date_bounds import (
+    prodview_effective_end_date,
+    quick_update_date_range,
+    snowflake_cda_gap_range,
+)
 from snowflake_connector import SnowflakeConnector
 from sync_typecurves_to_production import sync_tc_to_production
 
@@ -335,6 +339,110 @@ def _batch_executemany(cursor, sql, rows, batch_size=5000):
         cursor.executemany(sql, rows[i:i + batch_size])
 
 
+def query_pce_cda_max_date(conn=None):
+    """Return MAX(CAST(ProdDate AS DATE)) from PCE_CDA, or None if empty."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(CAST(ProdDate AS DATE)) FROM dbo.PCE_CDA")
+        row = cur.fetchone()
+        val = row[0] if row else None
+        if val is None:
+            return None
+        if hasattr(val, "date"):
+            return val.date()
+        return val
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
+def refresh_pce_cda_from_snowflake(
+    start_date,
+    end_date,
+    *,
+    log_callback=None,
+    conn=None,
+    progress_callback=None,
+):
+    """
+    Pull Snowflake for [start_date, end_date] and replace matching PCE_CDA rows.
+
+    Does not modify PCE_Production. Returns number of CDA rows inserted.
+    """
+    log = partial(_emit_log, log_callback)
+
+    def progress(val):
+        if progress_callback:
+            progress_callback(val)
+
+    if start_date > end_date:
+        log(lf.detail("Snowflake CDA refresh skipped (empty date range)."))
+        return 0
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
+
+        mapping_df = _fetch_well_mapping(cursor)
+        log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells for Snowflake spine"))
+
+        log(lf.step(f"Pulling Snowflake data ({start_date} to {end_date})…"))
+        sf = SnowflakeConnector()
+        try:
+            sf_data = _pull_all_snowflake_data(sf, start_date, end_date, log)
+        finally:
+            sf.close()
+        log(lf.success(f"Retrieved {lf.num(sum(len(d) for d in sf_data.values()))} total rows"))
+        progress(15)
+
+        log(lf.step("Building spine and merging Snowflake data…"))
+        full_range = pd.date_range(start=start_date, end=end_date, freq="D").date
+        spine_df = _build_spine(mapping_df, full_range)
+        result_df = _merge_sf_data(spine_df, sf_data)
+        result_df["Condensate_WH_Production"] = (
+            result_df["GasWH_Production"] * result_df["CGR_Ratio"]
+        )
+        result_df, _repl = _apply_gaswh_replacement(result_df)
+        before_cap = len(result_df)
+        result_df = result_df.loc[
+            pd.to_datetime(result_df["ProdDate"]).dt.normalize().dt.date <= end_date
+        ].copy()
+        if len(result_df) < before_cap:
+            log(
+                lf.detail(
+                    f"Dropped {lf.num(before_cap - len(result_df))} row(s) after {end_date} "
+                    "(Snowflake spine cap)"
+                )
+            )
+        log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
+        progress(30)
+
+        log(lf.step(f"Replacing PCE_CDA rows ({start_date} to {end_date})…"))
+        cursor.execute(
+            "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
+            start_date,
+            end_date,
+        )
+        conn.commit()
+
+        rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
+        _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
+        conn.commit()
+        n = len(rows)
+        log(lf.success(f"Inserted {lf.num(n)} records into PCE_CDA"))
+        progress(45)
+        return n
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
 # ---------------------------------------------------------------------------
 # run_prodview_update  (Full Rebuild of CDA for selected range)
 # ---------------------------------------------------------------------------
@@ -351,7 +459,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
     total_start = time.time()
     
     try:
-        from production_update import PCE_PRODUCTION_MONTH_LABEL
+        from production_update import gathered_prd_month_sql_from_enersight
 
         start_date = datetime.strptime(start_month, "%b %Y")
         end_date = datetime.strptime(end_month, "%b %Y")
@@ -423,7 +531,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         progress(60)
 
         # Insert Production from CDA via server-side SELECT
-        cursor.execute("""
+        month_sql = gathered_prd_month_sql_from_enersight("wm.[Enersight Well Name]")
+        cursor.execute(f"""
             INSERT INTO PCE_Production (
                 [Date], [Well Name], [Days Seq], [Day Seq UPRT],
                 [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
@@ -448,10 +557,22 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 c.ChokeSize, c.AllocatedWater_Rate, c.NGL_Production,
                 c.[Formation Producer], c.[Layer Producer], c.[Fault Block],
                 c.[Pad Name], c.[Lateral Length], c.Orient,
-                ?
+                {month_sql}
             FROM PCE_CDA c
+            OUTER APPLY (
+                SELECT TOP 1 wm.[Enersight Well Name]
+                FROM PCE_WM wm
+                WHERE (
+                        wm.[Well Name] = c.[Well Name]
+                     OR (
+                            NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+                        AND wm.[Composite Name] = c.[Well Name]
+                        )
+                    )
+                  AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
+            ) wm
             WHERE c.ProdDate BETWEEN ? AND ?
-        """, PCE_PRODUCTION_MONTH_LABEL, overall_start, overall_end)
+        """, overall_start, overall_end)
         total_prod = cursor.rowcount
         conn.commit()
         progress(65)
@@ -529,10 +650,12 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         from production_update import (
             sync_production_enersight_well_names_from_wm_sql,
             sync_production_pad_names_from_wm_sql,
+            sync_production_gathered_month_labels_from_wm_sql,
         )
 
         sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end)
         sync_production_enersight_well_names_from_wm_sql(cursor, overall_start, overall_end)
+        sync_production_gathered_month_labels_from_wm_sql(cursor, overall_start, overall_end)
         conn.commit()
 
         try:
@@ -595,7 +718,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
 
     try:
         from production_update import (
-            PCE_PRODUCTION_MONTH_LABEL,
+            apply_gathered_prd_month_labels,
             calculate_sequences,
             calculate_cumulatives,
             calculate_monthly_averages,
@@ -606,15 +729,13 @@ def run_quick_update(progress_callback=None, log_callback=None):
             apply_pad_name_from_well_master,
             sync_production_enersight_well_names_from_wm_sql,
             sync_production_pad_names_from_wm_sql,
+            sync_production_gathered_month_labels_from_wm_sql,
         )
 
         conn = get_sql_conn()
         cursor = conn.cursor()
         cursor.fast_executemany = True
         log(lf.success("Database connected"))
-
-        mapping_df = _fetch_well_mapping(cursor)
-        log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
 
         log(lf.step(f"Trimming CDA and production after {end_last}…"))
         cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_last,))
@@ -629,37 +750,6 @@ def run_quick_update(progress_callback=None, log_callback=None):
         )
         conn.commit()
 
-        # Single Snowflake pull for entire range
-        log(lf.step(f"Pulling Snowflake data ({start_first} to {end_last})..."))
-        sf = SnowflakeConnector()
-        try:
-            sf_data = _pull_all_snowflake_data(sf, start_first, end_last, log)
-        finally:
-            sf.close()
-        log(lf.success(f"Retrieved {lf.num(sum(len(d) for d in sf_data.values()))} total rows"))
-        progress(20)
-
-        # Single-pass: one spine, one merge, one DELETE, one INSERT
-        log(lf.step("Building spine and merging data for full range..."))
-        full_range = pd.date_range(start=start_first, end=end_last, freq='D').date
-        spine_df = _build_spine(mapping_df, full_range)
-
-        result_df = _merge_sf_data(spine_df, sf_data)
-        result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-        result_df, _repl = _apply_gaswh_replacement(result_df)
-        before_cap = len(result_df)
-        result_df = result_df.loc[
-            pd.to_datetime(result_df["ProdDate"]).dt.normalize().dt.date <= end_last
-        ].copy()
-        if len(result_df) < before_cap:
-            log(lf.detail(f"Dropped {lf.num(before_cap - len(result_df))} row(s) after {end_last} (Snowflake spine cap)"))
-        log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
-        progress(35)
-
-        # Delete + Insert CDA for full range
-        log(lf.step("Replacing PCE_CDA data..."))
-        cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
-                        start_first, end_last)
         cursor.execute(
             """
             DELETE FROM PCE_Production
@@ -672,11 +762,13 @@ def run_quick_update(progress_callback=None, log_callback=None):
         )
         conn.commit()
 
-        rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
-        _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
-        conn.commit()
-        total_cda = len(rows)
-        log(lf.success(f"Inserted {lf.num(total_cda)} records into PCE_CDA"))
+        total_cda = refresh_pce_cda_from_snowflake(
+            start_first,
+            end_last,
+            log_callback=log_callback,
+            conn=conn,
+            progress_callback=progress_callback,
+        )
         progress(55)
 
         # ---------------------------------------------------------------
@@ -725,7 +817,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             for col in _PROD_COLUMNS:
                 if col not in all_cda.columns:
                     all_cda[col] = np.nan
-            all_cda["Month"] = PCE_PRODUCTION_MONTH_LABEL
+            all_cda = apply_gathered_prd_month_labels(all_cda)
 
             prod_rows = _df_to_insert_rows(all_cda, _PROD_COLUMNS)
             _batch_executemany(cursor, _PROD_INSERT_SQL, prod_rows)
@@ -746,9 +838,8 @@ def run_quick_update(progress_callback=None, log_callback=None):
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
 
         sync_production_pad_names_from_wm_sql(cursor, start_first, end_last)
-        # Full well history is re-inserted above; Enersight is not on the dataframe—repopulate
-        # from WM for all non-TC rows (date filter would leave pre-window rows NULL).
         sync_production_enersight_well_names_from_wm_sql(cursor, None, None)
+        sync_production_gathered_month_labels_from_wm_sql(cursor, None, None)
         conn.commit()
 
         try:

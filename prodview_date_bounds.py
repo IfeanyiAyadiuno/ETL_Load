@@ -43,3 +43,21 @@ def quick_update_date_range() -> Tuple[date, date]:
     end = prodview_effective_end_date()
     start = quick_update_start_date(end)
     return start, end
+
+
+def snowflake_cda_gap_range(
+    cda_max: date | None,
+    effective_end: date | None = None,
+) -> Tuple[date, date] | None:
+    """
+    Inclusive Snowflake refresh range to bring PCE_CDA up to *effective_end*.
+
+    Returns None when CDA is already current through *effective_end*.
+    When *cda_max* is unknown (empty table), uses the full rolling window start.
+    """
+    end = effective_end or prodview_effective_end_date()
+    if cda_max is None:
+        return quick_update_start_date(end), end
+    if cda_max >= end:
+        return None
+    return cda_max + timedelta(days=1), end

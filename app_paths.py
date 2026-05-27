@@ -14,3 +14,8 @@ def _app_dir():
 def get_settings_path():
     """Absolute path to settings.ini (next to the exe when frozen, else next to this file)."""
     return str(_app_dir() / "settings.ini")
+
+
+def get_logo_path():
+    """Absolute path to the main-window logo (images/pce_logo.png)."""
+    return str(_app_dir() / "images" / "pce_logo.png")

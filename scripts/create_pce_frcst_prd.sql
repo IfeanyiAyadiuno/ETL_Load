@@ -12,7 +12,7 @@
     - Production is rebuilt / Prodview refreshes Production + TC sync, etc.
 
   Gathered-append rows reuse CDGR_Mcf_d / CD_Cond_bbl_d / CD_Water_bbl_d for
-  production metrics; [Month] = N'Gathered PRD' distinguishes them from forecast uploads.
+  production metrics; [Month] = N'Gath PRD {Enersight}' (e.g. N'Gath PRD L-16') distinguishes them from forecast uploads.
 
   See plan: PCE_FRCST_PRD table.
 */

@@ -5,8 +5,21 @@ a = Analysis(
     ['production_update_gui.py'],
     pathex=[],
     binaries=[],
+<<<<<<< HEAD
     datas=[],
     hiddenimports=['PyQt5.sip', 'pyodbc', 'pandas', 'numpy', 'snowflake.connector'],
+=======
+    datas=[('images', 'images')],
+    hiddenimports=[
+        'PyQt5.sip',
+        'pyodbc',
+        'pandas',
+        'numpy',
+        'snowflake.connector',
+        'monthly_forecasts_import',
+        'monthly_forecasts_import_dialog',
+    ],
+>>>>>>> 3ca5e5cfbb80b7cbf57c1386ffb03c33104e0c63
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

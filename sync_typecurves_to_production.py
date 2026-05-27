@@ -15,7 +15,7 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
-from production_update import PCE_PRODUCTION_MONTH_LABEL
+from production_update import gathered_prd_month_label, fetch_well_master_enersight_lookup
 from type_curves_import import _is_ye_tc_stored_well_name, _tc_pad_name_from_excel
 
 _INSERT_SQL = """
@@ -92,7 +92,10 @@ def _int_or_none(v) -> Optional[int]:
     return int(round(f))
 
 
-def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
+def _tc_row_to_production_tuple(
+    row: pd.Series,
+    enersight_lookup: Optional[dict] = None,
+) -> Optional[Tuple]:
     wn = row.get("Well Name")
     if wn is None or str(wn).strip() == "":
         return None
@@ -140,6 +143,9 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         if remarks_raw is None or pd.isna(remarks_raw)
         else str(remarks_raw).strip() or None
     )
+    wn_s = str(wn).strip()
+    lookup = enersight_lookup or {}
+    month_label = gathered_prd_month_label(lookup.get(wn_s))
 
     return (
         d,
@@ -182,7 +188,7 @@ def _tc_row_to_production_tuple(row: pd.Series) -> Optional[Tuple]:
         None,
         None,
         None,
-        PCE_PRODUCTION_MONTH_LABEL,
+        month_label,
         remarks_s,
     )
 
@@ -254,9 +260,10 @@ def sync_tc_to_production(
         deleted = cursor.rowcount or 0
         conn.commit()
 
+        enersight_lookup = fetch_well_master_enersight_lookup()
         rows: List[Tuple] = []
         for _, row in df.iterrows():
-            tup = _tc_row_to_production_tuple(row)
+            tup = _tc_row_to_production_tuple(row, enersight_lookup=enersight_lookup)
             if tup:
                 rows.append(tup)
 

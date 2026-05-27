@@ -77,6 +77,18 @@ class ProdviewUpdateDialog(QDialog):
         self.quick_scope_group.layout().addWidget(self.quick_scope_body)
         layout.addWidget(self.quick_scope_group)
 
+        sql_group = self.create_group("🗄️ SQL destination (Settings)")
+        sql_layout = QVBoxLayout()
+        self.sql_target_label = QLabel()
+        self.sql_target_label.setWordWrap(True)
+        self.sql_target_label.setStyleSheet("color: #334155; font-size: 13px;")
+        sql_layout.addWidget(self.sql_target_label)
+        self.sql_status = QLabel("⏳ Checking SQL connection…")
+        self.sql_status.setWordWrap(True)
+        sql_layout.addWidget(self.sql_status)
+        sql_group.layout().addLayout(sql_layout)
+        layout.addWidget(sql_group)
+
         # Update Mode Selection
         mode_group = self.create_group("⚙️ Update Mode")
         mode_layout = QVBoxLayout()
@@ -87,9 +99,9 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Refreshes CDA from Allocation_Factors, then rebuilds all of PCE_Production from PCE_CDA\n"
-            "  • No Snowflake — use the other mode first if CDA needs a Snowflake refresh\n"
-            "  • ~5 min"
+            "  • Incremental Snowflake → PCE_CDA when CDA is behind (through today − 2 days)\n"
+            "  • Refreshes CDA sales columns from Allocation_Factors, then rebuilds PCE_Production\n"
+            "  • ~2–5 min depending on gap size and AF month count"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
@@ -171,7 +183,30 @@ class ProdviewUpdateDialog(QDialog):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
+        self._sql_ok = False
         self.update_info_text()
+        self.refresh_sql_status()
+
+    def refresh_sql_status(self):
+        """Reload Settings SQL target and verify connectivity."""
+        from db_connection import (
+            merge_sql_from_settings_ini_into_runtime,
+            probe_sql_connection,
+            sql_target_label,
+        )
+
+        merge_sql_from_settings_ini_into_runtime()
+        self.sql_target_label.setText(f"Target: {sql_target_label()}")
+        ok, msg = probe_sql_connection()
+        if ok:
+            self.sql_status.setText(f"✅ {msg}")
+            self.sql_status.setStyleSheet("color: #1a4d3e; font-size: 13px;")
+            self._sql_ok = True
+        else:
+            self.sql_status.setText(f"❌ {msg}")
+            self.sql_status.setStyleSheet("color: #dc3545; font-size: 13px;")
+            self._sql_ok = False
+        self.run_btn.setEnabled(self._sql_ok)
 
     def handle_close(self):
         """
@@ -192,7 +227,7 @@ class ProdviewUpdateDialog(QDialog):
                 self.worker.wait(5000)
                 self.log_result("\n⚠️ Operation cancelled by user")
                 self.progress_bar.setVisible(False)
-                self.run_btn.setEnabled(True)
+                self.run_btn.setEnabled(self._sql_ok)
                 self.close_btn.setEnabled(True)
                 self.status_label.setText("Cancelled")
             else:
@@ -224,11 +259,13 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         if self.mode_full_rebuild.isChecked():
             self.quick_scope_body.setText(
-                "Rebuild PCE_Production from CDA; no Snowflake. ~5 min."
+                "Full rebuild: incremental Snowflake when CDA is stale, AF refresh on CDA, "
+                "then rebuild all gathered PCE_Production (through today − 2)."
             )
             self.info_text.setText(
+                "  • Refresh PCE_CDA from Snowflake for missing days through today − 2\n"
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
-                "  • Rebuild PCE_Production from all PCE_CDA"
+                "  • Rebuild PCE_Production from all PCE_CDA (+ PCE_TC sync)"
             )
         else:
             self.quick_scope_body.setText(
@@ -262,11 +299,24 @@ class ProdviewUpdateDialog(QDialog):
     
     def run_update(self):
         """Run the prodview update in a separate thread"""
+        self.refresh_sql_status()
+        if not self._sql_ok:
+            QMessageBox.critical(
+                self,
+                "SQL connection failed",
+                self.sql_status.text().replace("❌ ", ""),
+            )
+            return
+
+        from db_connection import sql_target_label
+
+        sql_target = sql_target_label()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = "Full rebuild: PCE_Production from PCE_CDA (no Snowflake)"
+            mode_label = "Full rebuild: incremental Snowflake + AF refresh + production rebuild"
             body = (
                 "Run full rebuild?\n\n"
+                f"SQL target: {sql_target}\n"
                 f"{mode_label}\n\n"
                 "Continue?"
             )
@@ -274,6 +324,7 @@ class ProdviewUpdateDialog(QDialog):
             mode_label = "Snowflake → CDA + production (~18‑month window)"
             body = (
                 "Run Snowflake → CDA + production rebuild?\n\n"
+                f"SQL target: {sql_target}\n"
                 f"{mode_label}\n\n"
                 "Continue?"
             )
@@ -298,6 +349,7 @@ class ProdviewUpdateDialog(QDialog):
         hdr = {
             "Started": lf.timestamp(),
             "Mode": mode_name,
+            "SQL": sql_target,
         }
         if update_mode == "quick_update":
             hdr["Scope"] = "~18 mo rolling (auto dates)"
@@ -373,7 +425,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
-        self.run_btn.setEnabled(True)
+        self.run_btn.setEnabled(self._sql_ok)
         self.close_btn.setEnabled(True)
 
         if summary.get("skipped"):
@@ -413,7 +465,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
-        self.run_btn.setEnabled(True)
+        self.run_btn.setEnabled(self._sql_ok)
         self.close_btn.setEnabled(True)
         self.status_label.setText("Error")
         self.log_result(lf.error(error_msg))
