@@ -1,13 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-#
-# One-folder build (onedir): ProductionUpdate.exe + _internal/ beside it.
-# Faster cold start than a single-file exe for PyQt + pandas.
-# Ship the entire dist/ProductionUpdate/ folder (do not omit _internal).
+
 
 a = Analysis(
     ['production_update_gui.py'],
     pathex=[],
     binaries=[],
+<<<<<<< HEAD
+    datas=[],
+    hiddenimports=['PyQt5.sip', 'pyodbc', 'pandas', 'numpy', 'snowflake.connector'],
+=======
     datas=[('images', 'images')],
     hiddenimports=[
         'PyQt5.sip',
@@ -18,6 +19,7 @@ a = Analysis(
         'monthly_forecasts_import',
         'monthly_forecasts_import_dialog',
     ],
+>>>>>>> 3ca5e5cfbb80b7cbf57c1386ffb03c33104e0c63
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
