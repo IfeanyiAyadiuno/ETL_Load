@@ -288,41 +288,6 @@ _PROD_COLUMNS = [
     'Month',
 ]
 
-_CDA_SELECT_SQL = """
-                SELECT 
-                    [Well Name] as Source_Well_Name,
-                    ProdDate as [Date],
-                    [GasWH_Production] as [Gas WH Production (10³m³)],
-                    [Condensate_WH_Production] as [Condensate WH (m³/d)],
-                    [Gas - S2 Production] as [Gas S2 Production (10³m³)],
-                    [Gas - Sales Production] as [Gas Sales Production (10³m³)],
-                    [Condensate - Sales Production] as [Condensate Sales (m³/d)],
-                    [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
-                    [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
-                    [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
-                    [CGR_Ratio] as [CGR (m³/e³m³)],
-                    [WGR_Ratio] as [WGR (m³/e³m³)],
-                    [ECF_Ratio] as [ECF],
-                    [OnProdHours] as [Hours On],
-                    [TubingPressure] as [Tubing Pressure (kPa)],
-                    [CasingPressure] as [Casing Pressure (kPa)],
-                    [ChokeSize] as [Choke Size],
-                    [AllocatedWater_Rate] as [Alloc. Water Rate (m³)],
-                    [NGL_Production] as [NGL (m³)],
-        [Formation Producer], [Layer Producer], [Fault Block],
-        [Pad Name], [Lateral Length],
-                    [Orient] as [Orientation]
-                FROM PCE_CDA
-    ORDER BY
-        CASE
-            WHEN [Well Name] LIKE 'YE2%' THEN 1
-            WHEN [Well Name] LIKE '% - TC' THEN 2
-            ELSE 0
-        END,
-        [Well Name], ProdDate
-"""
-
-
 def _month_boundaries(dt):
     """Return (first_day, last_day) as date objects for the month of *dt*."""
     first = dt.replace(day=1)
@@ -457,6 +422,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
     log(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
                    Range=f"{start_month} to {end_month}"))
     total_start = time.time()
+    timer = lf.StepTimer(log_fn=log)
     
     try:
         from production_update import gathered_prd_month_sql_from_enersight
@@ -505,6 +471,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         result_df, _repl = _apply_gaswh_replacement(result_df)
         log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
         progress(40)
+        timer.mark("Snowflake pull + CDA merge")
 
         # Delete existing data for full range
         cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
@@ -529,6 +496,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         total_cda = len(rows)
         log(lf.detail(f"Inserted {lf.num(total_cda)} CDA records"))
         progress(60)
+        timer.mark("PCE_CDA insert")
 
         # Insert Production from CDA via server-side SELECT
         month_sql = gathered_prd_month_sql_from_enersight("wm.[Enersight Well Name]")
@@ -617,6 +585,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             overall_end,
         )
         conn.commit()
+        timer.mark("PCE_Production insert + monthly avgs")
 
         log(lf.step("Materializing PCE_TC into PCE_Production..."))
         try:
@@ -646,17 +615,13 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         conn.commit()
         log(lf.success(f"Sequences recalculated for date range"))
         progress(90)
+        timer.mark("PCE_TC sync + sequence recalc")
 
-        from production_update import (
-            sync_production_enersight_well_names_from_wm_sql,
-            sync_production_pad_names_from_wm_sql,
-            sync_production_gathered_month_labels_from_wm_sql,
-        )
+        from production_update import sync_production_wm_metadata_from_wm_sql
 
-        sync_production_pad_names_from_wm_sql(cursor, overall_start, overall_end)
-        sync_production_enersight_well_names_from_wm_sql(cursor, overall_start, overall_end)
-        sync_production_gathered_month_labels_from_wm_sql(cursor, overall_start, overall_end)
+        sync_production_wm_metadata_from_wm_sql(cursor, overall_start, overall_end)
         conn.commit()
+        timer.mark("WM metadata sync (pad, enersight, month)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
@@ -664,6 +629,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
             rebuild_pce_frcst_prd(log=log, conn=conn)
         except Exception as e:
             log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
+        timer.mark("PCE_FRCST_PRD rebuild")
 
         affected_wells_count = mapping_df['Well Name'].nunique()
         conn.close()
@@ -715,6 +681,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
         Range=f"{start_first} through {end_last} (rolling 18 months)",
     ))
     total_start = time.time()
+    timer = lf.StepTimer(log_fn=log)
 
     try:
         from production_update import (
@@ -723,13 +690,13 @@ def run_quick_update(progress_callback=None, log_callback=None):
             calculate_cumulatives,
             calculate_monthly_averages,
             add_on_production_year,
+            fetch_cda_data,
             fetch_well_mapping,
             apply_well_names,
             filter_to_first_production,
             apply_pad_name_from_well_master,
-            sync_production_enersight_well_names_from_wm_sql,
-            sync_production_pad_names_from_wm_sql,
-            sync_production_gathered_month_labels_from_wm_sql,
+            query_wells_with_cda_in_range,
+            sync_production_wm_metadata_from_wm_sql,
         )
 
         conn = get_sql_conn()
@@ -761,6 +728,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             end_last,
         )
         conn.commit()
+        timer.mark("Trim future rows + clear rolling window production")
 
         total_cda = refresh_pce_cda_from_snowflake(
             start_first,
@@ -770,24 +738,19 @@ def run_quick_update(progress_callback=None, log_callback=None):
             progress_callback=progress_callback,
         )
         progress(55)
+        timer.mark("Snowflake → PCE_CDA refresh")
 
-        # ---------------------------------------------------------------
-        # Bulk recalculation for ALL affected wells
-        # ---------------------------------------------------------------
-        log(lf.step("Loading all CDA data for affected wells..."))
+        log(lf.step("Loading CDA for wells in rolling window..."))
         composite_map, fallback_map = fetch_well_mapping()
-
-        # Single bulk query for ALL wells instead of N+1
-        all_cda = pd.read_sql(_CDA_SELECT_SQL, conn)
-        log(lf.detail(f"Loaded {lf.num(len(all_cda))} total CDA rows"))
+        wells_in_window = query_wells_with_cda_in_range(cursor, start_first, end_last)
+        all_cda = fetch_cda_data(
+            well_names=wells_in_window,
+            end_cap=end_last,
+            conn=conn,
+            log=log,
+        )
         progress(60)
-
-        if not all_cda.empty:
-            all_cda["_cap_date"] = pd.to_datetime(all_cda["Date"], errors="coerce").dt.date
-            before_all = len(all_cda)
-            all_cda = all_cda.loc[all_cda["_cap_date"] <= end_last].drop(columns=["_cap_date"])
-            if len(all_cda) < before_all:
-                log(lf.detail(f"Excluded {lf.num(before_all - len(all_cda))} CDA row(s) after {end_last} before production rebuild"))
+        timer.mark("Load PCE_CDA for rolling-window wells")
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
@@ -800,13 +763,12 @@ def run_quick_update(progress_callback=None, log_callback=None):
             all_cda = calculate_monthly_averages(all_cda)
             all_cda = add_on_production_year(all_cda)
         progress(75)
+        timer.mark("Production pandas calcs (seq / cum / avgs)")
 
         if not all_cda.empty:
-            # Single bulk DELETE + INSERT for all wells at once
             log(lf.step("Rebuilding PCE_Production..."))
             affected_well_names = all_cda['Well Name'].unique().tolist()
 
-            # Batched DELETE for all affected well names
             del_batch = 200
             for i in range(0, len(affected_well_names), del_batch):
                 batch = affected_well_names[i:i + del_batch]
@@ -830,17 +792,31 @@ def run_quick_update(progress_callback=None, log_callback=None):
         else:
             total_wells = 0
             total_prod = 0
+        timer.mark("PCE_Production delete + insert")
 
         log(lf.step("Materializing PCE_TC into PCE_Production..."))
         try:
             sync_tc_to_production(log_callback=log, conn=conn)
         except Exception as e:
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
+        timer.mark("PCE_TC → PCE_Production sync")
 
-        sync_production_pad_names_from_wm_sql(cursor, start_first, end_last)
-        sync_production_enersight_well_names_from_wm_sql(cursor, None, None)
-        sync_production_gathered_month_labels_from_wm_sql(cursor, None, None)
+        sync_production_wm_metadata_from_wm_sql(
+            cursor,
+            update_pad=False,
+            update_enersight=True,
+            update_month=True,
+        )
+        sync_production_wm_metadata_from_wm_sql(
+            cursor,
+            start_first,
+            end_last,
+            update_pad=True,
+            update_enersight=False,
+            update_month=False,
+        )
         conn.commit()
+        timer.mark("WM metadata sync (pad, enersight, month)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
@@ -848,6 +824,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             rebuild_pce_frcst_prd(log=log, conn=conn)
         except Exception as e:
             log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
+        timer.mark("PCE_FRCST_PRD rebuild")
 
         progress(95)
         conn.close()

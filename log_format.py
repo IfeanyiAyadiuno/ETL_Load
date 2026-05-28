@@ -1,6 +1,7 @@
 # log_format.py -- Centralized log formatting for all ETL processes.
 # No Qt dependency; returns plain strings for use with both GUI callbacks and print().
 
+import time
 from datetime import datetime
 
 W = 64  # ruler width -- consistent everywhere
@@ -94,6 +95,25 @@ def elapsed(seconds):
         h, rem = divmod(int(seconds), 3600)
         m = rem // 60
         return f"{h}h {m}m"
+
+
+class StepTimer:
+    """Log per-step and running elapsed time for long ETL pipelines."""
+
+    def __init__(self, log_fn=None):
+        self._log = log_fn or print
+        self._run_start = time.time()
+        self._step_start = self._run_start
+
+    def mark(self, label: str) -> None:
+        now = time.time()
+        self._log(
+            detail(
+                f"[{elapsed(now - self._step_start)}] {label} "
+                f"(total {elapsed(now - self._run_start)})"
+            )
+        )
+        self._step_start = now
 
 
 def timestamp():

@@ -169,9 +169,8 @@ def clear_pce_production():
         print(lf.success(f"Cleared PCE_Production: {lf.num(deleted)} records deleted (identity reseeded where applicable)"))
         return deleted
 
-def fetch_cda_data():
-    """Fetch all daily production data from PCE_CDA ordered by well and date"""
-    query = """
+
+_CDA_SELECT_SQL = """
     SELECT 
         [Well Name] as [Source_Well_Name],
         ProdDate as [Date],
@@ -199,20 +198,93 @@ def fetch_cda_data():
         [Lateral Length],
         [Orient] as [Orientation]
     FROM PCE_CDA
-    ORDER BY
-        CASE
-            WHEN [Well Name] LIKE 'YE2%' THEN 1
-            WHEN [Well Name] LIKE '% - TC' THEN 2
-            ELSE 0
-        END,
-        [Well Name], ProdDate
+"""
+
+
+def _sort_cda_dataframe(df):
+    """Match legacy SQL ORDER BY (YE2, TC, then well/date)."""
+    if df.empty:
+        return df
+    out = df.copy()
+    src = out["Source_Well_Name"].astype(str)
+    out["_sort_tier"] = np.where(
+        src.str.startswith("YE2"),
+        1,
+        np.where(src.str.endswith(" - TC"), 2, 0),
+    )
+    out = out.sort_values(["_sort_tier", "Source_Well_Name", "Date"]).drop(
+        columns=["_sort_tier"]
+    )
+    return out.reset_index(drop=True)
+
+
+def query_wells_with_cda_in_range(cursor, date_start, date_end):
+    """Distinct PCE_CDA well names with rows in [date_start, date_end]."""
+    cursor.execute(
+        """
+        SELECT DISTINCT [Well Name]
+        FROM PCE_CDA
+        WHERE ProdDate BETWEEN ? AND ?
+        """,
+        date_start,
+        date_end,
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
+def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
     """
-    
-    with get_sql_conn() as conn:
-        df = pd.read_sql(query, conn)
-    
-    print(lf.detail(f"Loaded {lf.num(len(df))} rows from PCE_CDA"))
-    return df
+    Fetch daily production rows from PCE_CDA for rebuild.
+
+    ``well_names``: optional list of CDA ``[Well Name]`` values; when set, only
+    those wells are loaded (full history per well). When omitted, loads all CDA.
+    Sorting is done in pandas (same order as the legacy SQL ORDER BY).
+    """
+    log_fn = log or print
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+
+    try:
+        if well_names is not None and len(well_names) == 0:
+            df = pd.DataFrame()
+        elif well_names is None:
+            df = pd.read_sql(_CDA_SELECT_SQL, conn)
+        else:
+            frames = []
+            chunk_size = 500
+            for i in range(0, len(well_names), chunk_size):
+                chunk = well_names[i : i + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                query = f"{_CDA_SELECT_SQL} WHERE [Well Name] IN ({placeholders})"
+                frames.append(pd.read_sql(query, conn, params=chunk))
+            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+        if end_cap is not None and not df.empty:
+            cap_series = pd.to_datetime(df["Date"], errors="coerce").dt.date
+            before = len(df)
+            df = df.loc[cap_series <= end_cap].copy()
+            dropped = before - len(df)
+            if dropped:
+                log_fn(lf.detail(f"Excluded {lf.num(dropped)} CDA row(s) after {end_cap}"))
+
+        if not df.empty:
+            df = _sort_cda_dataframe(df)
+
+        if well_names is None:
+            log_fn(lf.detail(f"Loaded {lf.num(len(df))} rows from PCE_CDA"))
+        else:
+            log_fn(
+                lf.detail(
+                    f"Loaded {lf.num(len(df))} CDA rows for "
+                    f"{lf.num(len(well_names))} well(s) in rolling window"
+                )
+            )
+        return df
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
 
 def fetch_well_mapping():
     """Fetch well name mappings from PCE_WM (Composite Name and Well Name)"""
@@ -293,20 +365,11 @@ def apply_pad_name_from_well_master(df, pad_lookup=None):
     return out
 
 
-def sync_production_pad_names_from_wm_sql(cursor, date_start=None, date_end=None):
-    """Set ``PCE_Production.[Pad Name]`` from ``PCE_WM`` (Well or Composite name match)."""
-    date_filter = ""
-    params = []
-    if date_start is not None and date_end is not None:
-        date_filter = " AND p.[Date] BETWEEN ? AND ?"
-        params = [date_start, date_end]
-
-    sql = f"""
-UPDATE p
-SET p.[Pad Name] = ca.pad
-FROM PCE_Production AS p
+_WM_APPLY_JOIN = """
 CROSS APPLY (
-    SELECT TOP 1 wm.[Pad Name] AS pad
+    SELECT TOP 1
+          wm.[Pad Name] AS pad
+        , wm.[Enersight Well Name] AS en
     FROM PCE_WM AS wm
     WHERE (
             wm.[Well Name] = p.[Well Name]
@@ -317,6 +380,51 @@ CROSS APPLY (
         )
       AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
 ) AS ca
+"""
+
+
+def sync_production_wm_metadata_from_wm_sql(
+    cursor,
+    date_start=None,
+    date_end=None,
+    *,
+    update_pad=True,
+    update_enersight=True,
+    update_month=True,
+):
+    """
+    Set ``PCE_Production`` WM-backed metadata in one table scan.
+
+    Optional ``date_start``/``date_end`` restrict which rows are updated (same
+    semantics as the legacy per-field sync helpers).
+    """
+    if not any((update_pad, update_enersight, update_month)):
+        return
+
+    date_filter = ""
+    params = []
+    if date_start is not None and date_end is not None:
+        date_filter = " AND p.[Date] BETWEEN ? AND ?"
+        params = [date_start, date_end]
+
+    month_expr = gathered_prd_month_sql_from_enersight("ca.en")
+    enersight_val = "NULLIF(LTRIM(RTRIM(CAST(ca.en AS NVARCHAR(4000)))), N'')"
+
+    set_parts = []
+    if update_pad:
+        set_parts.append("p.[Pad Name] = ca.pad")
+    if update_enersight:
+        set_parts.append(
+            f"p.[Enersight Well Name] = COALESCE({enersight_val}, p.[Enersight Well Name])"
+        )
+    if update_month:
+        set_parts.append(f"p.[Month] = {month_expr}")
+
+    sql = f"""
+UPDATE p
+SET {', '.join(set_parts)}
+FROM PCE_Production AS p
+{_WM_APPLY_JOIN}
 WHERE p.[Well Name] NOT LIKE N'%% - TC'
   AND p.[Well Name] NOT LIKE N'YE2%%'
 {date_filter}
@@ -325,6 +433,18 @@ WHERE p.[Well Name] NOT LIKE N'%% - TC'
         cursor.execute(sql, params)
     else:
         cursor.execute(sql)
+
+
+def sync_production_pad_names_from_wm_sql(cursor, date_start=None, date_end=None):
+    """Set ``PCE_Production.[Pad Name]`` from ``PCE_WM`` (Well or Composite name match)."""
+    sync_production_wm_metadata_from_wm_sql(
+        cursor,
+        date_start,
+        date_end,
+        update_pad=True,
+        update_enersight=False,
+        update_month=False,
+    )
 
 
 def sync_production_enersight_well_names_from_wm_sql(cursor, date_start=None, date_end=None):
@@ -333,72 +453,26 @@ def sync_production_enersight_well_names_from_wm_sql(cursor, date_start=None, da
     Same join rules as ``sync_production_pad_names_from_wm_sql``; only rows with non-blank WM
     Enersight are updated. Run after production rebuilds that re-insert without this column.
     """
-    date_filter = ""
-    params = []
-    if date_start is not None and date_end is not None:
-        date_filter = " AND p.[Date] BETWEEN ? AND ?"
-        params = [date_start, date_end]
-
-    sql = f"""
-UPDATE p
-SET p.[Enersight Well Name] = ca.en
-FROM PCE_Production AS p
-CROSS APPLY (
-    SELECT TOP 1 wm.[Enersight Well Name] AS en
-    FROM PCE_WM AS wm
-    WHERE (
-            wm.[Well Name] = p.[Well Name]
-         OR (
-                NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
-            AND wm.[Composite Name] = p.[Well Name]
-            )
-        )
-      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
-      AND NULLIF(RTRIM(CAST(wm.[Enersight Well Name] AS NVARCHAR(4000))), N'') IS NOT NULL
-) AS ca
-WHERE p.[Well Name] NOT LIKE N'%% - TC'
-  AND p.[Well Name] NOT LIKE N'YE2%%'
-{date_filter}
-"""
-    if params:
-        cursor.execute(sql, params)
-    else:
-        cursor.execute(sql)
+    sync_production_wm_metadata_from_wm_sql(
+        cursor,
+        date_start,
+        date_end,
+        update_pad=False,
+        update_enersight=True,
+        update_month=False,
+    )
 
 
 def sync_production_gathered_month_labels_from_wm_sql(cursor, date_start=None, date_end=None):
     """Set ``PCE_Production.[Month]`` to ``Gath PRD {Enersight}`` from ``PCE_WM``."""
-    date_filter = ""
-    params = []
-    if date_start is not None and date_end is not None:
-        date_filter = " AND p.[Date] BETWEEN ? AND ?"
-        params = [date_start, date_end]
-
-    month_expr = gathered_prd_month_sql_from_enersight("ca.en")
-    sql = f"""
-UPDATE p
-SET p.[Month] = {month_expr}
-FROM PCE_Production AS p
-CROSS APPLY (
-    SELECT TOP 1 wm.[Enersight Well Name] AS en
-    FROM PCE_WM AS wm
-    WHERE (
-            wm.[Well Name] = p.[Well Name]
-         OR (
-                NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
-            AND wm.[Composite Name] = p.[Well Name]
-            )
-        )
-      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
-) AS ca
-WHERE p.[Well Name] NOT LIKE N'%% - TC'
-  AND p.[Well Name] NOT LIKE N'YE2%%'
-{date_filter}
-"""
-    if params:
-        cursor.execute(sql, params)
-    else:
-        cursor.execute(sql)
+    sync_production_wm_metadata_from_wm_sql(
+        cursor,
+        date_start,
+        date_end,
+        update_pad=False,
+        update_enersight=False,
+        update_month=True,
+    )
 
 
 def apply_well_names(df, composite_map, fallback_map):
@@ -635,6 +709,7 @@ def insert_pce_production(df):
     rows_to_insert = list(sub.itertuples(index=False, name=None))
 
     batch_size = 5000
+    commit_every_rows = 50000
     total_inserted = 0
     duplicate_skipped = 0
 
@@ -661,10 +736,12 @@ def insert_pce_production(df):
                         else:
                             print(lf.error(f"Error inserting row {i+j}: {row_e}"))
 
-            conn.commit()
+            rows_done = i + len(batch)
+            if rows_done % commit_every_rows == 0 or rows_done == total_rows:
+                conn.commit()
 
-            if (i + len(batch)) % 50000 == 0 or (i + len(batch)) == total_rows:
-                print(lf.detail(f"Insert progress: {lf.num(i + len(batch))}/{lf.num(total_rows)} rows"))
+            if rows_done % 50000 == 0 or rows_done == total_rows:
+                print(lf.detail(f"Insert progress: {lf.num(rows_done)}/{lf.num(total_rows)} rows"))
 
     print(lf.success(f"Inserted {lf.num(total_inserted)} rows into PCE_Production"))
     if duplicate_skipped > 0:
@@ -693,6 +770,8 @@ def main(cancel_event=None):
 
     base_meta = {"mode": "full_rebuild", "duration_seconds": _duration()}
 
+    timer = lf.StepTimer(log_fn=print)
+
     print(lf.header("PCE_Production population", Started=lf.timestamp()))
     if aborted():
         print(lf.warn("Cancelled before start."))
@@ -719,6 +798,7 @@ def main(cancel_event=None):
         refresh_pce_cda_from_snowflake(gap_start, gap_end, log_callback=print)
         cda_max_after = query_pce_cda_max_date()
         print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+    timer.mark("Snowflake CDA gap check / refresh")
 
     if aborted():
         print(lf.warn("Cancelled after Snowflake CDA refresh."))
@@ -729,6 +809,7 @@ def main(cancel_event=None):
         log=print, cancel_event=cancel_event, update_production=False
     ):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+    timer.mark("PCE_CDA sales refresh from Allocation_Factors")
 
     if aborted():
         print(lf.warn("Cancelled after PCE_CDA sales refresh."))
@@ -741,6 +822,7 @@ def main(cancel_event=None):
         conn.commit()
     if n_trim:
         print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
+    timer.mark("Trim future CDA rows")
 
     if aborted():
         print(lf.warn("Cancelled after trimming future CDA."))
@@ -748,21 +830,21 @@ def main(cancel_event=None):
 
     # Step 2: Clear existing data
     clear_pce_production()
+    timer.mark("Clear PCE_Production")
     if aborted():
         print(lf.warn("Cancelled after clearing PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 3: Fetch well name mappings
     composite_map, fallback_map = fetch_well_mapping()
+    timer.mark("Load well mappings")
     if aborted():
         print(lf.warn("Cancelled after loading well mappings."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 4: Fetch CDA data
-    df = fetch_cda_data()
-    if not df.empty:
-        df = df[pd.to_datetime(df["Date"]).dt.date <= end_cap].reset_index(drop=True)
-        print(lf.detail(f"PCE_CDA rows after end-date cap ({end_cap}): {lf.num(len(df))}"))
+    df = fetch_cda_data(end_cap=end_cap, log=print)
+    timer.mark("Load PCE_CDA into pandas")
 
     if df.empty:
         print(lf.warn("No data to process. Exiting."))
@@ -776,6 +858,7 @@ def main(cancel_event=None):
     # Step 5: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
     df = apply_pad_name_from_well_master(df)
+    timer.mark("Well name / pad mapping")
 
     if df.empty:
         print(lf.warn("No data after well name mapping. Exiting."))
@@ -788,6 +871,7 @@ def main(cancel_event=None):
 
     # Step 6: Filter to first production date for each well
     df = filter_to_first_production(df)
+    timer.mark("Filter to first production")
 
     if df.empty:
         print(lf.warn("No data after filtering. Exiting."))
@@ -813,6 +897,7 @@ def main(cancel_event=None):
 
     # Step 10: Add On Production Year
     df = add_on_production_year(df)
+    timer.mark("Sequences, cumulatives, monthly avgs")
 
     if aborted():
         print(lf.warn("Cancelled before inserting into PCE_Production."))
@@ -820,6 +905,7 @@ def main(cancel_event=None):
 
     # Step 11: Insert into PCE_Production
     rows_inserted = insert_pce_production(df)
+    timer.mark("Insert PCE_Production")
 
     from sync_typecurves_to_production import sync_tc_to_production
 
@@ -828,13 +914,13 @@ def main(cancel_event=None):
         sync_tc_to_production(log_callback=print)
     except Exception as e:
         print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
+    timer.mark("PCE_TC → PCE_Production sync")
 
     with get_sql_conn() as conn:
         cur = conn.cursor()
-        sync_production_pad_names_from_wm_sql(cur, None, None)
-        sync_production_enersight_well_names_from_wm_sql(cur, None, None)
-        sync_production_gathered_month_labels_from_wm_sql(cur, None, None)
+        sync_production_wm_metadata_from_wm_sql(cur, None, None)
         conn.commit()
+    timer.mark("WM metadata sync (pad, enersight, month)")
 
     try:
         from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
@@ -842,6 +928,7 @@ def main(cancel_event=None):
         rebuild_pce_frcst_prd(log=print)
     except Exception as e:
         print(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
+    timer.mark("PCE_FRCST_PRD rebuild")
 
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)
