@@ -1,0 +1,126 @@
+'#2
+'This module populates the S1 gas and condensate data in the Allocation Factors tab
+'The two functions below go into the S1 workbook (taking the passed date and wellname data) and return the gas or condensate value when both the wellname and date are true
+'The functions also include the code to switch between the sheets (if needed)
+'This code is written to do the time period Apr 2011 to Jan 2021 - if used in the future for smaller uploads, tweak the code to only do new data
+
+'Defining the different workbook and tab names so that I can flip back and forth between them (and not have to use memory by copying the data into an array)
+ Dim Ratios As Workbook
+ Dim S1 As Workbook
+ Dim Allocation As Worksheet
+ Dim S1condigas As Worksheet
+
+Sub S1_Data_In()
+
+'Beforehand, you'll have gone into the S1 Data file and split the CEI Enersight Wellname column
+'into 2 columns so that you can search by short wellname
+   
+'Call Reemplazar
+   
+'Set the Workbook/Worksheet variables declared above to have a value (must be done inside a Sub())
+Set Ratios = Workbooks("Daily Production Report with Ratios.xlsx")
+Set S1 = Workbooks("S1 Condi Gas Per Month.xlsx")
+Set Allocation = Ratios.Worksheets("Allocation Factors")
+Set S1condigas = S1.Worksheets("S1 Condi Gas Per Month")
+
+'Go to the S1 Data file and determine how much data is in there
+'Use Hugo's previously written code to determine how many rows there are in the sheet
+Dim NRS1 As Integer 'Number of rows variable in the S1 Data Sheet
+S1.Activate 'Activating the S1 data workbook so I can count the number of rows
+S1condigas.Cells(5, 2).Select 'Skip right to cell selection; there's only one tab in this workbook so I don't need to activate it
+Selection.End(xlDown).Select
+NRS1 = ActiveCell.Row   'Number of rows in the "S1 Condi Gas Per Month" tab **KEEP THIS AUTOMATED AS GREG WILL KEEP ADDING ROWS TO THE S1 SPREADSHEET
+
+'Go to the With Ratios sheet and determine how many rows of S1 data need to be populated
+Dim NRrat As Integer
+'Ratios.Activate
+'Allocation.Activate
+'Allocation.Cells(6, 1).Select
+'Selection.End(xlDown).Select
+'NRrat = ActiveCell.Row - 2   'THIS NUMBER NEEDS TO BE ADJUSTED. The S1 sheet has data to Jan 2021 while the allocation factors tab goes to Mar 2021.
+                              'Adding the -2 so that we only go down to Jan 2021 in the Allocation factors tab
+NRrat = 178 '*UPDATE Setting the number manually; the 177 number takes it to Aug 2025 **ADJUST THIS NUMBER IN THE FUTURE FOR NEW ACTUALS
+
+Dim GtoC, NextWell, NumWells, j As Integer
+Dim Shortname As String
+Dim MMMYY As Date
+GtoC = 5 'GtoC - Set the number of columns between Gas and Condensate S1 for each well
+NextWell = 9 'NextWell - Set the number of columns from S1 Gas to S1 Gas for the next well
+NumWells = 255 'UPDATE* NumWells - The number of wells on the allocation factors tab ****UPDATE THIS WHEN NEW WELLS ARE ADDED -- NEW 8 WELLS FROM 7-01 PAD
+j = 0 'j is a column reference that will be used. Every time q increments we will increment j by the NextWell variable to get the correct column references as we move through the wells
+'MMMYY - The date; will change based on the row we're in
+'Shortname - The short well name in row 1 of the Allocation Factors tab
+
+
+
+For q = 1 To NumWells
+    For i = 139 To NRrat 'Potentially adjust the 139 number in case we want to bring in less data -- 139 represents May 2022
+        MMMYY = Allocation.Cells(i, 1).Value
+        Shortname = Allocation.Cells(1, 11 + j).Value
+        Allocation.Cells(i, 12 + j).Value = GetS1Gas(Shortname, MMMYY, NRS1)
+        Allocation.Cells(i, (12 + j + GtoC)).Value = GetS1Condi(Shortname, MMMYY, NRS1)
+        If i = NRrat Then
+            j = j + NextWell
+        End If
+    Next i
+Next q
+
+'Allocation.Cells(124, 1).Select 'Just set the cursor back at the beginning of the page --COMMENT THIS OUT AS IT SEEMS TO BE CAUSING AN ERROR WHILE RUNNING
+
+End Sub
+
+Function GetS1Gas(Name As String, MonYr As Date, NRS1 As Integer) As Single
+    'S1.Activate
+    'S1condigas.Cells(5, 2).Select 'Activate the S1 workbook so that the function can search through the rows to find the data
+    
+        GetS1Gas = 0 'Function will return 0 if the exact Name and Date aren't in the S1 sheet
+    
+        For i = 5 To NRS1
+            If S1condigas.Cells(i, 2).Value = Name Then
+                If S1condigas.Cells(i, 5).Value = MonYr Then
+                    GetS1Gas = S1condigas.Cells(i, 6).Value
+                    Exit For
+                End If
+            End If
+        Next i
+    
+    'Ratios.Activate
+    'Allocation.Activate
+        
+End Function
+Function GetS1Condi(Name As String, MonYr As Date, NRS1 As Integer) As Single
+    'S1.Activate
+    'S1condigas.Cells(5, 2).Select 'Activate the S1 workbook so that the function can search through the rows to find the data
+    
+        GetS1Condi = 0 'Function will return 0 if the exact Name and Date aren't in the S1 sheet
+    
+        For i = 5 To NRS1
+            If S1condigas.Cells(i, 2).Value = Name Then
+                If S1condigas.Cells(i, 5).Value = MonYr Then
+                    GetS1Condi = S1condigas.Cells(i, 7).Value
+                    Exit For
+                End If
+                        
+            End If
+        Next i
+    
+    'Ratios.Activate
+    'Allocation.Activate
+End Function
+
+
+
+Sub Reemplazar()
+'
+' Substitute Macro
+'
+
+'
+    Set rb = Workbooks("S1 Condi Gas Per Month.xlsx")
+    Set r = rb.Worksheets("S1 Condi Gas Per Month")
+    r.Activate
+    Columns("B:B").Select
+    Selection.Replace What:="'", Replacement:="'", LookAt:=xlPart, _
+        SearchOrder:=xlByRows, MatchCase:=False, SearchFormat:=False, _
+        ReplaceFormat:=True
+End Sub
