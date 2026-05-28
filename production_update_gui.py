@@ -31,7 +31,7 @@ from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 from app_paths import get_settings_path, get_logo_path, get_company_icon_path
 from settings_dialog import SettingsDialog
 from exports_dialog import ExportsDialog
-from styles import company_name_style, app_name_style, dialog_title_style
+from styles import company_name_style, app_name_style, dialog_title_style, header_action_btn_style, ops_section_title_style
 
 
 # Pacific Canbriam logo / wordmark navy (matches corporate logo text)
@@ -131,11 +131,12 @@ class ProductionUpdateGUI(QMainWindow):
             }
         """)
         header_card_layout = QVBoxLayout(header_card)
-        header_card_layout.setContentsMargins(20, 18, 20, 18)
+        header_card_layout.setContentsMargins(20, 14, 20, 14)
         header_card_layout.setSpacing(6)
         
         header_row = QHBoxLayout()
-        header_row.setSpacing(12)
+        header_row.setSpacing(16)
+        header_row.setAlignment(Qt.AlignVCenter)
 
         logo_label = QLabel()
         logo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -147,10 +148,10 @@ class ProductionUpdateGUI(QMainWindow):
                 logo_label.setPixmap(scaled)
         else:
             logo_label.setText("")
-        header_row.addWidget(logo_label, 0, Qt.AlignTop | Qt.AlignLeft)
+        header_row.addWidget(logo_label, 0, Qt.AlignVCenter)
 
         title_block = QVBoxLayout()
-        title_block.setSpacing(6)
+        title_block.setSpacing(4)
         title_block.setContentsMargins(8, 0, 0, 0)
 
         company_header = QLabel("Pacific Canbriam Energy Ltd")
@@ -164,36 +165,19 @@ class ProductionUpdateGUI(QMainWindow):
         title_block.addWidget(sub_header)
         header_row.addLayout(title_block, 1)
 
-        header_btn_style = """
-            QPushButton {
-                background-color: #f8fafc;
-                color: #334155;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 600;
-                padding: 10px 18px;
-                min-height: 40px;
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-                border-color: #94a3b8;
-                color: #0f172a;
-            }
-            QPushButton:pressed {
-                background-color: #e2e8f0;
-            }
-        """
+        header_btn_style = header_action_btn_style()
 
         self.btn_licensing = QPushButton("Licensing")
         self.btn_licensing.setStyleSheet(header_btn_style)
+        self.btn_licensing.setCursor(Qt.PointingHandCursor)
         self.btn_licensing.clicked.connect(self.open_licensing)
-        header_row.addWidget(self.btn_licensing, 0, Qt.AlignTop)
+        header_row.addWidget(self.btn_licensing, 0, Qt.AlignVCenter)
 
         self.btn_settings = QPushButton("Settings")
         self.btn_settings.setStyleSheet(header_btn_style)
+        self.btn_settings.setCursor(Qt.PointingHandCursor)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
-        header_row.addWidget(self.btn_settings, 0, Qt.AlignTop)
+        header_row.addWidget(self.btn_settings, 0, Qt.AlignVCenter)
 
         icon_label = QLabel()
         icon_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -204,7 +188,7 @@ class ProductionUpdateGUI(QMainWindow):
                 icon_label.setPixmap(icon_pix.scaledToHeight(44, Qt.SmoothTransformation))
         else:
             icon_label.setText("")
-        header_row.addWidget(icon_label, 0, Qt.AlignTop | Qt.AlignRight)
+        header_row.addWidget(icon_label, 0, Qt.AlignVCenter)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
@@ -224,18 +208,7 @@ class ProductionUpdateGUI(QMainWindow):
         ops_outer.setSpacing(12)
         
         ops_title = QLabel("Operations")
-        ops_title.setStyleSheet("""
-            QLabel {
-                color: #0f172a;
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 0.08em;
-                text-transform: uppercase;
-                padding: 0px 0px 4px 0px;
-                background: transparent;
-                border: none;
-            }
-        """)
+        ops_title.setStyleSheet(ops_section_title_style())
         ops_outer.addWidget(ops_title)
         
         buttons_layout = QVBoxLayout()

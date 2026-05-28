@@ -22,6 +22,7 @@ _INPUT_BG     = "#f8fafc"   # slate-50   – input background
 
 # brand & action colours
 _BRAND        = "#1a4d3e"   # forest green (title accents, matching dashboard)
+_PCE_NAVY     = "#002654"   # Pacific Canbriam wordmark blue
 _BRAND_HVR    = "#2a6b57"
 _BRAND_PRE    = "#0d3d2e"
 
@@ -161,15 +162,15 @@ def dialog_title_style() -> str:
     """
 
 
-def company_name_style(color: str = _BRAND) -> str:
+def company_name_style(color: str = _PCE_NAVY) -> str:
     """Main-window company wordmark."""
     return f"""
         QLabel {{
             color: {color};
             font-family: {_FONT_BRAND};
-            font-size: 22px;
+            font-size: 30px;
             font-weight: 700;
-            letter-spacing: -0.3px;
+            letter-spacing: -0.2px;
             background: transparent;
             border: none;
             padding: 0px;
@@ -183,11 +184,54 @@ def app_name_style(color: str = "#000000") -> str:
         QLabel {{
             color: {color};
             font-family: {_FONT_BRAND};
-            font-size: 17px;
-            font-weight: 700;
+            font-size: 22px;
+            font-weight: 900;
             padding: 0px;
             background: transparent;
             border: none;
+        }}
+    """
+
+
+def ops_section_title_style() -> str:
+    """Operations panel section heading (matches header Garamond)."""
+    return f"""
+        QLabel {{
+            color: {_TEXT};
+            font-family: {_FONT_BRAND};
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            padding: 0px 0px 6px 0px;
+            background: transparent;
+            border: none;
+        }}
+    """
+
+
+def header_action_btn_style() -> str:
+    """Licensing / Settings buttons in the main header."""
+    return f"""
+        QPushButton {{
+            background-color: #ffffff;
+            color: {_PCE_NAVY};
+            border: 2px solid {_PCE_NAVY};
+            border-radius: 10px;
+            font-family: {_FONT_BRAND};
+            font-size: 14px;
+            font-weight: 700;
+            padding: 10px 24px;
+            min-height: 44px;
+            min-width: 108px;
+        }}
+        QPushButton:hover {{
+            background-color: {_PCE_NAVY};
+            color: #ffffff;
+        }}
+        QPushButton:pressed {{
+            background-color: #001a3d;
+            border-color: #001a3d;
+            color: #ffffff;
         }}
     """
 
