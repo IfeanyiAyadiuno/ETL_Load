@@ -28,7 +28,7 @@ from survey_import_dialog import SurveyImportDialog
 from type_curves_import_dialog import TypeCurvesImportDialog
 from monthly_forecasts_import_dialog import MonthlyForecastsImportDialog
 from whitson_mass_upload_dialog import WhitsonMassUploadDialog
-from app_paths import get_settings_path, get_logo_path
+from app_paths import get_settings_path, get_logo_path, get_company_icon_path
 from settings_dialog import SettingsDialog
 from exports_dialog import ExportsDialog
 
@@ -144,7 +144,7 @@ class ProductionUpdateGUI(QMainWindow):
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
             if not pixmap.isNull():
-                scaled = pixmap.scaledToHeight(56, Qt.SmoothTransformation)
+                scaled = pixmap.scaledToHeight(120, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled)
         else:
             logo_label.setText("")
@@ -184,8 +184,6 @@ class ProductionUpdateGUI(QMainWindow):
         title_block.addWidget(sub_header)
         header_row.addLayout(title_block, 1)
 
-        header_row.addStretch(1)
-
         header_btn_style = """
             QPushButton {
                 background-color: #f8fafc;
@@ -216,6 +214,17 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_settings.setStyleSheet(header_btn_style)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
         header_row.addWidget(self.btn_settings, 0, Qt.AlignTop)
+
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        icon_path = get_company_icon_path()
+        if os.path.isfile(icon_path):
+            icon_pix = QPixmap(icon_path)
+            if not icon_pix.isNull():
+                icon_label.setPixmap(icon_pix.scaledToHeight(44, Qt.SmoothTransformation))
+        else:
+            icon_label.setText("")
+        header_row.addWidget(icon_label, 0, Qt.AlignTop | Qt.AlignRight)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)

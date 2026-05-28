@@ -19,3 +19,8 @@ def get_settings_path():
 def get_logo_path():
     """Absolute path to the main-window logo (images/pce_logo.png)."""
     return str(_app_dir() / "images" / "pce_logo.png")
+
+
+def get_company_icon_path():
+    """Absolute path to the header company icon (images/PCE Icon white.png)."""
+    return str(_app_dir() / "images" / "PCE Icon white.png")

@@ -339,23 +339,43 @@ def apply_valnav_allocation_to_cda_and_production(
     cursor.execute(
         """
         UPDATE c SET
-            c.[Gas - S2 Production] = ISNULL(a.WH_to_S2_AllocFactor, 1.0)
-                                      * c.[GasWH_Production],
-            c.[Condensate - Sales Production] = ISNULL(a.WH_to_Sales_Cond_AllocFactor, 1.0)
+            c.[Gas - S2 Production] = a.WH_to_S2_AllocFactor * c.[GasWH_Production]
+        FROM PCE_CDA c
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+        WHERE a.MonthStartDate = ?
+          AND c.ProdDate BETWEEN ? AND ?
+          AND a.WH_to_S2_AllocFactor IS NOT NULL
+        """,
+        month_start,
+        month_start_date,
+        month_end_date,
+    )
+    s2_cda_n = cursor.rowcount
+    cursor.execute(
+        """
+        UPDATE c SET
+            c.[Condensate - Sales Production] = a.WH_to_Sales_Cond_AllocFactor
                                                 * c.[Condensate_WH_Production]
         FROM PCE_CDA c
         INNER JOIN Allocation_Factors a
             ON c.[Well Name] = a.[Well Name]
         WHERE a.MonthStartDate = ?
           AND c.ProdDate BETWEEN ? AND ?
+          AND a.WH_to_Sales_Cond_AllocFactor IS NOT NULL
         """,
         month_start,
         month_start_date,
         month_end_date,
     )
-    cda_n = cursor.rowcount
+    cond_cda_n = cursor.rowcount
     conn.commit()
-    _log(lf.detail(f"PCE_CDA rows touched (S2 + condensate sales): {lf.num(cda_n)}"))
+    _log(
+        lf.detail(
+            f"PCE_CDA rows touched — S2: {lf.num(s2_cda_n)}, "
+            f"condensate sales: {lf.num(cond_cda_n)}"
+        )
+    )
 
     if not update_production:
         return
@@ -364,22 +384,50 @@ def apply_valnav_allocation_to_cda_and_production(
     cursor.execute(
         """
         UPDATE p SET
-            p.[Gas S2 Production (10³m³)] = c.[Gas - S2 Production],
-            p.[Condensate Sales (m³/d)] = c.[Condensate - Sales Production]
+            p.[Gas S2 Production (10³m³)] = c.[Gas - S2 Production]
         FROM PCE_Production p
         INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
         INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name] AND a.MonthStartDate = ?
         WHERE c.ProdDate BETWEEN ? AND ?
           AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
           AND p.[Well Name] NOT LIKE '% - TC'
           AND p.[Well Name] NOT LIKE 'YE2%'
+          AND a.WH_to_S2_AllocFactor IS NOT NULL
         """,
+        month_start,
         month_start_date,
         month_end_date,
     )
-    prod_n = cursor.rowcount
+    s2_prod_n = cursor.rowcount
+    cursor.execute(
+        """
+        UPDATE p SET
+            p.[Condensate Sales (m³/d)] = c.[Condensate - Sales Production]
+        FROM PCE_Production p
+        INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
+        INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name] AND a.MonthStartDate = ?
+        WHERE c.ProdDate BETWEEN ? AND ?
+          AND (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
+          AND p.[Well Name] NOT LIKE '% - TC'
+          AND p.[Well Name] NOT LIKE 'YE2%'
+          AND a.WH_to_Sales_Cond_AllocFactor IS NOT NULL
+        """,
+        month_start,
+        month_start_date,
+        month_end_date,
+    )
+    cond_prod_n = cursor.rowcount
     conn.commit()
-    _log(lf.detail(f"PCE_Production rows touched: {lf.num(prod_n)}"))
+    _log(
+        lf.detail(
+            f"PCE_Production rows touched — S2: {lf.num(s2_prod_n)}, "
+            f"condensate sales: {lf.num(cond_prod_n)}"
+        )
+    )
 
 
 def apply_full_sales_ratios_for_month(

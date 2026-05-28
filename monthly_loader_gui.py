@@ -101,6 +101,28 @@ def _resolve_valnav_column(df: pd.DataFrame, logical_name: str, *candidates: str
     )
 
 
+def compute_wh_to_s2_alloc_factor(s2_gas, prodview_wh_gas):
+    """
+    S2 / summed WH gas for the month.
+
+    Returns None when CDA has no WH volume (never default to 1.0 pass-through).
+    """
+    pw = float(prodview_wh_gas) if prodview_wh_gas is not None else 0.0
+    if pw <= 0:
+        return None
+    s2 = float(s2_gas) if s2_gas is not None else 0.0
+    return s2 / pw
+
+
+def compute_wh_to_sales_cond_alloc_factor(sales_cond, prodview_wh_cond):
+    """Sales cond / summed WH cond for the month; None when WH cond total is zero."""
+    pw = float(prodview_wh_cond) if prodview_wh_cond is not None else 0.0
+    if pw <= 0:
+        return None
+    sc = float(sales_cond) if sales_cond is not None else 0.0
+    return sc / pw
+
+
 def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callback=None, accumap_path=None):
     """
     Run the PA monthly loader (ValNav only). Accumap / public sales gas is applied from
@@ -238,6 +260,9 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         }
         
         log(lf.detail(f"Loaded {lf.num(len(valnav_data))} ValNav records"))
+        if not valnav_data:
+            log(lf.error("ValNav sheet has no UWI rows; nothing was changed in the database."))
+            return {"error": "ValNav sheet has no UWI rows for the selected month."}
         progress(20)
         
         # -----------------------------------------------------------------
@@ -250,57 +275,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         cursor = conn.cursor()
         log(lf.success("Database connected"))
         progress(35)
-        
-        # -----------------------------------------------------------------
-        # DELETE EXISTING DATA FOR THE MONTH
-        # -----------------------------------------------------------------
-        log(lf.step("Clearing existing data for the month"))
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM Allocation_Factors 
-            WHERE MonthStartDate = ?
-        """, month_start)
-        
-        existing_count = cursor.fetchone()[0]
 
-        preserved_sales_gas = {}
-        if existing_count > 0:
-            cursor.execute(
-                """
-                SELECT [Well Name], Sales_Gas
-                FROM Allocation_Factors
-                WHERE MonthStartDate = ?
-                """,
-                month_start,
-            )
-            for wn, sg in cursor.fetchall():
-                if not wn:
-                    continue
-                key = str(wn).strip()
-                try:
-                    preserved_sales_gas[key] = float(sg) if sg is not None else 0.0
-                except (TypeError, ValueError):
-                    preserved_sales_gas[key] = 0.0
-            n_pres = len(preserved_sales_gas)
-            n_nonzero = sum(1 for v in preserved_sales_gas.values() if v != 0.0)
-            log(
-                lf.detail(
-                    f"Preserving Sales_Gas for {lf.num(n_pres)} well(s) "
-                    f"({lf.num(n_nonzero)} non-zero) before reload"
-                )
-            )
-
-            cursor.execute("""
-                DELETE FROM Allocation_Factors 
-                WHERE MonthStartDate = ?
-            """, month_start)
-            conn.commit()
-            log(lf.detail(
-                f"Deleted {lf.num(existing_count)} existing records for {month_start.strftime('%B %Y')}"
-            ))
-        
-        progress(40)
-        
         # -----------------------------------------------------------------
         # FETCH WELL MAPPINGS FROM PCE_WM
         # -----------------------------------------------------------------
@@ -504,36 +479,101 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             missing_wells.append(master_wells_original.get(norm, norm))
         
         if missing_count > 0:
-            log(lf.warn(f"{missing_count} wells had no ValNav data"))
+            log(lf.warn(f"{missing_count} wells had no ValNav data for this month"))
             warning_messages.append(f"{missing_count} wells had no ValNav data")
             for well in missing_wells[:10]:
                 log(lf.item(well))
             if missing_count > 10:
                 log(lf.detail(f"... and {lf.num(missing_count - 10)} more"))
-            
-            log(lf.detail("Adding missing wells to Allocation_Factors with zeros"))
-            
+            log(
+                lf.detail(
+                    "Those wells are skipped for this run; only ValNav-matched wells "
+                    f"for {month_start.strftime('%b %Y')} are written."
+                )
+            )
             wells_added = 0
-            for well_name in missing_wells:
-                matched_wells[well_name] = {
-                    'well_name': well_name,
-                    'valnav_data': None,
-                    'accumap_data': None,
-                    'prodview_wh_gas': 0.0,
-                    'prodview_wh_cond': 0.0,
-                    'gathered_gas': 0.0,
-                    'gathered_cond': 0.0
-                }
-                wells_added += 1
-            
-            log(lf.success(f"Added {lf.num(wells_added)} wells to the load with zeros"))
         else:
             log(lf.success(
                 f"All {lf.num(len(master_wells))} wells from master list were successfully loaded"
             ))
             wells_added = 0
-        
-        total_loaded_wells = len(matched_wells)
+
+        valnav_matched_wells = {
+            wn: data
+            for wn, data in matched_wells.items()
+            if data.get("valnav_data") is not None
+        }
+        if not valnav_matched_wells:
+            conn.close()
+            msg = (
+                f"No ValNav rows matched PCE_WM for {month_start.strftime('%b %Y')}. "
+                "Nothing was changed in the database."
+            )
+            log(lf.error(msg))
+            return {"error": msg}
+
+        log(
+            lf.detail(
+                f"ValNav-qualified wells for {month_start.strftime('%b %Y')}: "
+                f"{lf.num(len(valnav_matched_wells))}"
+            )
+        )
+
+        # -----------------------------------------------------------------
+        # DELETE EXISTING ALLOCATION_FACTORS FOR THE SELECTED MONTH ONLY
+        # -----------------------------------------------------------------
+        log(lf.step(f"Clearing Allocation_Factors for {month_start.strftime('%B %Y')}"))
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM Allocation_Factors
+            WHERE MonthStartDate = ?
+            """,
+            month_start,
+        )
+        existing_count = cursor.fetchone()[0]
+
+        preserved_sales_gas = {}
+        if existing_count > 0:
+            cursor.execute(
+                """
+                SELECT [Well Name], Sales_Gas
+                FROM Allocation_Factors
+                WHERE MonthStartDate = ?
+                """,
+                month_start,
+            )
+            for wn, sg in cursor.fetchall():
+                if not wn:
+                    continue
+                key = str(wn).strip()
+                try:
+                    preserved_sales_gas[key] = float(sg) if sg is not None else 0.0
+                except (TypeError, ValueError):
+                    preserved_sales_gas[key] = 0.0
+            n_pres = len(preserved_sales_gas)
+            n_nonzero = sum(1 for v in preserved_sales_gas.values() if v != 0.0)
+            log(
+                lf.detail(
+                    f"Preserving Sales_Gas for {lf.num(n_pres)} well(s) "
+                    f"({lf.num(n_nonzero)} non-zero) before reload"
+                )
+            )
+
+            cursor.execute(
+                """
+                DELETE FROM Allocation_Factors
+                WHERE MonthStartDate = ?
+                """,
+                month_start,
+            )
+            conn.commit()
+            log(
+                lf.detail(
+                    f"Deleted {lf.num(existing_count)} existing records for "
+                    f"{month_start.strftime('%B %Y')}"
+                )
+            )
+
         progress(70)
         
         # -----------------------------------------------------------------
@@ -554,36 +594,50 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         combined_source = f"ValNav: {valnav_source} (public sales gas via Public Sales dialog)"
         rows_to_insert = []
 
-        for well_name, well_data in matched_wells.items():
+        for well_name, well_data in valnav_matched_wells.items():
             try:
-                valnav_data_for_well = well_data['valnav_data']
+                valnav_data_for_well = well_data["valnav_data"]
 
-                prodview_wh_gas = well_data['prodview_wh_gas']
-                prodview_wh_cond = well_data['prodview_wh_cond']
-                gathered_gas = well_data['gathered_gas']
-                gathered_cond = well_data['gathered_cond']
+                prodview_wh_gas = well_data["prodview_wh_gas"]
+                prodview_wh_cond = well_data["prodview_wh_cond"]
+                gathered_gas = well_data["gathered_gas"]
+                gathered_cond = well_data["gathered_cond"]
 
-                has_valnav = valnav_data_for_well is not None
-                has_cda = (prodview_wh_gas > 0 or prodview_wh_cond > 0
-                           or gathered_gas > 0 or gathered_cond > 0)
+                has_cda = (
+                    prodview_wh_gas > 0
+                    or prodview_wh_cond > 0
+                    or gathered_gas > 0
+                    or gathered_cond > 0
+                )
 
-                if has_valnav:
-                    wells_valnav_only += 1
+                wells_valnav_only += 1
                 if has_cda:
                     wells_with_cda += 1
 
-                s2_gas = valnav_data_for_well['S2_Gas'] if has_valnav else 0
-                sales_cond = valnav_data_for_well['Sales_Cond'] if has_valnav else 0
+                s2_gas = valnav_data_for_well["S2_Gas"]
+                sales_cond = valnav_data_for_well["Sales_Cond"]
                 wkey = str(well_name).strip() if well_name else ""
                 sales_gas = preserved_sales_gas.get(wkey, 0.0)
 
-                wh_to_s2 = 1.0 if prodview_wh_gas == 0 else s2_gas / prodview_wh_gas
-                wh_to_sales_gas = 1.0 if prodview_wh_gas == 0 else sales_gas / prodview_wh_gas
-                wh_to_sales_cond = 1.0 if prodview_wh_cond == 0 else sales_cond / prodview_wh_cond
+                wh_to_s2 = compute_wh_to_s2_alloc_factor(s2_gas, prodview_wh_gas)
+                wh_to_sales_cond = compute_wh_to_sales_cond_alloc_factor(
+                    sales_cond, prodview_wh_cond
+                )
+                wh_to_sales_gas = (
+                    None
+                    if prodview_wh_gas <= 0
+                    else sales_gas / prodview_wh_gas
+                )
 
-                gathered_to_s2_str = "1" if gathered_gas == 0 else str(s2_gas / gathered_gas)
-                gathered_to_sales_str = "1" if gathered_gas == 0 else str(sales_gas / gathered_gas)
-                gathered_to_sales_cond_str = "1" if gathered_cond == 0 else str(sales_cond / gathered_cond)
+                gathered_to_s2_str = (
+                    None if gathered_gas <= 0 else str(s2_gas / gathered_gas)
+                )
+                gathered_to_sales_str = (
+                    None if gathered_gas <= 0 else str(sales_gas / gathered_gas)
+                )
+                gathered_to_sales_cond_str = (
+                    None if gathered_cond <= 0 else str(sales_cond / gathered_cond)
+                )
 
                 rows_to_insert.append((
                     month_start, well_name,
@@ -598,6 +652,8 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
                 errors += 1
                 if errors <= 5:
                     log(lf.error(f"Preparing well '{well_name}': {str(e)[:100]}"))
+
+        total_loaded_wells = len(valnav_matched_wells)
 
         insert_sql = """
             INSERT INTO Allocation_Factors (
