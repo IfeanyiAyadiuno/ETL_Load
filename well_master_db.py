@@ -158,6 +158,69 @@ class WellMasterDB:
         return f"{w} - {l} - {t} - {o}"
 
     @staticmethod
+    def _normalize_composite_value(value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        return s if s else None
+
+    @staticmethod
+    def sync_composite_names_from_parts():
+        """
+        Recompute ``[Composite Name]`` from Well Name, Layer Producer,
+        Completions Technology, and Orient; persist when out of sync.
+        """
+        from db_connection import get_sql_conn
+
+        conn = None
+        try:
+            conn = get_sql_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT
+                    [Well Name],
+                    [Layer Producer],
+                    [Completions Technology],
+                    [Orient],
+                    [Composite Name]
+                FROM PCE_WM
+                WHERE [Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N'
+                """
+            )
+            rows = cursor.fetchall()
+
+            updated = 0
+            for well_name, layer, tech, orient, stored in rows:
+                computed = WellMasterDB.compose_name(well_name, layer, tech, orient)
+                stored_norm = WellMasterDB._normalize_composite_value(stored)
+                if stored_norm == computed:
+                    continue
+                cursor.execute(
+                    """
+                    UPDATE PCE_WM
+                    SET [Composite Name] = ?
+                    WHERE [Well Name] = ?
+                    """,
+                    (computed, well_name),
+                )
+                updated += cursor.rowcount or 0
+
+            conn.commit()
+            return updated
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            print(lf.error(f"Error syncing composite names: {e}"))
+            return 0
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
     def backfill_shared_nad83_location_columns(cursor):
         """Copy shared NAD83 surface/bottom coordinates from another PCE_WM row onto rows with any NULL."""
         sql = """

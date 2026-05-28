@@ -281,7 +281,10 @@ class WellMasterDialog(QDialog):
         # Data / view actions
         self.refresh_btn = QPushButton("🔄  Refresh")
         self.refresh_btn.setStyleSheet(btn_toolbar(_NEUTRAL))
-        self.refresh_btn.setToolTip("Reload wells from the database")
+        self.refresh_btn.setToolTip(
+            "Reload wells from the database and recompute Composite Name "
+            "from Well Name, Layer, Completions Technology, and Orient"
+        )
         self.refresh_btn.clicked.connect(self.load_data)
 
         self.export_btn = QPushButton("📤  Export")
@@ -609,6 +612,11 @@ class WellMasterDialog(QDialog):
 
     def load_data(self):
         """Load well data from database"""
+        self.status_label.setText("Syncing composite names from well parts...")
+        QApplication.processEvents()
+
+        composite_updates = WellMasterDB.sync_composite_names_from_parts()
+
         self.status_label.setText("Loading wells from database...")
         QApplication.processEvents()
 
@@ -632,9 +640,15 @@ class WellMasterDialog(QDialog):
         self.display_wells(self._current_tab_well_source())
         self.make_current_table_editable()
 
+        sync_note = (
+            f", {composite_updates} composite name(s) updated"
+            if composite_updates
+            else ""
+        )
         self.status_label.setText(
             f"Loaded {len(self.all_wells)} wells "
             f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
+            f"{sync_note}"
         )
 
     def display_wells(self, wells):
