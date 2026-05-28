@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QHBoxLayout, QPushButton, QTextEdit, QLabel,
                              QFrame, QMessageBox, QComboBox, QProgressBar, QScrollArea,
                              QTabWidget, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QCheckBox, QRadioButton, QDialog)
+                             QHeaderView, QCheckBox, QRadioButton, QDialog, QGridLayout)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor, QPixmap
 from db_connection import get_sql_conn
@@ -31,7 +31,15 @@ from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 from app_paths import get_settings_path, get_logo_path, get_company_icon_path
 from settings_dialog import SettingsDialog
 from exports_dialog import ExportsDialog
-from styles import company_name_style, app_name_style, dialog_title_style, header_action_btn_style, ops_section_title_style
+from styles import (
+    company_name_style,
+    app_name_style,
+    dialog_title_style,
+    header_action_btn_style,
+    ops_section_title_style,
+    licensing_credits_role_style,
+    licensing_credits_name_style,
+)
 
 
 # Pacific Canbriam logo / wordmark navy (matches corporate logo text)
@@ -41,11 +49,21 @@ _PCE_BRAND_BLUE = "#002654"
 class LicensingDialog(QDialog):
     """Credits for engineering and design."""
 
+    _CREDITS = (
+        ("Software Architect and Design:", "Hugo A. Martinez"),
+        (
+            "Software Integration, DB Analytical Design:",
+            "Camila Medina, Anton Siyatskiy, Vincent Wei",
+        ),
+        ("Program Developer, Coding and Art:", "Ifeanyi Ayadiuno"),
+        ("Software Sponsor:", "Robert Bercha, Nauman Rasheed"),
+    )
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Licensing & Credits")
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(540)
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -54,16 +72,22 @@ class LicensingDialog(QDialog):
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        coded = QLabel("Coded by: Ifeanyi Ayadiuno")
-        coded.setStyleSheet("font-size: 14px; color: #0f172a;")
-        layout.addWidget(coded)
-
-        designed = QLabel(
-            "Designed by: Hugo Martinez, Camila Medina, Vincent Wei, Anton Siyatskiy"
-        )
-        designed.setWordWrap(True)
-        designed.setStyleSheet("font-size: 14px; color: #0f172a;")
-        layout.addWidget(designed)
+        credits_grid = QGridLayout()
+        credits_grid.setHorizontalSpacing(20)
+        credits_grid.setVerticalSpacing(12)
+        credits_grid.setColumnStretch(0, 0)
+        credits_grid.setColumnStretch(1, 1)
+        for row, (role, names) in enumerate(self._CREDITS):
+            role_label = QLabel(role)
+            role_label.setStyleSheet(licensing_credits_role_style())
+            role_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            name_label = QLabel(names)
+            name_label.setWordWrap(True)
+            name_label.setStyleSheet(licensing_credits_name_style())
+            name_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            credits_grid.addWidget(role_label, row, 0)
+            credits_grid.addWidget(name_label, row, 1)
+        layout.addLayout(credits_grid)
 
         layout.addStretch()
         close_btn = QPushButton("Close")

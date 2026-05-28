@@ -87,6 +87,26 @@ def _survey_well_display_from_wm(composite: Any, well_name: Any) -> Optional[str
     return wn_s
 
 
+def _pce_uwi_lookup_variations(pce_uwi_str: str) -> List[str]:
+    """Lowercase UWI key variants used for Accumap / survey matching."""
+    variations = [pce_uwi_str.lower()]
+    if len(pce_uwi_str) > 1 and pce_uwi_str[0].isdigit():
+        variations.append(pce_uwi_str[1:].lower())
+    if "/" in pce_uwi_str:
+        parts = pce_uwi_str.split("/")
+        if parts:
+            last_part = parts[-1]
+            if last_part.isdigit():
+                clean_last = str(int(last_part))
+                new_uwi = "/".join(parts[:-1] + [clean_last])
+                variations.append(new_uwi.lower())
+            if last_part.isdigit() and len(last_part) == 1:
+                padded_last = last_part.zfill(2)
+                new_uwi = "/".join(parts[:-1] + [padded_last])
+                variations.append(new_uwi.lower())
+    return variations
+
+
 def fetch_pce_uwi_to_survey_well_name(cursor) -> Dict[str, str]:
     """Lowercased UWI variants -> COALESCE(Composite Name, Well Name) with same key rules as monthly loader."""
     cursor.execute(
@@ -103,24 +123,49 @@ def fetch_pce_uwi_to_survey_well_name(cursor) -> Dict[str, str]:
         if not display:
             continue
         pce_uwi_str = str(pce_uwi).strip()
-        variations = [pce_uwi_str.lower()]
-        if len(pce_uwi_str) > 1 and pce_uwi_str[0].isdigit():
-            variations.append(pce_uwi_str[1:].lower())
-        if "/" in pce_uwi_str:
-            parts = pce_uwi_str.split("/")
-            if parts:
-                last_part = parts[-1]
-                if last_part.isdigit():
-                    clean_last = str(int(last_part))
-                    new_uwi = "/".join(parts[:-1] + [clean_last])
-                    variations.append(new_uwi.lower())
-                if last_part.isdigit() and len(last_part) == 1:
-                    padded_last = last_part.zfill(2)
-                    new_uwi = "/".join(parts[:-1] + [padded_last])
-                    variations.append(new_uwi.lower())
-        for variation in variations:
+        for variation in _pce_uwi_lookup_variations(pce_uwi_str):
             pce_uwi_dict[variation] = display
     return pce_uwi_dict
+
+
+def fetch_pce_uwi_to_survey_metadata(cursor) -> Dict[str, Tuple[str, str]]:
+    """
+    Lowercased UWI variants -> (survey display name, pad name).
+    Display name prefers Composite Name over Well Name (same as survey import).
+    """
+    cursor.execute(
+        "SELECT [Value Navigator UWI], [Composite Name], [Well Name], [Pad Name] "
+        "FROM PCE_WM "
+        "WHERE [Value Navigator UWI] IS NOT NULL "
+        "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')"
+    )
+    meta: Dict[str, Tuple[str, str]] = {}
+    for pce_uwi, composite, well_name, pad in cursor.fetchall():
+        if not pce_uwi:
+            continue
+        display = _survey_well_display_from_wm(composite, well_name)
+        if not display:
+            continue
+        pad_s = "" if pad is None or (isinstance(pad, float) and pd.isna(pad)) else str(pad).strip()
+        pce_uwi_str = str(pce_uwi).strip()
+        for variation in _pce_uwi_lookup_variations(pce_uwi_str):
+            meta[variation] = (display, pad_s)
+    return meta
+
+
+def resolve_accumap_uwi_to_survey_metadata(
+    uwi_str: str, metadata: Dict[str, Tuple[str, str]]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Map one file UWI to (survey display name, pad) from PCE_WM metadata dict."""
+    for k in _accumap_uwi_search_keys(uwi_str):
+        if k in metadata:
+            return metadata[k]
+    u = str(uwi_str).strip()
+    if len(u) > 1 and u[0].isdigit():
+        for k in _accumap_uwi_search_keys(u[1:]):
+            if k in metadata:
+                return metadata[k]
+    return None, None
 
 
 def normalize_uwi_for_matching(uwi_str: str) -> str:

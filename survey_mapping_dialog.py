@@ -289,7 +289,13 @@ class SurveyMappingDialog(QDialog):
             return
         uwi, pad, wm_well_name, err = lookup_wm_uwi_pad_for_directional(raw)
         if err:
-            QMessageBox.warning(self, "PCE_WM", err)
+            cleaned_s = cleaned if isinstance(cleaned, str) else str(raw)
+            QMessageBox.information(
+                self,
+                "PCE_WM",
+                f"File cell text: {cleaned_s}\n\n{err}\n\n"
+                "Import will still proceed using the file well name (no WM link).",
+            )
             return
         QMessageBox.information(
             self,

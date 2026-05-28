@@ -94,7 +94,7 @@ python -m pytest -q
 | `PCE_CDA` | Daily-style production rows sourced from Snowflake (and related processing). |
 | `PCE_Production` | Production history for reporting; sequences, cumulatives, and averages derived from CDA and allocation passes. |
 | `PCE_TC` | Type-curve metrics from the **Type Curves** Excel import (GUI) or **YE2/YE23** bulk script. WM-backed stored **`[Well Name]`** is the **longer** of cleaned Excel vs **`PCE_WM.[Well Name]`**, plus literal **` - TC`**. File-only rows that **do not** match WM use Excel text; if the name starts with **`YE2`** (including **`YE23`**), it is stored **verbatim** with **no** **` - TC`** suffix; other file-only rows get **` - TC`**. **`PCE_Production`** receives a **materialized** copy at **`ImportDate`** via **`sync_tc_to_production`**. |
-| `PCE_Surveys` | Survey stations and geometry loaded from Excel or CSV; keyed by **`SurveyID`** with **`UWI`**, **`[Well Name]`**, and optional **`Latitude`** / **`Longitude`** (decimal), plus legacy-style offset columns as applicable. |
+| `PCE_Surveys` | Survey stations and geometry loaded from Excel or CSV; keyed by **`SurveyID`** with **`UWI`**, **`[Well Name]`**, **`East`**, **`North`**, and related survey metrics. |
 | `Allocation_Factors` | Monthly allocation inputs: **ValNav**-sourced fields are written by **PA**; **Accumap**-sourced sales gas fields are written by **Public Sales Data and Ratios** (see below). |
 
 **Optional reporting views:** Your DBA may deploy read-only views (for example joins between production and type curves). The desktop app does **not** ship view DDL in the application package; routine ETL uses **`PCE_TC`**, **`PCE_Production`**, and Python-side **`sync_tc_to_production`** instead of view-based writes.
@@ -408,7 +408,7 @@ Typical runs are on the order of **~5 minutes**; very large databases can take l
 
 ## Survey Data Import
 
-**Objective:** Load survey rows from Excel into **`PCE_Surveys`** (including **`Latitude`** and **`Longitude`** when mapped or present in the file, per column mapping rules in `survey_import.py`).
+**Objective:** Load survey rows from Excel or CSV into **`PCE_Surveys`** (UWI, well name, MD/TVD, inclination, azimuth, East/North, etc.). Three import sources are available: Settings bulk file, directional layout mapping, and **Accumap Survey Import** (multi-well Directional Survey export with auto-detected headers).
 
 For each imported survey row, **`PCE_Surveys.[Well Name]`** is taken from Well Master: **`[Composite Name]`** when non-empty on the matched WM row, otherwise **`[Well Name]`**. Bulk import resolves this via **`[Value Navigator UWI]`** when possible, and otherwise via the same well-name matching keys used to find the WM row.
 
@@ -626,8 +626,8 @@ erDiagram
     int SurveyID
     string UWI
     string Well_Name
-    decimal Latitude
-    decimal Longitude
+    decimal East
+    decimal North
   }
   PCE_TC {
     bigint PCE_TCId

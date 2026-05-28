@@ -14,7 +14,9 @@ from db_connection import get_sql_conn
 from sales_allocation_updates import (
     _survey_well_display_from_wm,
     fetch_pce_uwi_to_survey_well_name,
+    fetch_pce_uwi_to_survey_metadata,
     resolve_accumap_uwi_to_survey_well_name,
+    resolve_accumap_uwi_to_survey_metadata,
 )
 from type_curves_import import _excel_base_for_wm_match, _tc_well_match_key
 
@@ -25,8 +27,6 @@ DIRECTIONAL_FIELD_KEYS = [
     "Azimuth Angle",
     "Subsea Elevation",
     "True Vertical Depth",
-    "Longitude",
-    "Latitude",
     "East",
     "North",
 ]
@@ -223,12 +223,7 @@ def well_name_match_key(name) -> str:
 
 
 def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename Excel columns to canonical names using case-insensitive match.
-
-    For bulk import, ``[Longitude]`` / ``[Latitude]`` in SQL still come from columns that
-    normalize to ``Longitude`` / ``Latitude`` here. Prefer **Surface Location … (NAD83)**
-    headers; **Offset in EW / Offset in NS** are no longer mapped to Longitude/Latitude.
-    """
+    """Rename Excel columns to canonical names using case-insensitive match."""
     canonical_by_fold = {
         "well name": "Well Name",
         "well unique identifier": "UWI",
@@ -237,10 +232,6 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
         "azimuth angle": "Azimuth Angle",
         "measured depth": "Measured Depth",
         "true vertical depth": "True Vertical Depth",
-        "longitude": "Longitude",
-        "latitude": "Latitude",
-        "surface location longitude (nad83)": "Longitude",
-        "surface location latitude (nad83)": "Latitude",
         "east": "East",
         "north": "North",
         "pad": "PAD",
@@ -285,11 +276,8 @@ class DirectionalSurveyMappingSpec:
     @classmethod
     def from_json_dict(cls, d: dict) -> "DirectionalSurveyMappingSpec":
         cols = dict(d.get("columns") or {})
-        # Presets saved before Longitude/Latitude replaced Offset in EW / NS
-        if "Longitude" not in cols and "Offset in EW" in cols:
-            cols["Longitude"] = cols.pop("Offset in EW", None)
-        if "Latitude" not in cols and "Offset in NS" in cols:
-            cols["Latitude"] = cols.pop("Offset in NS", None)
+        cols.pop("Longitude", None)
+        cols.pop("Latitude", None)
         return cls(
             sheet_index=int(d.get("sheet_index", 0)),
             header_row=int(d.get("header_row", 0)),
@@ -319,10 +307,9 @@ INSERT_SQL = """
             [Subsea Elevation],
             [Inclination], [Azimuth Angle],
             [Measured Depth], [True Vertical Depth],
-            [Longitude], [Latitude],
             [East], [North],
             [PAD], [SourceFile]
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
 INSERT_COLS = [
@@ -333,8 +320,6 @@ INSERT_COLS = [
     "Azimuth Angle",
     "Measured Depth",
     "True Vertical Depth",
-    "Longitude",
-    "Latitude",
     "East",
     "North",
     "PAD",
@@ -347,8 +332,6 @@ _SURVEY_NUMERIC_INSERT_COLS = frozenset(
         "Azimuth Angle",
         "Measured Depth",
         "True Vertical Depth",
-        "Longitude",
-        "Latitude",
         "East",
         "North",
     }
@@ -635,7 +618,7 @@ def _finalize_survey_summary(
             {
                 "Total rows in file": summary["total_rows"],
                 "Rows matched to wells": summary["matched"],
-                "Rows unmatched": summary["unmatched"],
+                "Rows without WM link": summary["unmatched"],
                 "Rows inserted": summary["inserted"],
                 "Duplicates skipped": summary["duplicates"],
                 "Errors": summary["errors"],
@@ -697,8 +680,6 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             "Azimuth Angle",
             "Measured Depth",
             "True Vertical Depth",
-            "Longitude",
-            "Latitude",
             "East",
             "North",
             "PAD",
@@ -718,7 +699,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
                     log(lf.item(f"{col}: {lf.num(int(null_counts[col]))} nulls"))
         progress(40)
 
-        log(lf.step("Matching wells to database"))
+        log(lf.step("Enriching from PCE_WM (optional)"))
         conn = get_sql_conn()
         valid_wells_df = pd.read_sql(
             """
@@ -745,11 +726,10 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             if disp:
                 wm_match_key_to_survey_display[str(mk)] = disp
         log(lf.detail(f"Found {lf.num(len(valid_wells))} valid wells in database"))
-        db_samples = list(valid_wells)[:3]
-        log(lf.detail(f"Sample DB match keys (normalized): {db_samples}"))
 
         cur_uwi = conn.cursor()
         pce_uwi_survey_dict = fetch_pce_uwi_to_survey_well_name(cur_uwi)
+        pce_uwi_metadata = fetch_pce_uwi_to_survey_metadata(cur_uwi)
         log(
             lf.detail(
                 f"Loaded {lf.num(len(pce_uwi_survey_dict))} UWI lookup keys from "
@@ -771,20 +751,20 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
 
         wm_from_uwi = df["UWI"].apply(_survey_name_from_uwi_cell)
         uwi_match = wm_from_uwi.notna()
-        df["Well Found"] = name_match | uwi_match
+        df["WM Linked"] = name_match | uwi_match
         use_wm_name = uwi_match & ~name_match
         if use_wm_name.any():
             df.loc[use_wm_name, "Well Name Cleaned"] = wm_from_uwi[use_wm_name]
             log(
                 lf.detail(
-                    f"Rows matched by Value Navigator UWI only (name key differed): "
+                    f"Rows enriched by Value Navigator UWI only (name key differed): "
                     f"{lf.num(int(use_wm_name.sum()))}"
                 )
             )
 
-        matched_df = df[df["Well Found"]].copy()
-        label_from_uwi = matched_df["UWI"].apply(_survey_name_from_uwi_cell)
-        label_from_wm_name = matched_df["Well Name"].apply(
+        import_df = df.copy()
+        label_from_uwi = import_df["UWI"].apply(_survey_name_from_uwi_cell)
+        label_from_wm_name = import_df["Well Name"].apply(
             lambda w: _survey_display_from_wm_match_keys(
                 w, wm_match_key_to_survey_display
             )
@@ -792,39 +772,60 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
         wm_survey_label = label_from_uwi.where(label_from_uwi.notna(), label_from_wm_name)
         have_wm_label = wm_survey_label.notna()
         if have_wm_label.any():
-            matched_df.loc[have_wm_label, "Well Name Cleaned"] = wm_survey_label[
+            import_df.loc[have_wm_label, "Well Name Cleaned"] = wm_survey_label[
                 have_wm_label
             ]
-        name_only = ~have_wm_label
-        if name_only.any():
-            log(
-                lf.warn(
-                    f"{lf.num(int(name_only.sum()))} matched row(s) have no WM survey label "
-                    "from file UWI or WM Composite/Well Name (using file-based cleaned name)."
-                )
-            )
-        unmatched_df = df[~df["Well Found"]].copy()
-        log(lf.success(f"{lf.num(len(matched_df))} rows matched to database wells"))
-        log(lf.warn(f"{lf.num(len(unmatched_df))} rows did not match"))
 
-        if not unmatched_df.empty:
-            log(lf.detail("Sample unmatched wells (first 10):"))
-            for name in unmatched_df["Well Name Cleaned"].dropna().unique()[:10]:
+        def _pad_from_uwi_cell(u: Any) -> Optional[str]:
+            if u is None or (isinstance(u, float) and pd.isna(u)):
+                return None
+            s = str(u).strip()
+            if not s or s.lower() in ("nan", "none", ""):
+                return None
+            _, pad = resolve_accumap_uwi_to_survey_metadata(s, pce_uwi_metadata)
+            return pad if pad else None
+
+        if "PAD" in import_df.columns:
+            file_pad_empty = import_df["PAD"].isna() | (
+                import_df["PAD"].astype(str).str.strip().isin(("", "nan", "None"))
+            )
+            wm_pad = import_df["UWI"].apply(_pad_from_uwi_cell)
+            fill_pad = file_pad_empty & wm_pad.notna()
+            if fill_pad.any():
+                import_df.loc[fill_pad, "PAD"] = wm_pad[fill_pad]
+
+        wm_unlinked_df = import_df[~import_df["WM Linked"]].copy()
+        log(lf.success(f"{lf.num(len(import_df))} rows ready for import"))
+        log(
+            lf.detail(
+                f"{lf.num(int(import_df['WM Linked'].sum()))} row(s) linked to PCE_WM; "
+                f"{lf.num(len(wm_unlinked_df))} row(s) without WM link (importing anyway)"
+            )
+        )
+
+        if not wm_unlinked_df.empty:
+            log(lf.detail("Sample wells without WM link (first 10):"))
+            for name in wm_unlinked_df["Well Name Cleaned"].dropna().unique()[:10]:
                 log(lf.item(f"'{name}'"))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            unmatched_file = f"unmatched_survey_wells_{timestamp}.csv"
-            unmatched_df[["Well Name", "Well Name Cleaned", "UWI"]].drop_duplicates().to_csv(
-                unmatched_file, index=False
+            wm_unlinked_file = f"wm_unlinked_survey_wells_{timestamp}.csv"
+            wm_unlinked_df[["Well Name", "Well Name Cleaned", "UWI"]].drop_duplicates().to_csv(
+                wm_unlinked_file, index=False
             )
-            log(lf.detail(f"Unmatched wells saved to: {unmatched_file}"))
+            log(lf.detail(f"WM-unlinked wells saved to: {wm_unlinked_file}"))
 
         progress(50)
+        matched_df = import_df[
+            import_df["UWI"].notna()
+            & import_df["Measured Depth"].notna()
+            & (import_df["UWI"].astype(str).str.strip() != "")
+        ].copy()
         if matched_df.empty:
-            log(lf.error("No matching wells to import"))
+            log(lf.error("No importable rows (need non-empty UWI and Measured Depth)"))
             return {
                 "total_rows": len(df),
                 "matched": 0,
-                "unmatched": len(unmatched_df),
+                "unmatched": len(wm_unlinked_df),
                 "inserted": 0,
                 "duplicates": 0,
                 "errors": 0,
@@ -847,7 +848,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             return {
                 "total_rows": len(df),
                 "matched": original_matched_count,
-                "unmatched": len(unmatched_df),
+                "unmatched": len(wm_unlinked_df),
                 "inserted": 0,
                 "duplicates": skipped_count,
                 "errors": 0,
@@ -865,7 +866,7 @@ def import_surveys(excel_path, import_mode="append", progress_callback=None, log
             import_mode,
             len(df),
             original_matched_count,
-            len(unmatched_df),
+            len(wm_unlinked_df),
             matched_df,
             skipped_count if import_mode == "append" else 0,
             duplicate_skipped,
@@ -891,6 +892,284 @@ def _read_cell_raw(df: pd.DataFrame, r: int, c: int) -> Any:
     if r < 0 or r >= len(df) or c < 0 or c >= len(df.columns):
         return None
     return df.iat[r, c]
+
+
+ACCUMAP_IGNORE_HEADERS = frozenset({"sort uwi", "surface hole utm zone"})
+
+ACCUMAP_HEADER_TO_FIELD: Dict[str, str] = {
+    "uwi": "UWI",
+    "subsea": "Subsea Elevation",
+    "subsea elevation": "Subsea Elevation",
+    "inclination": "Inclination",
+    "azimuth": "Azimuth Angle",
+    "azimuth angle": "Azimuth Angle",
+    "md": "Measured Depth",
+    "measured depth": "Measured Depth",
+    "tvd": "True Vertical Depth",
+    "true vertical depth": "True Vertical Depth",
+    "surface hole utm easting": "Surface Hole UTM Easting",
+    "surface hole utm northing": "Surface Hole UTM Northing",
+    "ew": "EW",
+    "ns": "NS",
+}
+
+ACCUMAP_REQUIRED_HEADER_FIELDS = frozenset(
+    {
+        "UWI",
+        "Measured Depth",
+        "EW",
+        "NS",
+        "Surface Hole UTM Easting",
+        "Surface Hole UTM Northing",
+    }
+)
+
+
+def _normalize_accumap_header(cell: Any) -> str:
+    """Fold case and strip units like (m) / (°) for Accumap Directional Survey headers."""
+    if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+        return ""
+    s = str(cell).strip().casefold()
+    s = re.sub(r"\([^)]*\)", "", s)
+    s = s.replace("°", "").replace("º", "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _accumap_field_from_header(normalized: str) -> Optional[str]:
+    if not normalized or normalized in ACCUMAP_IGNORE_HEADERS:
+        return None
+    if normalized.startswith("sort uwi"):
+        return None
+    if "utm zone" in normalized:
+        return None
+    return ACCUMAP_HEADER_TO_FIELD.get(normalized)
+
+
+def find_accumap_header_row(
+    raw_grid: pd.DataFrame, max_scan: int = 60
+) -> Tuple[Optional[int], Dict[str, int]]:
+    """
+    Scan raw export grid for the Directional Survey table header row.
+    Returns (0-based header row index, logical_field -> column index) or (None, {}).
+    """
+    limit = min(max_scan, len(raw_grid))
+    ncols = len(raw_grid.columns)
+    for ri in range(limit):
+        col_map: Dict[str, int] = {}
+        for ci in range(ncols):
+            norm = _normalize_accumap_header(raw_grid.iat[ri, ci])
+            field = _accumap_field_from_header(norm)
+            if field and field not in col_map:
+                col_map[field] = ci
+        if ACCUMAP_REQUIRED_HEADER_FIELDS.issubset(col_map.keys()):
+            return ri, col_map
+    return None, {}
+
+
+def _accumap_cell_numeric(raw_grid: pd.DataFrame, r: int, field: str, col_map: Dict[str, int]) -> Optional[float]:
+    ci = col_map.get(field)
+    if ci is None:
+        return None
+    val = _read_cell_raw(raw_grid, r, ci)
+    return _coerce_survey_numeric_for_odbc(val)
+
+
+def parse_accumap_survey_grid(
+    raw_grid: pd.DataFrame,
+    header_row: int,
+    col_map: Dict[str, int],
+) -> List[dict]:
+    """Parse Accumap multi-well Directional Survey rows below header_row."""
+    rows_out: List[dict] = []
+    for r in range(header_row + 1, len(raw_grid)):
+        uwi_raw = _read_cell_raw(raw_grid, r, col_map["UWI"])
+        if uwi_raw is None or (isinstance(uwi_raw, float) and pd.isna(uwi_raw)):
+            continue
+        uwi_s = str(uwi_raw).strip()
+        if not uwi_s or uwi_s.lower() in ("nan", "none"):
+            continue
+
+        md_raw = _read_cell_raw(raw_grid, r, col_map["Measured Depth"])
+        if md_raw is None or (isinstance(md_raw, float) and pd.isna(md_raw)):
+            continue
+        if isinstance(md_raw, str) and not md_raw.strip():
+            continue
+        md = _coerce_survey_numeric_for_odbc(md_raw)
+        if md is None:
+            continue
+
+        easting = _accumap_cell_numeric(raw_grid, r, "Surface Hole UTM Easting", col_map)
+        northing = _accumap_cell_numeric(raw_grid, r, "Surface Hole UTM Northing", col_map)
+        ew = _accumap_cell_numeric(raw_grid, r, "EW", col_map)
+        ns = _accumap_cell_numeric(raw_grid, r, "NS", col_map)
+        east = (easting + ew) if easting is not None and ew is not None else None
+        north = (northing + ns) if northing is not None and ns is not None else None
+
+        rows_out.append(
+            {
+                "UWI": uwi_s,
+                "Subsea Elevation": _accumap_cell_numeric(raw_grid, r, "Subsea Elevation", col_map),
+                "Inclination": _accumap_cell_numeric(raw_grid, r, "Inclination", col_map),
+                "Azimuth Angle": _accumap_cell_numeric(raw_grid, r, "Azimuth Angle", col_map),
+                "Measured Depth": md,
+                "True Vertical Depth": _accumap_cell_numeric(
+                    raw_grid, r, "True Vertical Depth", col_map
+                ),
+                "East": east,
+                "North": north,
+            }
+        )
+    return rows_out
+
+
+def _apply_accumap_wm_labels(
+    rows: List[dict],
+    metadata: Dict[str, Tuple[str, str]],
+) -> Tuple[List[dict], int, int]:
+    """Attach Well Name Cleaned and PAD per row UWI from WM metadata when found."""
+    wm_linked_uwis: set = set()
+    all_uwis: set = set()
+    out: List[dict] = []
+    for row in rows:
+        uwi = row["UWI"]
+        all_uwis.add(uwi)
+        display, pad = resolve_accumap_uwi_to_survey_metadata(uwi, metadata)
+        row_out = dict(row)
+        if display:
+            row_out["Well Name Cleaned"] = display
+            row_out["PAD"] = pad or ""
+            wm_linked_uwis.add(uwi)
+        else:
+            row_out["Well Name Cleaned"] = uwi
+            row_out["PAD"] = ""
+        out.append(row_out)
+    return out, len(wm_linked_uwis), len(all_uwis) - len(wm_linked_uwis)
+
+
+def import_accumap_surveys(
+    excel_path: str,
+    import_mode: str = "append",
+    progress_callback=None,
+    log_callback=None,
+) -> dict:
+    """
+    Import multi-well Accumap Directional Survey export (stacked by UWI).
+    Headers are auto-detected; East/North are computed from UTM surface + EW/NS.
+    Well Name and PAD come from PCE_WM when UWI matches; otherwise UWI is used as Well Name.
+    """
+    def log(message):
+        if log_callback:
+            log_callback(message)
+        else:
+            print(message)
+
+    def progress(value):
+        if progress_callback:
+            progress_callback(value)
+
+    conn = None
+    try:
+        log(
+            lf.header(
+                "SURVEY DATA IMPORT (Accumap)",
+                File=os.path.basename(excel_path),
+                Mode=import_mode,
+            )
+        )
+        log(lf.step("Reading survey file (raw layout)"))
+        df_raw = read_survey_raw_grid(excel_path)
+        log(lf.detail(f"Grid shape: {lf.num(len(df_raw))} rows × {lf.num(len(df_raw.columns))} cols"))
+        progress(10)
+
+        log(lf.step("Detecting Accumap header row"))
+        header_row, col_map = find_accumap_header_row(df_raw)
+        if header_row is None:
+            return {
+                "error": (
+                    "Could not find Accumap Directional Survey header row. "
+                    "Expected columns include UWI, MD (m), EW (m), NS (m), and "
+                    "Surface Hole UTM Easting/Northing (m)."
+                )
+            }
+        log(lf.detail(f"Header row (1-based): {lf.num(header_row + 1)}"))
+        log(lf.detail(f"Mapped columns: {lf.num(len(col_map))}"))
+        progress(20)
+
+        log(lf.step("Parsing survey stations"))
+        parsed = parse_accumap_survey_grid(df_raw, header_row, col_map)
+        if not parsed:
+            return {"error": "No survey data rows found below the header row."}
+        log(lf.detail(f"Parsed {lf.num(len(parsed))} station rows"))
+        progress(35)
+
+        conn = get_sql_conn()
+        cur = conn.cursor()
+        metadata = fetch_pce_uwi_to_survey_metadata(cur)
+        labeled, wm_uwi_linked, wm_uwi_unlinked = _apply_accumap_wm_labels(parsed, metadata)
+        log(
+            lf.detail(
+                f"WM linked: {lf.num(wm_uwi_linked)} well(s); "
+                f"without WM link: {lf.num(wm_uwi_unlinked)} well(s)"
+            )
+        )
+        progress(45)
+
+        matched_df = pd.DataFrame(labeled)
+        for col in INSERT_COLS:
+            if col not in matched_df.columns:
+                matched_df[col] = None
+
+        cursor = conn.cursor()
+        log(lf.step(f"Processing with mode: {import_mode}"))
+        original_matched_count = len(matched_df)
+        matched_df, skipped_precheck = _apply_append_or_overwrite(
+            conn, cursor, matched_df, import_mode, log
+        )
+        skipped_count = skipped_precheck if import_mode == "append" else 0
+
+        if matched_df.empty:
+            log(lf.detail("No new records to insert."))
+            return {
+                "total_rows": len(parsed),
+                "matched": original_matched_count,
+                "unmatched": wm_uwi_unlinked,
+                "inserted": 0,
+                "duplicates": skipped_count,
+                "errors": 0,
+            }
+
+        progress(60)
+        log(lf.step("Inserting data into database"))
+        source_file = os.path.basename(excel_path)
+        total_inserted, duplicate_skipped, ins_err = _batch_insert_surveys(
+            cursor, conn, matched_df, source_file, log, progress, 60, 100
+        )
+        progress(100)
+
+        return _finalize_survey_summary(
+            import_mode,
+            len(parsed),
+            original_matched_count,
+            wm_uwi_unlinked,
+            matched_df,
+            skipped_count if import_mode == "append" else 0,
+            duplicate_skipped,
+            total_inserted,
+            ins_err,
+            log,
+        )
+
+    except Exception as e:
+        log(lf.error(str(e)))
+        traceback.print_exc()
+        return {"error": str(e)}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def import_directional_survey_with_mapping(
@@ -947,14 +1226,18 @@ def import_directional_survey_with_mapping(
         if not cleaned:
             return {"error": "Well name is invalid after cleaning."}
 
-        log(lf.step("Resolving UWI, PAD, and Well Name from PCE_WM"))
+        log(lf.step("Resolving UWI, PAD, and Well Name from PCE_WM (optional)"))
         uwi, pad, wm_well_name, err = lookup_wm_uwi_pad_for_directional(well_name)
         if err:
-            log(lf.error(err))
-            return {"error": err}
-        log(lf.detail(f"UWI: {uwi}"))
-        log(lf.detail(f"PAD: {pad or '(empty)'}"))
-        log(lf.detail(f"Well Name (WM composite-preferred): {wm_well_name}"))
+            log(lf.warn(f"PCE_WM: {err}"))
+            log(lf.detail("Import will proceed using file well name (no WM link)."))
+            wm_well_name = cleaned if isinstance(cleaned, str) else str(well_name)
+            uwi = wm_well_name
+            pad = ""
+        else:
+            log(lf.detail(f"UWI: {uwi}"))
+            log(lf.detail(f"PAD: {pad or '(empty)'}"))
+            log(lf.detail(f"Well Name (WM composite-preferred): {wm_well_name}"))
         progress(25)
 
         data_start = mapping_spec.resolved_data_start_row()
@@ -989,8 +1272,6 @@ def import_directional_survey_with_mapping(
                 "Azimuth Angle": col_val(r, "Azimuth Angle"),
                 "Measured Depth": md,
                 "True Vertical Depth": col_val(r, "True Vertical Depth"),
-                "Longitude": col_val(r, "Longitude"),
-                "Latitude": col_val(r, "Latitude"),
                 "East": col_val(r, "East"),
                 "North": col_val(r, "North"),
                 "PAD": pad,

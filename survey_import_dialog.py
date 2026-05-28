@@ -20,7 +20,11 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 import log_format as lf
-from survey_import import import_surveys, import_directional_survey_with_mapping
+from survey_import import (
+    import_surveys,
+    import_directional_survey_with_mapping,
+    import_accumap_surveys,
+)
 from survey_mapping_dialog import SurveyMappingDialog
 from styles import (
     DIALOG_BASE,
@@ -58,7 +62,7 @@ def _clone_import_result_for_qt(result: dict) -> dict:
 
 
 class SurveyImportWorker(QThread):
-    """Worker thread for survey import (legacy or directional)."""
+    """Worker thread for survey import (legacy, directional, or Accumap)."""
 
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
@@ -66,10 +70,11 @@ class SurveyImportWorker(QThread):
     finished_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, excel_path, import_mode, directional_spec=None):
+    def __init__(self, excel_path, import_mode, import_source="legacy", directional_spec=None):
         super().__init__()
         self.excel_path = excel_path
         self.import_mode = import_mode
+        self.import_source = import_source
         self.directional_spec = directional_spec
         self._cancelled = False
 
@@ -83,10 +88,17 @@ class SurveyImportWorker(QThread):
                 if not self._cancelled:
                     self.log_signal.emit(message)
 
-            if self.directional_spec is not None:
+            if self.import_source == "directional":
                 result = import_directional_survey_with_mapping(
                     self.excel_path,
                     self.directional_spec,
+                    import_mode=self.import_mode,
+                    progress_callback=progress_callback,
+                    log_callback=log_callback,
+                )
+            elif self.import_source == "accumap":
+                result = import_accumap_surveys(
+                    self.excel_path,
                     import_mode=self.import_mode,
                     progress_callback=progress_callback,
                     log_callback=log_callback,
@@ -119,6 +131,7 @@ class SurveyImportDialog(QDialog):
         self.worker = None
         self.directional_path = ""
         self.directional_spec = None
+        self.accumap_path = ""
         self.setWindowTitle("📐 Survey Data Import")
         self.setModal(True)
         self.setMinimumWidth(750)
@@ -152,12 +165,18 @@ class SurveyImportDialog(QDialog):
         self.radio_legacy = QRadioButton("Bulk import — file from Settings (flat columns)")
         self.radio_legacy.setChecked(True)
         self.radio_directional = QRadioButton("Directional report — browse file, map layout")
+        self.radio_accumap = QRadioButton(
+            "Accumap Survey Import — Directional Survey export (multi-well)"
+        )
         self.source_group.addButton(self.radio_legacy, 0)
         self.source_group.addButton(self.radio_directional, 1)
+        self.source_group.addButton(self.radio_accumap, 2)
         self.radio_legacy.toggled.connect(self._on_source_changed)
         self.radio_directional.toggled.connect(self._on_source_changed)
+        self.radio_accumap.toggled.connect(self._on_source_changed)
         src_layout.addWidget(self.radio_legacy)
         src_layout.addWidget(self.radio_directional)
+        src_layout.addWidget(self.radio_accumap)
         source_group.layout().addLayout(src_layout)
         layout.addWidget(source_group)
 
@@ -199,6 +218,27 @@ class SurveyImportDialog(QDialog):
         layout.addWidget(dir_group)
         self.directional_group_widget = dir_group
         self.directional_group_widget.setVisible(False)
+
+        acc_group = self.create_group("Accumap file")
+        a1 = QHBoxLayout()
+        self.acc_path_label = QLabel("No file selected")
+        self.acc_path_label.setStyleSheet(file_path_label_style())
+        self.acc_path_label.setWordWrap(True)
+        self.btn_browse_accumap = QPushButton("Browse…")
+        self.btn_browse_accumap.setStyleSheet(btn_primary())
+        self.btn_browse_accumap.clicked.connect(self._browse_accumap)
+        a1.addWidget(self.acc_path_label, 1)
+        a1.addWidget(self.btn_browse_accumap)
+        acc_group.layout().addLayout(a1)
+        acc_hint = QLabel(
+            "Accumap Directional Survey export with UWI, MD, EW/NS, and UTM easting/northing columns. "
+            "Headers are detected automatically."
+        )
+        acc_hint.setWordWrap(True)
+        acc_group.layout().addWidget(acc_hint)
+        layout.addWidget(acc_group)
+        self.accumap_group_widget = acc_group
+        self.accumap_group_widget.setVisible(False)
 
         mode_group = self.create_group("⚙️ Import Mode")
         mode_layout = QVBoxLayout()
@@ -260,9 +300,24 @@ class SurveyImportDialog(QDialog):
 
     def _on_source_changed(self):
         legacy = self.radio_legacy.isChecked()
+        directional = self.radio_directional.isChecked()
+        accumap = self.radio_accumap.isChecked()
         self.legacy_group_widget.setVisible(legacy)
-        self.directional_group_widget.setVisible(not legacy)
+        self.directional_group_widget.setVisible(directional)
+        self.accumap_group_widget.setVisible(accumap)
         self.validate_inputs()
+
+    def _browse_accumap(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Accumap survey file",
+            "",
+            "Survey files (*.xlsx *.xls *.csv);;All files (*.*)",
+        )
+        if path:
+            self.accumap_path = path
+            self.acc_path_label.setText(path)
+            self.validate_inputs()
 
     def _browse_directional(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -302,6 +357,9 @@ class SurveyImportDialog(QDialog):
                 and os.path.exists(file_path)
             )
             self.run_btn.setEnabled(ok)
+        elif self.radio_accumap.isChecked():
+            ok = bool(self.accumap_path) and os.path.exists(self.accumap_path)
+            self.run_btn.setEnabled(ok)
         else:
             ok = (
                 bool(self.directional_path)
@@ -327,6 +385,15 @@ class SurveyImportDialog(QDialog):
                     "Survey file path is not configured in Settings or file does not exist.",
                 )
                 return
+            import_source = "legacy"
+            spec = None
+            display_name = os.path.basename(file_path)
+        elif self.radio_accumap.isChecked():
+            if not self.accumap_path or not os.path.exists(self.accumap_path):
+                QMessageBox.warning(self, "File", "Select a valid Accumap survey file.")
+                return
+            file_path = self.accumap_path
+            import_source = "accumap"
             spec = None
             display_name = os.path.basename(file_path)
         else:
@@ -337,6 +404,7 @@ class SurveyImportDialog(QDialog):
                 QMessageBox.warning(self, "Mapping", "Configure mapping before import.")
                 return
             file_path = self.directional_path
+            import_source = "directional"
             spec = self.directional_spec
             display_name = os.path.basename(file_path)
 
@@ -367,15 +435,19 @@ class SurveyImportDialog(QDialog):
         self.mode_overwrite.setEnabled(False)
         self.radio_legacy.setEnabled(False)
         self.radio_directional.setEnabled(False)
+        self.radio_accumap.setEnabled(False)
         self.btn_browse.setEnabled(False)
         self.btn_configure.setEnabled(False)
+        self.btn_browse_accumap.setEnabled(False)
         self.cancel_btn.setText("Cancel")
         self.cancel_btn.setStyleSheet(btn_danger())
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
 
-        self.worker = SurveyImportWorker(file_path, mode, directional_spec=spec)
+        self.worker = SurveyImportWorker(
+            file_path, mode, import_source=import_source, directional_spec=spec
+        )
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.log_signal.connect(self.log)
         self.worker.finished_signal.connect(self.import_finished)
@@ -394,8 +466,10 @@ class SurveyImportDialog(QDialog):
         self.mode_overwrite.setEnabled(True)
         self.radio_legacy.setEnabled(True)
         self.radio_directional.setEnabled(True)
+        self.radio_accumap.setEnabled(True)
         self.btn_browse.setEnabled(True)
         self.btn_configure.setEnabled(True)
+        self.btn_browse_accumap.setEnabled(True)
         self.cancel_btn.setText("Close")
         self.cancel_btn.setStyleSheet(btn_neutral())
         self.validate_inputs()
@@ -415,7 +489,7 @@ class SurveyImportDialog(QDialog):
                     {
                         "Total rows in file": result.get("total_rows", 0),
                         "Rows matched to wells": result.get("matched", 0),
-                        "Rows unmatched": result.get("unmatched", 0),
+                        "Rows without WM link": result.get("unmatched", 0),
                         "Rows inserted": result.get("inserted", 0),
                         "Duplicates skipped": result.get("duplicates", 0),
                         "Errors": result.get("errors", 0),
@@ -431,7 +505,7 @@ class SurveyImportDialog(QDialog):
                 f"Survey import completed successfully!\n\n"
                 f"Inserted: {ins:,} rows\n"
                 f"Matched: {mat:,} rows\n"
-                f"Unmatched: {unm:,} rows",
+                f"Without WM link: {unm:,} rows",
             )
         except Exception as e:
             import traceback

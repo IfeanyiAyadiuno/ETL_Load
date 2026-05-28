@@ -193,6 +193,36 @@ def app_name_style(color: str = "#000000") -> str:
     """
 
 
+def licensing_credits_role_style() -> str:
+    """Bold Garamond role labels in Licensing dialog."""
+    return f"""
+        QLabel {{
+            color: {_TEXT};
+            font-family: {_FONT_BRAND};
+            font-size: 15px;
+            font-weight: 700;
+            padding: 0px;
+            background: transparent;
+            border: none;
+        }}
+    """
+
+
+def licensing_credits_name_style() -> str:
+    """Regular Garamond names in Licensing dialog."""
+    return f"""
+        QLabel {{
+            color: {_TEXT};
+            font-family: {_FONT_BRAND};
+            font-size: 15px;
+            font-weight: 400;
+            padding: 0px;
+            background: transparent;
+            border: none;
+        }}
+    """
+
+
 def ops_section_title_style() -> str:
     """Operations panel section heading (matches header Garamond)."""
     return f"""
