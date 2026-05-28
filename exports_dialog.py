@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from styles import configure_dialog_window_mode
+from styles import configure_dialog_window_mode, dialog_title_style
 
 
 class ExportsDialog(QDialog):
@@ -28,14 +28,7 @@ class ExportsDialog(QDialog):
 
         # Title
         title = QLabel("📁 Exports / Reports")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 24px;
-                font-weight: bold;
-                padding: 10px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 

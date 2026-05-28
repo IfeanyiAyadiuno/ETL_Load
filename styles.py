@@ -5,6 +5,7 @@
 # Fonts
 # ---------------------------------------------------------------------------
 _FONT = '"Segoe UI", "SF Pro Text", system-ui, sans-serif'
+_FONT_BRAND = '"Garamond", "EB Garamond", "Times New Roman", serif'
 _MONO = '"Cascadia Mono", "Consolas", "SF Mono", monospace'
 
 # ---------------------------------------------------------------------------
@@ -150,11 +151,43 @@ def dialog_title_style() -> str:
     return f"""
         QLabel {{
             color: {_BRAND};
+            font-family: {_FONT_BRAND};
             font-size: 20px;
             font-weight: bold;
             padding: 4px 0 8px 0;
             border: none;
             background: transparent;
+        }}
+    """
+
+
+def company_name_style(color: str = _BRAND) -> str:
+    """Main-window company wordmark."""
+    return f"""
+        QLabel {{
+            color: {color};
+            font-family: {_FONT_BRAND};
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+            background: transparent;
+            border: none;
+            padding: 0px;
+        }}
+    """
+
+
+def app_name_style(color: str = "#000000") -> str:
+    """Main-window application name subtitle."""
+    return f"""
+        QLabel {{
+            color: {color};
+            font-family: {_FONT_BRAND};
+            font-size: 17px;
+            font-weight: 700;
+            padding: 0px;
+            background: transparent;
+            border: none;
         }}
     """
 

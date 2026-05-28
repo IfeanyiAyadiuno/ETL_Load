@@ -31,6 +31,7 @@ from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 from app_paths import get_settings_path, get_logo_path, get_company_icon_path
 from settings_dialog import SettingsDialog
 from exports_dialog import ExportsDialog
+from styles import company_name_style, app_name_style, dialog_title_style
 
 
 # Pacific Canbriam logo / wordmark navy (matches corporate logo text)
@@ -50,9 +51,7 @@ class LicensingDialog(QDialog):
         layout.setContentsMargins(24, 22, 24, 22)
 
         title = QLabel("Licensing & Credits")
-        title.setStyleSheet(
-            f"font-size: 18px; font-weight: 700; color: {_PCE_BRAND_BLUE};"
-        )
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         coded = QLabel("Coded by: Ifeanyi Ayadiuno")
@@ -156,30 +155,11 @@ class ProductionUpdateGUI(QMainWindow):
 
         company_header = QLabel("Pacific Canbriam Energy Ltd")
         company_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        company_header.setStyleSheet(f"""
-            QLabel {{
-                color: {_PCE_BRAND_BLUE};
-                font-size: 22px;
-                font-weight: 700;
-                letter-spacing: -0.3px;
-                background: transparent;
-                border: none;
-                padding: 0px;
-            }}
-        """)
+        company_header.setStyleSheet(company_name_style(_PCE_BRAND_BLUE))
 
         sub_header = QLabel("Reservoir Production Update System")
         sub_header.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        sub_header.setStyleSheet("""
-            QLabel {
-                color: #000000;
-                font-size: 17px;
-                font-weight: 700;
-                padding: 0px;
-                background: transparent;
-                border: none;
-            }
-        """)
+        sub_header.setStyleSheet(app_name_style())
         title_block.addWidget(company_header)
         title_block.addWidget(sub_header)
         header_row.addLayout(title_block, 1)

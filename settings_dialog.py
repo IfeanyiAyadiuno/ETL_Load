@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app_paths import get_settings_path
-from styles import configure_dialog_window_mode
+from styles import configure_dialog_window_mode, dialog_title_style
 
 
 class SettingsDialog(QDialog):
@@ -34,14 +34,7 @@ class SettingsDialog(QDialog):
 
         # Title
         title = QLabel("⚙️ System Settings")
-        title.setStyleSheet("""
-            QLabel {
-                color: #1a4d3e;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
         # SQL Server Settings Group
