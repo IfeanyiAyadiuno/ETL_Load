@@ -21,7 +21,7 @@ import pandas as pd
 # Whitson+ API credentials (edit here if they change)
 CLIENT = "pacificcanbriam"
 CLIENT_ID = "Nburbd6T4XuAWa5322kyoMOexyTytUJg"
-CLIENT_SECRET = "z0jE85oNk1sXPnf2iNMXaf_vj5vrr1-sCf6MGBRi57faXpYKRfHT60gAtY0E9DoY"
+CLIENT_SECRET = "zOjE85oNk1sXPnf2iNMXaf_vj5vrr1-sCf6MGBRi57faXpYKRFHT60gAtY0E9DoY"
 PROJECT_ID = 20
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
