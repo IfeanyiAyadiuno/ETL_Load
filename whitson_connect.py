@@ -252,6 +252,54 @@ class WhitsonConnection:
             return []
         return _normalize_wells_response(res)
 
+    def find_well_id_by_name(self, project_id: int, well_name: str) -> int | None:
+        """
+        Resolve a Whitson well id by exact name.
+
+        Tries the filtered GET /wells first; on failure falls back to paginated
+        listing and stops as soon as a match is found.
+        """
+        try:
+            matches = self.get_wells(project_id, name=well_name)
+            well_id = self.get_well_id_by_wellname(matches, well_name)
+            if well_id:
+                return well_id
+        except RuntimeError:
+            pass
+
+        base_url = (
+            f"https://{self.client_name}.whitson.com/api-external/v1/wells_paginated"
+        )
+        page_size = 500
+        page = 1
+        while True:
+            response = requests.get(
+                base_url,
+                headers={
+                    "content-type": "application/json",
+                    "Authorization": f"Bearer {self.access_token}",
+                },
+                params={
+                    "project_id": project_id,
+                    "page": page,
+                    "page_size": page_size,
+                },
+                timeout=120,
+            )
+            if response.status_code >= 400:
+                break
+            res = response.json()
+            if not res:
+                break
+            wells = res if isinstance(res, list) else _normalize_wells_response(res)
+            well_id = self.get_well_id_by_wellname(wells, well_name)
+            if well_id:
+                return well_id
+            if len(wells) < page_size:
+                break
+            page += 1
+        return None
+
     def get_well_from_well_id(self, well_id: int):
         """
         Get the well info, given a well ID.
