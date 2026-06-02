@@ -18,10 +18,25 @@ import numpy as np
 import pandas as pd
 import pyodbc
 import requests
-from snowflake.sqlalchemy import URL
-from sqlalchemy import create_engine, text
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
+
+try:
+    from snowflake.sqlalchemy import URL
+    from sqlalchemy import create_engine, text
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.backends import default_backend
+except ImportError:
+    URL = None  # type: ignore[misc, assignment]
+    create_engine = None  # type: ignore[misc, assignment]
+    text = None  # type: ignore[misc, assignment]
+    serialization = None  # type: ignore[misc, assignment]
+    default_backend = None  # type: ignore[misc, assignment]
+
+
+def _require_snowflake_sqlalchemy() -> None:
+    if create_engine is None or URL is None:
+        raise ImportError(
+            "Snowflake helpers require: pip install snowflake-sqlalchemy sqlalchemy cryptography"
+        )
 
 
 class WhitsonConnection:
@@ -5981,6 +5996,7 @@ class WhitsonConnection:
         Returns:
         - connection: A connection object to the Snowflake database.
         """
+        _require_snowflake_sqlalchemy()
         engine = create_engine(
             URL(
                 account=account,
@@ -6020,6 +6036,7 @@ class WhitsonConnection:
         Returns:
         - connection: A connection object to the Snowflake database.
         """
+        _require_snowflake_sqlalchemy()
 
         with open(private_key_path, "rb") as key_file:
             private_key = serialization.load_pem_private_key(
