@@ -63,6 +63,54 @@ class WhitsonConnection:
         self.client_id = client_id
         self.client_secret = client_secret
         self.access_token = None
+        self.debug = False
+
+    def _debug_log(self, message: str) -> None:
+        if self.debug:
+            print(f"[whitson] {message}")
+
+    def _log_http_response(
+        self,
+        label: str,
+        response: requests.Response,
+        *,
+        params: dict | None = None,
+        json_preview: Any = None,
+        max_body: int = 4000,
+    ) -> None:
+        if not self.debug:
+            return
+        print(f"\n--- {label} ---")
+        print(f"Request URL: {response.request.method} {response.url}")
+        if params:
+            print(f"Query params: {params}")
+        if json_preview is not None:
+            try:
+                snippet = json.dumps(json_preview, default=str)
+            except TypeError:
+                snippet = str(json_preview)
+            if len(snippet) > 800:
+                snippet = snippet[:800] + "...(truncated)"
+            print(f"JSON preview: {snippet}")
+        print(f"Status: {response.status_code} {response.reason}")
+        for header in (
+            "x-request-id",
+            "x-correlation-id",
+            "content-type",
+            "content-length",
+        ):
+            value = response.headers.get(header)
+            if value:
+                print(f"{header}: {value}")
+        body = response.text or ""
+        print(f"Response body ({len(body)} chars):")
+        if len(body) > max_body:
+            print(body[:max_body])
+            print(f"...(truncated, {len(body) - max_body} more chars)")
+        elif body:
+            print(body)
+        else:
+            print("(empty)")
 
     def get_access_token(self, audience=None):
         """
@@ -243,6 +291,7 @@ class WhitsonConnection:
             },
             params=params,
         )
+        self._log_http_response("GET /wells", response, params=params)
         if response.status_code >= 400:
             raise RuntimeError(
                 f"get_wells failed ({response.status_code}): {response.text[:500]}"
@@ -259,13 +308,18 @@ class WhitsonConnection:
         Tries the filtered GET /wells first; on failure falls back to paginated
         listing and stops as soon as a match is found.
         """
+        self._debug_log(
+            f"find_well_id_by_name project_id={project_id} name={well_name!r}"
+        )
         try:
             matches = self.get_wells(project_id, name=well_name)
             well_id = self.get_well_id_by_wellname(matches, well_name)
             if well_id:
+                self._debug_log(f"found via filtered GET /wells -> id={well_id}")
                 return well_id
-        except RuntimeError:
-            pass
+            self._debug_log("filtered GET /wells returned no exact name match")
+        except RuntimeError as exc:
+            self._debug_log(f"filtered GET /wells failed: {exc}")
 
         base_url = (
             f"https://{self.client_name}.whitson.com/api-external/v1/wells_paginated"
@@ -273,31 +327,49 @@ class WhitsonConnection:
         page_size = 500
         page = 1
         while True:
+            page_params = {
+                "project_id": project_id,
+                "page": page,
+                "page_size": page_size,
+            }
             response = requests.get(
                 base_url,
                 headers={
                     "content-type": "application/json",
                     "Authorization": f"Bearer {self.access_token}",
                 },
-                params={
-                    "project_id": project_id,
-                    "page": page,
-                    "page_size": page_size,
-                },
+                params=page_params,
                 timeout=120,
             )
+            self._log_http_response(
+                f"GET /wells_paginated page={page}",
+                response,
+                params=page_params,
+            )
             if response.status_code >= 400:
+                self._debug_log(
+                    f"paginated lookup stopped on page {page}: HTTP {response.status_code}"
+                )
                 break
             res = response.json()
             if not res:
+                self._debug_log(f"paginated lookup page {page}: empty response")
                 break
             wells = res if isinstance(res, list) else _normalize_wells_response(res)
+            self._debug_log(
+                f"paginated lookup page {page}: {len(wells)} well(s) returned"
+            )
             well_id = self.get_well_id_by_wellname(wells, well_name)
             if well_id:
+                self._debug_log(f"found via paginated lookup page {page} -> id={well_id}")
                 return well_id
             if len(wells) < page_size:
+                self._debug_log(
+                    f"paginated lookup finished after page {page} (last page)"
+                )
                 break
             page += 1
+        self._debug_log(f"no well found for name={well_name!r}")
         return None
 
     def get_well_from_well_id(self, well_id: int):
@@ -833,6 +905,7 @@ class WhitsonConnection:
             json=payload,
             params={"add_default_wellbore": add_default_wellbore},
         )
+        self._log_http_response("POST /wells (create_well)", response, json_preview=payload)
         if response.status_code >= 200 and response.status_code < 300:
             print(f"successfully created well {payload['name']}")
         else:
@@ -1030,14 +1103,30 @@ class WhitsonConnection:
         Returns:
         requests.Response: The response from the API after attempting to upload the production data.
         """
+        url = (
+            f"https://{self.client_name}.whitson.com/api-external/v1/wells/{well_id}/production_data"
+        )
+        upload_params = {"append_only": append_only}
         response = requests.post(
-            f"https://{self.client_name}.whitson.com/api-external/v1/wells/{well_id}/production_data",
+            url,
             headers={
                 "content-type": "application/json",
                 "Authorization": f"Bearer {self.access_token}",
             },
             json=payload,
-            params={"append_only": append_only},
+            params=upload_params,
+            timeout=300,
+        )
+        preview = {
+            "point_count": len(payload),
+            "first": payload[0] if payload else None,
+            "last": payload[-1] if len(payload) > 1 else None,
+        }
+        self._log_http_response(
+            f"POST /wells/{well_id}/production_data",
+            response,
+            params=upload_params,
+            json_preview=preview,
         )
         if response.status_code >= 200 and response.status_code < 300:
             print(f"successfully updated production data on well {well_id}")

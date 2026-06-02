@@ -283,6 +283,11 @@ def ensure_whitson_well(
     payload = {"project_id": project_id, "name": well_name}
     resp = whitson.create_well(payload=payload)
     if resp.status_code < 200 or resp.status_code >= 300:
+        whitson._log_http_response(
+            "create_well failed",
+            resp,
+            json_preview=payload,
+        )
         raise RuntimeError(
             f"create_well failed ({resp.status_code}): {resp.text[:500]}"
         )
@@ -301,6 +306,36 @@ def ensure_whitson_well(
         raise RuntimeError(f"Well created but id not found for {well_name!r}")
     print(f"Created Whitson well (id={well_id}): {well_name!r}")
     return well_id
+
+
+def run_whitson_test(
+    whitson: whitson_connect.WhitsonConnection,
+    project_id: int,
+    well_name: str,
+    *,
+    create_if_missing: bool,
+) -> int:
+    """Exercise Whitson auth + well lookup/create only (no production upload)."""
+    print(f"Whitson client: {CLIENT!r}, project_id={project_id}")
+    token = whitson.get_access_token_smart()
+    if not token:
+        print("Auth failed: get_access_token_smart returned no token")
+        return 1
+    whitson.access_token = token
+    print(f"Auth OK (token length={len(token)})")
+
+    well_id = whitson.find_well_id_by_name(project_id, well_name)
+    if well_id:
+        print(f"Lookup OK: well exists id={well_id} name={well_name!r}")
+        return 0
+
+    print(f"Lookup OK: no well named {well_name!r}")
+    if not create_if_missing:
+        print("Re-run with --create-if-missing to test create_well")
+        return 0
+
+    ensure_whitson_well(whitson, project_id, well_name)
+    return 0
 
 
 def main() -> int:
@@ -330,12 +365,38 @@ def main() -> int:
         action="store_true",
         help="Replace matching dates (append_only=False). Default is append-only.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Log each Whitson HTTP request/response (for server-side errors)",
+    )
+    parser.add_argument(
+        "--whitson-test",
+        action="store_true",
+        help="Only test Whitson auth + well lookup (skip SQL production upload)",
+    )
+    parser.add_argument(
+        "--create-if-missing",
+        action="store_true",
+        help="With --whitson-test, also call create_well if the well is not found",
+    )
     args = parser.parse_args()
 
     project_id = args.project_id
 
     well_name = args.well_name.strip()
     append_only = not args.replace
+
+    whitson = whitson_connect.WhitsonConnection(CLIENT, CLIENT_ID, CLIENT_SECRET)
+    whitson.debug = args.verbose
+
+    if args.whitson_test:
+        return run_whitson_test(
+            whitson,
+            project_id,
+            well_name,
+            create_if_missing=args.create_if_missing,
+        )
 
     conn = get_sql_conn()
     try:
@@ -362,8 +423,12 @@ def main() -> int:
         print(f"Loaded {len(df)} production row(s) for {well_name!r}")
         production_payload = rows_to_whitson_payload(df)
 
-        whitson = whitson_connect.WhitsonConnection(CLIENT, CLIENT_ID, CLIENT_SECRET)
         whitson.access_token = whitson.get_access_token_smart()
+        if not whitson.access_token:
+            print("Auth failed: get_access_token_smart returned no token")
+            return 1
+        if args.verbose:
+            print(f"Auth OK (token length={len(whitson.access_token)})")
 
         well_id = ensure_whitson_well(whitson, project_id, well_name)
 
@@ -373,6 +438,15 @@ def main() -> int:
             append_only=append_only,
         )
         if resp.status_code < 200 or resp.status_code >= 300:
+            whitson._log_http_response(
+                "upload_production_to_well failed",
+                resp,
+                params={"append_only": append_only},
+                json_preview={
+                    "point_count": len(production_payload),
+                    "first": production_payload[0] if production_payload else None,
+                },
+            )
             print(f"Upload failed ({resp.status_code}): {resp.text[:1000]}")
             return 1
 
