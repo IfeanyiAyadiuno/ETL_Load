@@ -39,6 +39,22 @@ def _require_snowflake_sqlalchemy() -> None:
         )
 
 
+def _normalize_wells_response(res: Any) -> List[dict]:
+    """Coerce Whitson GET /wells JSON into a list of well dicts."""
+    if isinstance(res, list):
+        return [w for w in res if isinstance(w, dict)]
+    if isinstance(res, dict):
+        for key in ("wells", "items", "data", "results"):
+            nested = res.get(key)
+            if isinstance(nested, list):
+                return [w for w in nested if isinstance(w, dict)]
+        if "id" in res and "name" in res:
+            return [res]
+        if any(k in res for k in ("detail", "message", "error", "errors")):
+            raise RuntimeError(f"Whitson API error: {res}")
+    return []
+
+
 class WhitsonConnection:
     def __init__(
         self, client_name=None, client_id=None, client_secret=None, audience=None
@@ -158,7 +174,7 @@ class WhitsonConnection:
 
         """
         return next(
-            (well["id"] for well in wells if well.get("uwi_api") == uwi_api),
+            (well["id"] for well in wells if isinstance(well, dict) and well.get("uwi_api") == uwi_api),
             None,  # Default value if no match is found
         )
 
@@ -172,7 +188,7 @@ class WhitsonConnection:
 
         """
         return next(
-            (well["id"] for well in wells if well.get(lookup_key) == propnum),
+            (well["id"] for well in wells if isinstance(well, dict) and well.get(lookup_key) == propnum),
             None,  # Default value if no match is found
         )
 
@@ -181,7 +197,7 @@ class WhitsonConnection:
         Get the well_id of a given wellname.
         """
         return next(
-            (well["id"] for well in wells if well.get("name") == wellname),
+            (well["id"] for well in wells if isinstance(well, dict) and well.get("name") == wellname),
             None,  # Default value if no match is found
         )
 
@@ -202,25 +218,39 @@ class WhitsonConnection:
             raise Exception("no existing fields")
         return res
 
-    def get_wells(self, project_id: int):
+    def get_wells(
+        self,
+        project_id: int,
+        name: str | None = None,
+        uwi_api: str | None = None,
+    ):
         """
         Get a list of wells in a project.
+
+        Optional ``name`` / ``uwi_api`` filters match the Whitson API query params.
         """
         base_url = f"https://{self.client_name}.whitson.com/api-external/v1/wells"
+        params: dict[str, Any] = {"project_id": project_id}
+        if name:
+            params["name"] = name
+        if uwi_api:
+            params["uwi_api"] = uwi_api
         response = requests.get(
             base_url,
             headers={
                 "content-type": "application/json",
                 "Authorization": f"Bearer {self.access_token}",
             },
-            params={
-                "project_id": project_id,
-            },
+            params=params,
         )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"get_wells failed ({response.status_code}): {response.text[:500]}"
+            )
         res = response.json()
         if not res:
             return []
-        return res
+        return _normalize_wells_response(res)
 
     def get_well_from_well_id(self, well_id: int):
         """

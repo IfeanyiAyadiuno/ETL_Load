@@ -275,7 +275,7 @@ def ensure_whitson_well(
     project_id: int,
     well_name: str,
 ) -> int:
-    whitson_wells = whitson.get_wells(project_id)
+    whitson_wells = whitson.get_wells(project_id, name=well_name)
     well_id = whitson.get_well_id_by_wellname(whitson_wells, well_name)
     if well_id:
         print(f"Whitson well already exists (id={well_id}): {well_name!r}")
@@ -288,7 +288,7 @@ def ensure_whitson_well(
             f"create_well failed ({resp.status_code}): {resp.text[:500]}"
         )
 
-    whitson_wells = whitson.get_wells(project_id)
+    whitson_wells = whitson.get_wells(project_id, name=well_name)
     well_id = whitson.get_well_id_by_wellname(whitson_wells, well_name)
     if not well_id:
         raise RuntimeError(f"Well created but id not found for {well_name!r}")
