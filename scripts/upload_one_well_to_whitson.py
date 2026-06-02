@@ -317,7 +317,12 @@ def run_whitson_test(
 ) -> int:
     """Exercise Whitson auth + well lookup/create only (no production upload)."""
     print(f"Whitson client: {CLIENT!r}, project_id={project_id}")
-    token = whitson.get_access_token_smart()
+    try:
+        token = whitson.get_access_token_smart()
+    except RuntimeError as exc:
+        print(f"Auth failed: {exc}")
+        print("Try deleting access_token.txt in the current folder, then re-run with --verbose")
+        return 1
     if not token:
         print("Auth failed: get_access_token_smart returned no token")
         return 1
@@ -423,9 +428,19 @@ def main() -> int:
         print(f"Loaded {len(df)} production row(s) for {well_name!r}")
         production_payload = rows_to_whitson_payload(df)
 
-        whitson.access_token = whitson.get_access_token_smart()
+        try:
+            whitson.access_token = whitson.get_access_token_smart()
+        except RuntimeError as exc:
+            print(f"Auth failed: {exc}")
+            print(
+                "Try deleting access_token.txt in the current folder, then re-run with --verbose"
+            )
+            return 1
         if not whitson.access_token:
             print("Auth failed: get_access_token_smart returned no token")
+            print(
+                "Try deleting access_token.txt in the current folder and re-run with --verbose"
+            )
             return 1
         if args.verbose:
             print(f"Auth OK (token length={len(whitson.access_token)})")

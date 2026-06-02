@@ -112,27 +112,48 @@ class WhitsonConnection:
         else:
             print("(empty)")
 
-    def get_access_token(self, audience=None):
-        """
-        Get a access token for a given work session.
-        """
-        conn = http.client.HTTPSConnection("whitson.eu.auth0.com")
-        if audience == None:
+    def _request_oauth_token(self, audience=None) -> str:
+        if audience is None:
             audience = f"https://{self.client_name}.whitson.com/"
-        else:
-            audience = audience
         payload = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
             "audience": audience,
             "grant_type": "client_credentials",
         }
+        self._debug_log(f"Auth0 audience={audience!r} client_id={self.client_id!r}")
 
+        conn = http.client.HTTPSConnection("whitson.eu.auth0.com")
         headers = {"content-type": "application/json"}
         conn.request("POST", "/oauth/token", json.dumps(payload), headers)
         res = conn.getresponse()
-        data = res.read()
-        return json.loads(data.decode("utf-8")).get("access_token")
+        raw = res.read().decode("utf-8")
+        self._debug_log(f"Auth0 HTTP {res.status} body={raw[:500]}")
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Auth0 returned non-JSON (HTTP {res.status}): {raw[:500]}"
+            ) from exc
+
+        token = data.get("access_token")
+        if token:
+            return token
+
+        detail = (
+            data.get("error_description")
+            or data.get("error")
+            or data.get("message")
+            or raw[:500]
+        )
+        raise RuntimeError(f"Auth0 token request failed (HTTP {res.status}): {detail}")
+
+    def get_access_token(self, audience=None):
+        """
+        Get a access token for a given work session.
+        """
+        return self._request_oauth_token(audience=audience)
 
     def _read_token_from_file(self, file_path):
         if os.path.exists(file_path):
@@ -174,32 +195,15 @@ class WhitsonConnection:
         if (
             stored_client_id == self.client_id
             and stored_token
+            and stored_timestamp is not None
             and (current_time - stored_timestamp) < (24 * 60 * 60)
         ):
+            self._debug_log("Using cached access token from access_token.txt")
             return stored_token
-        else:
-            if audience == None:
-                audience = f"https://{self.client_name}.whitson.com/"
-            else:
-                audience = audience
-            conn = http.client.HTTPSConnection("whitson.eu.auth0.com")
-            payload = {
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "audience": audience,
-                "grant_type": "client_credentials",
-            }
 
-            headers = {"content-type": "application/json"}
-            conn.request("POST", "/oauth/token", json.dumps(payload), headers)
-            res = conn.getresponse()
-            data = res.read()
-            new_token = json.loads(data.decode("utf-8")).get("access_token")
-
-            # Update the stored token and timestamp
-            self._write_token_to_file(token_file_path, new_token, current_time)
-
-            return new_token
+        new_token = self._request_oauth_token(audience=audience)
+        self._write_token_to_file(token_file_path, new_token, current_time)
+        return new_token
 
     def get_valid_or_default(self, value: float, default: float = None) -> float:
         """
@@ -1087,7 +1091,7 @@ class WhitsonConnection:
     def upload_production_to_well(
         self,
         well_id: int,
-        payload: list[dict],
+        payload: list[dict] | dict,
         append_only: bool = False,
     ) -> requests.Response:
         """
@@ -1095,7 +1099,8 @@ class WhitsonConnection:
 
         Parameters:
         well_id (int): The ID of the well to update.
-        payload (list[dict]): A list of dictionaries containing the production data.
+        payload (list[dict] | dict): Production points, or
+            ``{"production_data": [...]}`` (ARIES / Whitson API shape).
         append_only (bool): Determines the behavior for handling existing data.
             - False: Replaces existing data for matching dates with payload data. For a given matching date, the entire dataset will be replaced with the payload data (not merged). Appends new data if the date does not exist. Does not affect old data not in the payload.
             - True: Appends new data if the date does not exist. Rejects payload data if the date exists. Does not affect old data not in the payload.
@@ -1103,6 +1108,16 @@ class WhitsonConnection:
         Returns:
         requests.Response: The response from the API after attempting to upload the production data.
         """
+        if isinstance(payload, list):
+            body: dict | list = {"production_data": payload}
+            points = payload
+        elif isinstance(payload, dict) and "production_data" in payload:
+            body = payload
+            points = payload["production_data"]
+        else:
+            body = payload
+            points = payload if isinstance(payload, list) else []
+
         url = (
             f"https://{self.client_name}.whitson.com/api-external/v1/wells/{well_id}/production_data"
         )
@@ -1113,14 +1128,14 @@ class WhitsonConnection:
                 "content-type": "application/json",
                 "Authorization": f"Bearer {self.access_token}",
             },
-            json=payload,
+            json=body,
             params=upload_params,
             timeout=300,
         )
         preview = {
-            "point_count": len(payload),
-            "first": payload[0] if payload else None,
-            "last": payload[-1] if len(payload) > 1 else None,
+            "point_count": len(points),
+            "first": points[0] if points else None,
+            "last": points[-1] if len(points) > 1 else None,
         }
         self._log_http_response(
             f"POST /wells/{well_id}/production_data",
