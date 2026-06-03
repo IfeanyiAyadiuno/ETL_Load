@@ -99,7 +99,7 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Snowflake → PCE_CDA for full stored history (earliest ProdDate through today − 2)\n"
+            "  • Snowflake → PCE_CDA per well from first production date through today − 2\n"
             "  • Refreshes CDA sales from Allocation_Factors, then rebuilds all PCE_Production from CDA\n"
             "  • Longest run — can take 15+ min on large history"
         )
@@ -263,7 +263,7 @@ class ProdviewUpdateDialog(QDialog):
                 "then rebuild all PCE_Production from all PCE_CDA (through today − 2)."
             )
             self.info_text.setText(
-                "  • Snowflake → PCE_CDA from earliest ProdDate in CDA through today − 2\n"
+                "  • Snowflake → PCE_CDA from each well's first production date through today − 2\n"
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
                 "  • Delete all gathered PCE_Production and rebuild from all PCE_CDA (+ PCE_TC sync)"
             )

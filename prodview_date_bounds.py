@@ -51,16 +51,17 @@ def rolling_window_snowflake_range() -> Tuple[date, date]:
 
 
 def full_rebuild_snowflake_range(
-    cda_min: date | None = None,
+    query_start: date | None = None,
     effective_end: date | None = None,
 ) -> Tuple[date, date]:
     """
-    Inclusive Snowflake → PCE_CDA range for Full Rebuild: entire CDA history through
-    *effective_end*. When *cda_min* is unknown (empty CDA), falls back to the rolling
-    window start so the first load still has a bounded pull.
+    Inclusive Snowflake API query window for Full Rebuild.
+
+    *query_start* should be the minimum per-well first production date (or rolling
+    fallback). The spine itself is built per well from each well's first production.
     """
     end = effective_end or prodview_effective_end_date()
-    start = cda_min if cda_min is not None else quick_update_start_date(end)
+    start = query_start if query_start is not None else quick_update_start_date(end)
     if start > end:
         start = end
     return start, end

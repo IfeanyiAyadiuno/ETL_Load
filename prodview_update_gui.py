@@ -149,6 +149,73 @@ def _build_spine(mapping_df, date_range):
     return mapping_aug.merge(dates_df, on='_key').drop(columns='_key')
 
 
+def _cda_effective_production_mask_sql():
+    """SQL predicate matching production_update.filter_to_first_production."""
+    return """
+        (ISNULL(GasWH_Production, 0) > 2)
+        OR (
+            ISNULL(GasWH_Production, 0) <= 2
+            AND ISNULL(Gathered_Gas_Production, 0) > 0
+        )
+    """
+
+
+def fetch_cda_first_production_by_well(conn=None) -> pd.Series:
+    """
+    Per-well first ProdDate with non-zero effective production (Gas WH or Gathered Gas).
+    Same rules as filter_to_first_production on PCE_Production rebuild.
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT [Well Name], MIN(CAST(ProdDate AS DATE)) AS FirstProdDate
+            FROM dbo.PCE_CDA
+            WHERE {_cda_effective_production_mask_sql()}
+            GROUP BY [Well Name]
+            """
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return pd.Series(dtype="object")
+        out = {}
+        for wn, d in rows:
+            if wn is None or d is None:
+                continue
+            out[str(wn).strip()] = d.date() if hasattr(d, "date") else d
+        return pd.Series(out)
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
+def _build_spine_per_well_starts(mapping_df, first_prod_by_well, end_date, default_start):
+    """Spine rows from each well's first production date through end_date."""
+    end = pd.Timestamp(end_date)
+    default = pd.Timestamp(default_start)
+    if isinstance(first_prod_by_well, pd.Series):
+        lookup = first_prod_by_well.to_dict()
+    else:
+        lookup = dict(first_prod_by_well or {})
+
+    def _date_list(well_name):
+        wn = str(well_name).strip()
+        start = lookup.get(wn)
+        start = pd.Timestamp(start) if start is not None else default
+        if start > end:
+            return []
+        return list(pd.date_range(start, end, freq="D").date)
+
+    m = mapping_df.copy()
+    m["_dates"] = m["Well Name"].map(_date_list)
+    m = m.loc[m["_dates"].map(len) > 0].explode("_dates", ignore_index=True)
+    m = m.rename(columns={"_dates": "ProdDate"})
+    return m
+
+
 # Snowflake may return the SQL alias or the raw VOL* name (case-insensitive).
 _SF_VALUE_ALIASES = {
     'Gathered_Water_Production': (
@@ -423,9 +490,15 @@ def refresh_pce_cda_from_snowflake(
     log_callback=None,
     conn=None,
     progress_callback=None,
+    well_first_production_start=None,
+    default_spine_start=None,
 ):
     """
     Pull Snowflake for [start_date, end_date] and replace matching PCE_CDA rows.
+
+    When *well_first_production_start* is set (Full Rebuild), the spine uses each
+    well's first production date through *end_date* instead of every calendar day
+    from *start_date* for every well.
 
     Does not modify PCE_Production. Returns number of CDA rows inserted.
     """
@@ -461,8 +534,23 @@ def refresh_pce_cda_from_snowflake(
         progress(15)
 
         log(lf.step("Building spine and merging Snowflake data…"))
-        full_range = pd.date_range(start=start_date, end=end_date, freq="D").date
-        spine_df = _build_spine(mapping_df, full_range)
+        if well_first_production_start is not None:
+            spine_default = default_spine_start or start_date
+            spine_df = _build_spine_per_well_starts(
+                mapping_df,
+                well_first_production_start,
+                end_date,
+                spine_default,
+            )
+            log(
+                lf.detail(
+                    f"Spine: per-well first production through {end_date} "
+                    f"({lf.num(len(spine_df))} rows; Snowflake query {start_date}–{end_date})"
+                )
+            )
+        else:
+            full_range = pd.date_range(start=start_date, end=end_date, freq="D").date
+            spine_df = _build_spine(mapping_df, full_range)
         result_df = _merge_sf_data(spine_df, sf_data)
         _log_gathered_water_merge_stats(result_df, log)
         result_df["Condensate_WH_Production"] = (
@@ -539,50 +627,58 @@ def refresh_full_rebuild_cda(
     progress_callback=None,
 ):
     """
-    Replace PCE_CDA from Snowflake for the full CDA date span (MIN ProdDate through
-    effective end). Used by Full Rebuild before rebuilding all PCE_Production.
-    Returns (start_date, end_date, rows_inserted).
+    Replace PCE_CDA from Snowflake per well from first production date (CDA) through
+    effective end. Used by Full Rebuild before rebuilding all PCE_Production.
+    Returns (snowflake_query_start, end_date, rows_inserted).
     """
+    from prodview_date_bounds import full_rebuild_snowflake_range, quick_update_start_date
+
     log = partial(_emit_log, log_callback)
     end_date = prodview_effective_end_date()
+    default_start = quick_update_start_date(end_date)
+
     own_conn = conn is None
     if own_conn:
         conn = get_sql_conn()
     try:
-        cda_min = query_pce_cda_min_date(conn)
+        first_prod = fetch_cda_first_production_by_well(conn)
+        if first_prod.empty:
+            log(
+                lf.detail(
+                    "No per-well first production in PCE_CDA; using rolling window "
+                    f"start {default_start} for all wells."
+                )
+            )
+            query_start = default_start
+        else:
+            query_start = min(first_prod.values)
+            log(
+                lf.detail(
+                    f"Per-well first production: {lf.num(len(first_prod))} wells; "
+                    f"Snowflake query window {query_start} through {end_date}."
+                )
+            )
+        query_start, end_date = full_rebuild_snowflake_range(query_start, end_date)
+
+        log(
+            lf.step(
+                f"Snowflake → PCE_CDA ({query_start} through {end_date}) "
+                "— per-well first production"
+            )
+        )
+        n = refresh_pce_cda_from_snowflake(
+            query_start,
+            end_date,
+            log_callback=log_callback,
+            conn=conn,
+            progress_callback=progress_callback,
+            well_first_production_start=first_prod if not first_prod.empty else None,
+            default_spine_start=default_start,
+        )
+        return query_start, end_date, n
     finally:
         if own_conn and conn is not None:
             conn.close()
-
-    start_date, end_date = full_rebuild_snowflake_range(cda_min, end_date)
-    if cda_min is None:
-        log(
-            lf.detail(
-                "PCE_CDA is empty; Snowflake pull uses the rolling window start "
-                f"({start_date}) until history exists."
-            )
-        )
-    else:
-        log(
-            lf.detail(
-                f"PCE_CDA earliest ProdDate: {cda_min}; Snowflake pull spans full "
-                f"stored history ({start_date} through {end_date})."
-            )
-        )
-    log(
-        lf.step(
-            f"Snowflake → PCE_CDA ({start_date} through {end_date}) "
-            "— full CDA lifespan"
-        )
-    )
-    n = refresh_pce_cda_from_snowflake(
-        start_date,
-        end_date,
-        log_callback=log_callback,
-        conn=conn,
-        progress_callback=progress_callback,
-    )
-    return start_date, end_date, n
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import prodview_date_bounds as pdb
 
 
-def test_full_rebuild_snowflake_range_uses_cda_min():
+def test_full_rebuild_snowflake_range_uses_earliest_query_start():
     end = date(2026, 4, 17)
     assert pdb.full_rebuild_snowflake_range(date(2018, 3, 1), end) == (
         date(2018, 3, 1),
