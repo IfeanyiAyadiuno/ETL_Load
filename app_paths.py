@@ -22,5 +22,5 @@ def get_logo_path():
 
 
 def get_company_icon_path():
-    """Absolute path to the header company icon (images/PCE Icon white.png)."""
-    return str(_app_dir() / "images" / "PCE Icon white.png")
+    """Absolute path to the header company icon (images/PCE Icon white.jpg)."""
+    return str(_app_dir() / "images" / "PCE Icon white.jpg")

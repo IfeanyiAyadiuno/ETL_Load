@@ -150,7 +150,7 @@ class ProductionUpdateGUI(QMainWindow):
         layout.setSpacing(18)
         layout.setContentsMargins(24, 24, 28, 24)
         
-        # Header card (title + subtitle + settings)
+        # Header card (title + subtitle + Credits)
         header_card = QFrame()
         header_card.setObjectName("headerCard")
         header_card.setStyleSheet("""
@@ -222,7 +222,7 @@ class ProductionUpdateGUI(QMainWindow):
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
         
-        # Operations panel
+        # RE Actions panel
         ops_card = QFrame()
         ops_card.setObjectName("opsCard")
         ops_card.setStyleSheet("""
