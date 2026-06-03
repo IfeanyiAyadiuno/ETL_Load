@@ -89,7 +89,7 @@ def main() -> int:
     )
     print(
         "If water_nonzero > 0 but PCE_CDA is still empty, run Prodview "
-        "'Snowflake → CDA + production rebuild' (Quick Update), not Full rebuild only."
+        "Full rebuild (full CDA history) or Quick Update (~18 mo rolling window)."
     )
     return 0
 

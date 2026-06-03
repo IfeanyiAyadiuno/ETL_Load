@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import log_format as lf
 from db_connection import get_sql_conn
 from prodview_date_bounds import (
+    full_rebuild_snowflake_range,
     prodview_effective_end_date,
     quick_update_date_range,
     rolling_window_snowflake_range,
@@ -375,6 +376,26 @@ def _batch_executemany(cursor, sql, rows, batch_size=5000):
         cursor.executemany(sql, rows[i:i + batch_size])
 
 
+def query_pce_cda_min_date(conn=None):
+    """Return MIN(CAST(ProdDate AS DATE)) from PCE_CDA, or None if empty."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT MIN(CAST(ProdDate AS DATE)) FROM dbo.PCE_CDA")
+        row = cur.fetchone()
+        val = row[0] if row else None
+        if val is None:
+            return None
+        if hasattr(val, "date"):
+            return val.date()
+        return val
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
 def query_pce_cda_max_date(conn=None):
     """Return MAX(CAST(ProdDate AS DATE)) from PCE_CDA, or None if empty."""
     own_conn = conn is None
@@ -491,8 +512,7 @@ def refresh_rolling_window_cda(
     """
     Replace PCE_CDA rows for the Prodview rolling Snowflake window (~18 months).
 
-    Shared by Quick Update and Full Rebuild so both paths stay aligned.
-    Returns (start_date, end_date, rows_inserted).
+    Used by Quick Update. Returns (start_date, end_date, rows_inserted).
     """
     start_date, end_date = rolling_window_snowflake_range()
     log = partial(_emit_log, log_callback)
@@ -500,6 +520,59 @@ def refresh_rolling_window_cda(
         lf.step(
             f"Snowflake → PCE_CDA ({start_date} through {end_date}) "
             "— rolling window"
+        )
+    )
+    n = refresh_pce_cda_from_snowflake(
+        start_date,
+        end_date,
+        log_callback=log_callback,
+        conn=conn,
+        progress_callback=progress_callback,
+    )
+    return start_date, end_date, n
+
+
+def refresh_full_rebuild_cda(
+    *,
+    log_callback=None,
+    conn=None,
+    progress_callback=None,
+):
+    """
+    Replace PCE_CDA from Snowflake for the full CDA date span (MIN ProdDate through
+    effective end). Used by Full Rebuild before rebuilding all PCE_Production.
+    Returns (start_date, end_date, rows_inserted).
+    """
+    log = partial(_emit_log, log_callback)
+    end_date = prodview_effective_end_date()
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cda_min = query_pce_cda_min_date(conn)
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+    start_date, end_date = full_rebuild_snowflake_range(cda_min, end_date)
+    if cda_min is None:
+        log(
+            lf.detail(
+                "PCE_CDA is empty; Snowflake pull uses the rolling window start "
+                f"({start_date}) until history exists."
+            )
+        )
+    else:
+        log(
+            lf.detail(
+                f"PCE_CDA earliest ProdDate: {cda_min}; Snowflake pull spans full "
+                f"stored history ({start_date} through {end_date})."
+            )
+        )
+    log(
+        lf.step(
+            f"Snowflake → PCE_CDA ({start_date} through {end_date}) "
+            "— full CDA lifespan"
         )
     )
     n = refresh_pce_cda_from_snowflake(

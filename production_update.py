@@ -787,23 +787,21 @@ def main(cancel_event=None):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     end_cap = prodview_effective_end_date()
-    from prodview_date_bounds import rolling_window_snowflake_range
-    from prodview_update_gui import query_pce_cda_max_date, refresh_rolling_window_cda
+    from prodview_update_gui import (
+        query_pce_cda_max_date,
+        query_pce_cda_min_date,
+        refresh_full_rebuild_cda,
+    )
 
+    cda_min_before = query_pce_cda_min_date()
     cda_max_before = query_pce_cda_max_date()
-    print(lf.detail(f"PCE_CDA max date before Snowflake refresh: {cda_max_before or '—'}"))
+    print(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
     print(lf.detail(f"Automatic end date (today − lag): {end_cap}"))
 
-    sf_start, sf_end, _cda_rows = refresh_rolling_window_cda(log_callback=print)
-    print(
-        lf.detail(
-            f"Snowflake rolling window: {sf_start} through {sf_end} "
-            "(same as Quick Update)"
-        )
-    )
+    sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(log_callback=print)
     cda_max_after = query_pce_cda_max_date()
     print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
-    timer.mark("Snowflake → PCE_CDA rolling window refresh")
+    timer.mark("Snowflake → PCE_CDA full lifespan refresh")
 
     if aborted():
         print(lf.warn("Cancelled after Snowflake CDA refresh."))
@@ -833,7 +831,7 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled after trimming future CDA."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    window_start, window_end = rolling_window_snowflake_range()
+    window_start, window_end = sf_start, sf_end
     with get_sql_conn() as conn:
         cur = conn.cursor()
         cur.execute(

@@ -46,8 +46,24 @@ def quick_update_date_range() -> Tuple[date, date]:
 
 
 def rolling_window_snowflake_range() -> Tuple[date, date]:
-    """Inclusive range for Prodview Snowflake → PCE_CDA (Quick Update and Full Rebuild)."""
+    """Inclusive range for Prodview Snowflake → PCE_CDA (Quick Update only, ~18 months)."""
     return quick_update_date_range()
+
+
+def full_rebuild_snowflake_range(
+    cda_min: date | None = None,
+    effective_end: date | None = None,
+) -> Tuple[date, date]:
+    """
+    Inclusive Snowflake → PCE_CDA range for Full Rebuild: entire CDA history through
+    *effective_end*. When *cda_min* is unknown (empty CDA), falls back to the rolling
+    window start so the first load still has a bounded pull.
+    """
+    end = effective_end or prodview_effective_end_date()
+    start = cda_min if cda_min is not None else quick_update_start_date(end)
+    if start > end:
+        start = end
+    return start, end
 
 
 def merge_inclusive_date_ranges(

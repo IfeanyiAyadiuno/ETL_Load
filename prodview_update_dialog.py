@@ -99,9 +99,9 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Always Snowflake → PCE_CDA for the ~18‑month rolling window (same as Quick Update)\n"
+            "  • Snowflake → PCE_CDA for full stored history (earliest ProdDate through today − 2)\n"
             "  • Refreshes CDA sales from Allocation_Factors, then rebuilds all PCE_Production from CDA\n"
-            "  • Longer than Quick Update (~5–15 min depending on database size)"
+            "  • Longest run — can take 15+ min on large history"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
@@ -259,11 +259,11 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         if self.mode_full_rebuild.isChecked():
             self.quick_scope_body.setText(
-                "Full rebuild: Snowflake rolling window + AF refresh on CDA, "
+                "Full rebuild: Snowflake for full CDA history + AF refresh, "
                 "then rebuild all PCE_Production from all PCE_CDA (through today − 2)."
             )
             self.info_text.setText(
-                "  • Snowflake → PCE_CDA for the ~18‑month window (same as Quick Update)\n"
+                "  • Snowflake → PCE_CDA from earliest ProdDate in CDA through today − 2\n"
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
                 "  • Delete all gathered PCE_Production and rebuild from all PCE_CDA (+ PCE_TC sync)"
             )
@@ -313,7 +313,7 @@ class ProdviewUpdateDialog(QDialog):
         sql_target = sql_target_label()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = "Full rebuild: Snowflake rolling window + AF refresh + all CDA → production"
+            mode_label = "Full rebuild: Snowflake full CDA history + AF + all production"
             body = (
                 "Run full rebuild?\n\n"
                 f"SQL target: {sql_target}\n"

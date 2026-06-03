@@ -126,7 +126,7 @@ This section is the **most important** if you want to know "where is the code th
 - **Where the real logic is:**
   - **File:** `prodview_update_gui.py`
   - **Main function:** `run_quick_update(progress_callback=None, log_callback=None)` — rolling 18 months through `prodview_effective_end_date()` (today − 2).
-  - **Full rebuild** runs `production_update.main`: `refresh_rolling_window_cda()` (same ~18‑month Snowflake window as Quick Update), AF refresh on `PCE_CDA`, then clears/rebuilds `PCE_Production` from **all** `PCE_CDA` rows.
+  - **Full rebuild** runs `production_update.main`: `refresh_full_rebuild_cda()` (Snowflake from `MIN(PCE_CDA.ProdDate)` through effective end), AF refresh on `PCE_CDA`, then clears/rebuilds `PCE_Production` from **all** `PCE_CDA` rows.
 
 - **What `run_quick_update` does (high-level):**
   1. Parse the month range (`"MMM YYYY"`) into actual dates.
@@ -316,7 +316,7 @@ For each big operation (Prodview update, PA loader, surveys, type curves, sales 
 
 - **Prodview Full Rebuild:**
   - Heavy operation; can take 30–40 minutes.
-  - Refreshes `PCE_CDA` from Snowflake via `refresh_rolling_window_cda()`, then clears and rebuilds `PCE_Production` from all `PCE_CDA` (broader production scope than Quick Update’s rolling-window wells).
+  - Refreshes `PCE_CDA` from Snowflake via `refresh_full_rebuild_cda()` (full CDA date span), then clears and rebuilds `PCE_Production` from all `PCE_CDA`.
   - Orchestrated by `ProdviewUpdateDialog` calling `production_update.main`.
 
 - **Type Curves Import:**
