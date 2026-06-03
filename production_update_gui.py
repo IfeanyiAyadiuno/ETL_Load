@@ -253,7 +253,7 @@ class ProductionUpdateGUI(QMainWindow):
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
         
-        # RE Actions panel
+        # RE Production System Actions panel
         ops_card = QFrame()
         ops_card.setObjectName("opsCard")
         ops_card.setStyleSheet("""
@@ -267,7 +267,7 @@ class ProductionUpdateGUI(QMainWindow):
         ops_outer.setContentsMargins(20, 16, 20, 18)
         ops_outer.setSpacing(12)
         
-        ops_title = QLabel("RE Actions")
+        ops_title = QLabel("RE Production System Actions")
         ops_title.setStyleSheet(ops_section_title_style())
         ops_header_row = QHBoxLayout()
         ops_header_row.addWidget(ops_title)

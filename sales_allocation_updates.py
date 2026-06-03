@@ -384,7 +384,8 @@ def apply_valnav_allocation_to_cda_and_production(
     cursor.execute(
         """
         UPDATE c SET
-            c.[Gas - S2 Production] = a.WH_to_S2_AllocFactor * c.[GasWH_Production]
+            c.[Gas - S2 Production] = a.WH_to_S2_AllocFactor
+                * ISNULL(c.[Gathered_Gas_Production], 0)
         FROM PCE_CDA c
         INNER JOIN Allocation_Factors a
             ON c.[Well Name] = a.[Well Name]

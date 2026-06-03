@@ -224,7 +224,7 @@ def licensing_credits_name_style() -> str:
 
 
 def ops_section_title_style() -> str:
-    """RE Actions panel section heading (matches header Garamond)."""
+    """RE Production System Actions panel section heading (matches header Garamond)."""
     return f"""
         QLabel {{
             color: {_TEXT};
@@ -271,7 +271,7 @@ def header_credits_btn_style() -> str:
 
 
 def header_action_btn_style() -> str:
-    """Settings (RE Actions section) action button."""
+    """Settings (RE Production System Actions section) action button."""
     return f"""
         QPushButton {{
             background-color: #ffffff;

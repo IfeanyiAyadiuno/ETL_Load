@@ -161,9 +161,9 @@ This section is the **most important** if you want to know "where is the code th
   1. Reads the selected **month** and builds a period.
   2. Loads the **ValNav** Excel file (path from `settings.ini`). **Accumap** is **not** part of this job; see **§4.5**.
   3. Uses `PCE_WM` for well mapping and **PCE_CDA** monthly aggregates (same pattern as today for factor denominators).
-  4. Writes **ValNav-derived** columns into **`Allocation_Factors`** (e.g. `S2_Gas`, `Sales_Condensate`, `WH_to_S2_AllocFactor`, `WH_to_Sales_Cond_AllocFactor`, and related CDA rollups used to compute them). Does **not** populate **`Sales_Gas`** or **`WH_to_Sales_AllocFactor`** (those come from Accumap in Public Sales).
+  4. Writes **ValNav-derived** columns into **`Allocation_Factors`** (e.g. `S2_Gas`, `Sales_Condensate`, `WH_to_S2_AllocFactor` = ValNav S2 ÷ summed monthly gathered gas, `WH_to_Sales_Cond_AllocFactor`, and related CDA rollups). Does **not** populate **`Sales_Gas`** or **`WH_to_Sales_AllocFactor`** (those come from Accumap in Public Sales).
   5. Calls **`apply_valnav_allocation_to_cda_and_production`** in **`sales_allocation_updates.py`** (ValNav-only CDA/Production columns):
-     - **`PCE_CDA`:** `[Gas - S2 Production]`, `[Condensate - Sales Production]`
+     - **`PCE_CDA`:** `[Gas - S2 Production]` = `WH_to_S2_AllocFactor` × `[Gathered_Gas_Production]`; `[Condensate - Sales Production]`
      - **`PCE_Production`:** `[Gas S2 Production (10³m³)]`, `[Condensate Sales (m³/d)]` (via the existing `PCE_WM` composite-name join used in sales ratios)
   6. Does **not** in this step update **`[Gas - Sales Production]`**, **`[Gas Sales Production (10³m³)]`**, or **`[Sales CGR Ratio]`** / **`[Sales CGR (m³/e³m³)]`** — those stay for **Public Sales Data and Ratios** after Accumap-backed factors exist.
 

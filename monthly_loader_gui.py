@@ -101,17 +101,18 @@ def _resolve_valnav_column(df: pd.DataFrame, logical_name: str, *candidates: str
     )
 
 
-def compute_wh_to_s2_alloc_factor(s2_gas, prodview_wh_gas):
+def compute_wh_to_s2_alloc_factor(s2_gas, monthly_gathered_gas):
     """
-    S2 / summed WH gas for the month.
+    ValNav monthly S2 / summed gathered gas for the month.
 
-    Returns None when CDA has no WH volume (never default to 1.0 pass-through).
+    Applied to daily ``Gathered_Gas_Production`` on PCE_CDA (not WH gas).
+    Returns None when gathered gas total is zero (never default to 1.0 pass-through).
     """
-    pw = float(prodview_wh_gas) if prodview_wh_gas is not None else 0.0
-    if pw <= 0:
+    gathered = float(monthly_gathered_gas) if monthly_gathered_gas is not None else 0.0
+    if gathered <= 0:
         return None
     s2 = float(s2_gas) if s2_gas is not None else 0.0
-    return s2 / pw
+    return s2 / gathered
 
 
 def compute_wh_to_sales_cond_alloc_factor(sales_cond, prodview_wh_cond):
@@ -619,7 +620,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
                 wkey = str(well_name).strip() if well_name else ""
                 sales_gas = preserved_sales_gas.get(wkey, 0.0)
 
-                wh_to_s2 = compute_wh_to_s2_alloc_factor(s2_gas, prodview_wh_gas)
+                wh_to_s2 = compute_wh_to_s2_alloc_factor(s2_gas, gathered_gas)
                 wh_to_sales_cond = compute_wh_to_sales_cond_alloc_factor(
                     sales_cond, prodview_wh_cond
                 )

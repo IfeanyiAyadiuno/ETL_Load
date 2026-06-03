@@ -1,4 +1,4 @@
-"""PA allocation factor helpers — no 1.0 pass-through when CDA WH is zero."""
+"""PA allocation factor helpers — no 1.0 pass-through when monthly gathered gas is zero."""
 
 import unittest
 
@@ -9,11 +9,11 @@ from monthly_loader_gui import (
 
 
 class TestPaAllocFactors(unittest.TestCase):
-    def test_s2_factor_none_when_wh_zero(self):
+    def test_s2_factor_none_when_gathered_zero(self):
         self.assertIsNone(compute_wh_to_s2_alloc_factor(100.0, 0.0))
         self.assertIsNone(compute_wh_to_s2_alloc_factor(100.0, None))
 
-    def test_s2_factor_ratio_when_wh_positive(self):
+    def test_s2_factor_ratio_when_gathered_positive(self):
         self.assertEqual(compute_wh_to_s2_alloc_factor(50.0, 100.0), 0.5)
         self.assertEqual(compute_wh_to_s2_alloc_factor(0.0, 100.0), 0.0)
 
