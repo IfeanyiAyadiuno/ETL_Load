@@ -150,18 +150,13 @@ def _fetch_gathered_monthly_rows(
     if progress_cb:
         progress_cb("Querying gathered monthly totals…")
 
-    if to_start.month == 12:
-        spine_end_exclusive = date(to_start.year + 1, 1, 1)
-    else:
-        spine_end_exclusive = date(to_start.year, to_start.month + 1, 1)
-
     sql = """
     WITH MonthSpine AS (
         SELECT CAST(? AS DATE) AS MonthStart
         UNION ALL
         SELECT DATEADD(MONTH, 1, MonthStart)
         FROM MonthSpine
-        WHERE MonthStart < CAST(? AS DATE)
+        WHERE DATEADD(MONTH, 1, MonthStart) <= CAST(? AS DATE)
     ),
     AggByProd AS (
         SELECT
@@ -228,7 +223,7 @@ def _fetch_gathered_monthly_rows(
     cur.execute(
         sql,
         from_start,
-        spine_end_exclusive,
+        to_start,
         from_start,
         _last_day_of_month(to_start.year, to_start.month),
     )

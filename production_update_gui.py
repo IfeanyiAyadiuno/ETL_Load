@@ -37,6 +37,7 @@ from styles import (
     app_name_style,
     dialog_title_style,
     header_action_btn_style,
+    header_credits_btn_style,
     ops_section_title_style,
     licensing_credits_role_style,
     licensing_credits_name_style,
@@ -166,10 +167,10 @@ class ProductionUpdateGUI(QMainWindow):
         
         header_row = QHBoxLayout()
         header_row.setSpacing(16)
-        header_row.setAlignment(Qt.AlignVCenter)
+        header_row.setAlignment(Qt.AlignTop)
 
         logo_label = QLabel()
-        logo_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        logo_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         logo_path = get_logo_path()
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
@@ -178,7 +179,7 @@ class ProductionUpdateGUI(QMainWindow):
                 logo_label.setPixmap(scaled)
         else:
             logo_label.setText("")
-        header_row.addWidget(logo_label, 0, Qt.AlignVCenter)
+        header_row.addWidget(logo_label, 0, Qt.AlignTop)
 
         title_block = QVBoxLayout()
         title_block.setSpacing(4)
@@ -197,13 +198,6 @@ class ProductionUpdateGUI(QMainWindow):
 
         header_btn_style = header_action_btn_style()
 
-        self.btn_credits = QPushButton("Credits")
-        self.btn_credits.setStyleSheet(header_btn_style)
-        self.btn_credits.setCursor(Qt.PointingHandCursor)
-        self.btn_credits.clicked.connect(self.open_credits)
-        header_row.addSpacing(20)
-        header_row.addWidget(self.btn_credits, 0, Qt.AlignVCenter)
-
         self.btn_settings = QPushButton("Settings")
         self.btn_settings.setStyleSheet(header_btn_style)
         self.btn_settings.setCursor(Qt.PointingHandCursor)
@@ -211,8 +205,12 @@ class ProductionUpdateGUI(QMainWindow):
 
         header_row.addStretch(1)
 
+        header_right = QVBoxLayout()
+        header_right.setSpacing(6)
+        header_right.setAlignment(Qt.AlignTop | Qt.AlignRight)
+
         icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        icon_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
         icon_path = get_company_icon_path()
         if os.path.isfile(icon_path):
             icon_pix = QPixmap(icon_path)
@@ -220,7 +218,15 @@ class ProductionUpdateGUI(QMainWindow):
                 icon_label.setPixmap(icon_pix.scaledToHeight(96, Qt.SmoothTransformation))
         else:
             icon_label.setText("")
-        header_row.addWidget(icon_label, 0, Qt.AlignVCenter)
+        header_right.addWidget(icon_label, 0, Qt.AlignRight)
+
+        self.btn_credits = QPushButton("Credits")
+        self.btn_credits.setStyleSheet(header_credits_btn_style())
+        self.btn_credits.setCursor(Qt.PointingHandCursor)
+        self.btn_credits.clicked.connect(self.open_credits)
+        header_right.addWidget(self.btn_credits, 0, Qt.AlignRight)
+
+        header_row.addLayout(header_right, 0)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)

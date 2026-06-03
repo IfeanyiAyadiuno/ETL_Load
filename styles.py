@@ -239,8 +239,36 @@ def ops_section_title_style() -> str:
     """
 
 
+def header_credits_btn_style() -> str:
+    """Compact Credits button stacked under the header PCE logo."""
+    return f"""
+        QPushButton {{
+            background-color: #ffffff;
+            color: {_PCE_NAVY};
+            border: 2px solid {_PCE_NAVY};
+            border-radius: 10px;
+            font-family: {_FONT_BRAND};
+            font-size: 13px;
+            font-weight: 700;
+            padding: 6px 12px;
+            min-height: 34px;
+            max-width: 88px;
+            min-width: 72px;
+        }}
+        QPushButton:hover {{
+            background-color: {_PCE_NAVY};
+            color: #ffffff;
+        }}
+        QPushButton:pressed {{
+            background-color: #001a3d;
+            border-color: #001a3d;
+            color: #ffffff;
+        }}
+    """
+
+
 def header_action_btn_style() -> str:
-    """Credits (header) and Settings (RE Actions section) action buttons."""
+    """Settings (RE Actions section) action button."""
     return f"""
         QPushButton {{
             background-color: #ffffff;
