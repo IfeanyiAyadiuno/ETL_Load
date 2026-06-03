@@ -181,6 +181,7 @@ _CDA_SELECT_SQL = """
         [Condensate - Sales Production] as [Condensate Sales (m³/d)],
         [Gathered_Gas_Production] as [Gathered Gas (e³m³/d)],
         [Gathered_Condensate_Production] as [Gathered Condensate (m³/d)],
+        [Gathered_Water_Production] as [Gath. Water Rate (m³/d)],
         [Sales CGR Ratio] as [Sales CGR (m³/e³m³)],
         [CGR_Ratio] as [CGR (m³/e³m³)],
         [WGR_Ratio] as [WGR (m³/e³m³)],
@@ -590,6 +591,7 @@ def calculate_cumulatives(df):
         ('Condensate WH (m³/d)', 'Condensate WH Cumulative Production (m³)'),
         ('Gathered Gas (e³m³/d)', 'Gas Gathered Cumulative (e³m³)'),
         ('Gathered Condensate (m³/d)', 'Condensate Gathered Cumulative (m³)'),
+        ('Gath. Water Rate (m³/d)', 'Gath. Water Cumulative (m³)'),
     ]
 
     # For each pair, compute per‑well running total that never resets
@@ -614,6 +616,7 @@ def calculate_monthly_averages(df):
         ('Gas S2 Production (10³m³)', 'Gas S2 Avg (10³m³)'),
         ('Gathered Gas (e³m³/d)', 'Gas Gathered Avg (e³m³/d)'),
         ('Gathered Condensate (m³/d)', 'Condensate Gathered Avg (m³/d)'),
+        ('Gath. Water Rate (m³/d)', 'Gath. Water Avg (m³/d)'),
         ('Alloc. Water Rate (m³)', 'Alloc. Water Avg (m³)'),
     ]
 
@@ -642,7 +645,8 @@ _INSERT_COLS = [
     'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
     'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
     'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
-    'Gathered Condensate (m³/d)', 'Sales CGR (m³/e³m³)',
+    'Gathered Condensate (m³/d)', 'Gath. Water Rate (m³/d)',
+    'Sales CGR (m³/e³m³)',
     'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
     'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
     'Choke Size', 'Gas WH Cumulative Production (10³m³)',
@@ -652,11 +656,13 @@ _INSERT_COLS = [
     'Condensate WH Cumulative Production (m³)',
     'Gas Gathered Cumulative (e³m³)',
     'Condensate Gathered Cumulative (m³)',
+    'Gath. Water Cumulative (m³)',
     'Formation Producer', 'Layer Producer', 'Fault Block',
     'Pad Name', 'Lateral Length', 'Orientation',
     'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+    'Gath. Water Avg (m³/d)',
     'Alloc. Water Avg (m³)',
     'Month',
 ]
@@ -676,7 +682,8 @@ def insert_pce_production(df):
         [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
         [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
         [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-        [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+        [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
+        [Sales CGR (m³/e³m³)],
         [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
         [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
         [Choke Size], [Gas WH Cumulative Production (10³m³)],
@@ -686,14 +693,16 @@ def insert_pce_production(df):
         [Condensate WH Cumulative Production (m³)],
         [Gas Gathered Cumulative (e³m³)],
         [Condensate Gathered Cumulative (m³)],
+        [Gath. Water Cumulative (m³)],
         [Formation Producer], [Layer Producer], [Fault Block],
         [Pad Name], [Lateral Length], [Orientation],
         [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
         [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
         [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+        [Gath. Water Avg (m³/d)],
         [Alloc. Water Avg (m³)],
         [Month]
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     # Ensure int columns are cast properly before NaN->None conversion

@@ -103,6 +103,7 @@ _SF_QUERIES = {
                 CAST(DTTM AS DATE) AS ProdDate,
                 VOLPRODGATHGAS AS Gathered_Gas_Production,
                 VOLPRODGATHHCLIQ AS Gathered_Condensate_Production,
+                VOLPRODGATHWATER AS Gathered_Water_Production,
                 VOLNEWPRODALLOCNGL AS NGL_Production
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
         WHERE DTTM >= %s AND DTTM <= %s
@@ -177,7 +178,16 @@ def _merge_sf_data(spine_df, sf_data):
         ('cgr_water', 'PressuresIDREC', ['CGR_Ratio', 'AllocatedWater_Rate']),
         ('wgr',       'PressuresIDREC', ['WGR_Ratio']),
         ('pressures', 'PressuresIDREC', ['TubingPressure', 'CasingPressure', 'ChokeSize']),
-        ('alloc',     'PressuresIDREC', ['Gathered_Gas_Production', 'Gathered_Condensate_Production', 'NGL_Production']),
+        (
+            'alloc',
+            'PressuresIDREC',
+            [
+                'Gathered_Gas_Production',
+                'Gathered_Condensate_Production',
+                'Gathered_Water_Production',
+                'NGL_Production',
+            ],
+        ),
     ]
 
     for name, join_col, value_cols in merge_specs:
@@ -221,10 +231,10 @@ _CDA_INSERT_SQL = """
                 [WGR_Ratio], [CGR_Ratio], [ECF_Ratio],
                 [OnProdHours], [TubingPressure], [CasingPressure], [ChokeSize],
                 [Gathered_Gas_Production], [Gathered_Condensate_Production],
-                [NGL_Production], [AllocatedWater_Rate],
+                [Gathered_Water_Production], [NGL_Production], [AllocatedWater_Rate],
                 [Formation Producer], [Layer Producer], [Fault Block], [Pad Name],
                 [Lateral Length], [Orient]
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
 
 _CDA_COLUMNS = [
@@ -233,7 +243,7 @@ _CDA_COLUMNS = [
     'WGR_Ratio', 'CGR_Ratio', 'ECF_Ratio',
     'OnProdHours', 'TubingPressure', 'CasingPressure', 'ChokeSize',
     'Gathered_Gas_Production', 'Gathered_Condensate_Production',
-    'NGL_Production', 'AllocatedWater_Rate',
+    'Gathered_Water_Production', 'NGL_Production', 'AllocatedWater_Rate',
     'Formation Producer', 'Layer Producer', 'Fault Block', 'Pad Name',
     'Lateral Length', 'Orient',
 ]
@@ -244,7 +254,8 @@ _PROD_INSERT_SQL = """
                     [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
                     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
                     [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-                    [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+                    [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
+                    [Sales CGR (m³/e³m³)],
                     [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
                     [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
     [Choke Size], [Gas WH Cumulative Production (10³m³)],
@@ -254,14 +265,16 @@ _PROD_INSERT_SQL = """
     [Condensate WH Cumulative Production (m³)],
     [Gas Gathered Cumulative (e³m³)],
     [Condensate Gathered Cumulative (m³)],
+    [Gath. Water Cumulative (m³)],
                     [Formation Producer], [Layer Producer], [Fault Block],
     [Pad Name], [Lateral Length], [Orientation],
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
     [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+    [Gath. Water Avg (m³/d)],
     [Alloc. Water Avg (m³)],
     [Month]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _PROD_COLUMNS = [
@@ -269,7 +282,8 @@ _PROD_COLUMNS = [
     'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
     'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
     'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
-    'Gathered Condensate (m³/d)', 'Sales CGR (m³/e³m³)',
+    'Gathered Condensate (m³/d)', 'Gath. Water Rate (m³/d)',
+    'Sales CGR (m³/e³m³)',
     'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
     'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
     'Choke Size', 'Gas WH Cumulative Production (10³m³)',
@@ -279,11 +293,13 @@ _PROD_COLUMNS = [
     'Condensate WH Cumulative Production (m³)',
     'Gas Gathered Cumulative (e³m³)',
     'Condensate Gathered Cumulative (m³)',
+    'Gath. Water Cumulative (m³)',
     'Formation Producer', 'Layer Producer', 'Fault Block',
     'Pad Name', 'Lateral Length', 'Orientation',
     'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
     'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
     'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
+    'Gath. Water Avg (m³/d)',
     'Alloc. Water Avg (m³)',
     'Month',
 ]
@@ -506,7 +522,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
                 [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
                 [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-                [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+                [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
+                [Sales CGR (m³/e³m³)],
                 [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
                 [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
                 [Choke Size], [Alloc. Water Rate (m³)], [NGL (m³)],
@@ -519,7 +536,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 c.GasWH_Production, c.Condensate_WH_Production,
                 c.[Gas - S2 Production], c.[Gas - Sales Production],
                 c.[Condensate - Sales Production], c.Gathered_Gas_Production,
-                c.Gathered_Condensate_Production, c.[Sales CGR Ratio],
+                c.Gathered_Condensate_Production, c.Gathered_Water_Production,
+                c.[Sales CGR Ratio],
                 c.CGR_Ratio, c.WGR_Ratio, c.ECF_Ratio,
                 c.OnProdHours, c.TubingPressure, c.CasingPressure,
                 c.ChokeSize, c.AllocatedWater_Rate, c.NGL_Production,
@@ -560,6 +578,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                         OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gg_avg,
                     AVG(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT))
                         OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gc_avg,
+                    AVG(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT))
+                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gtw_avg,
                     AVG(CAST(p.[Alloc. Water Rate (m³)] AS FLOAT))
                         OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS aw_avg
                 FROM dbo.PCE_Production p
@@ -572,6 +592,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 tgt.[Gas S2 Avg (10³m³)] = s.gs2_avg,
                 tgt.[Gas Gathered Avg (e³m³/d)] = s.gg_avg,
                 tgt.[Condensate Gathered Avg (m³/d)] = s.gc_avg,
+                tgt.[Gath. Water Avg (m³/d)] = s.gtw_avg,
                 tgt.[Alloc. Water Avg (m³)] = s.aw_avg
             FROM dbo.PCE_Production tgt
             INNER JOIN avg_src s ON tgt.[Well Name] = s.[Well Name] AND tgt.[Date] = s.[Date]

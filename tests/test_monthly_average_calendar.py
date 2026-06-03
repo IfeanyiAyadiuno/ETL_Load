@@ -21,6 +21,7 @@ def test_calculate_monthly_averages_splits_calendar_months_and_alloc_water_avg()
             "Gas S2 Production (10³m³)": [0.0, 0.0, 0.0, 0.0],
             "Gathered Gas (e³m³/d)": [0.0, 0.0, 0.0, 0.0],
             "Gathered Condensate (m³/d)": [0.0, 0.0, 0.0, 0.0],
+            "Gath. Water Rate (m³/d)": [2.0, 6.0, 50.0, 10.0],
             "Alloc. Water Rate (m³)": [4.0, 8.0, 60.0, 12.0],
         }
     )
@@ -36,3 +37,13 @@ def test_calculate_monthly_averages_splits_calendar_months_and_alloc_water_avg()
         out.loc[out["Date"] == pd.Timestamp("2024-03-02"), "Alloc. Water Avg (m³)"].iloc[0]
     )
     assert mar_water == 36.0
+
+    feb_gath_water = float(
+        out.loc[out["Date"] == pd.Timestamp("2024-02-02"), "Gath. Water Avg (m³/d)"].iloc[0]
+    )
+    assert feb_gath_water == 4.0
+
+    mar_gath_water = float(
+        out.loc[out["Date"] == pd.Timestamp("2024-03-01"), "Gath. Water Avg (m³/d)"].iloc[0]
+    )
+    assert mar_gath_water == 30.0

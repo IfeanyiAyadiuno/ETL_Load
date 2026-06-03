@@ -24,7 +24,8 @@ INSERT INTO PCE_Production (
     [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
     [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-    [Gathered Condensate (m³/d)], [Sales CGR (m³/e³m³)],
+    [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
+    [Sales CGR (m³/e³m³)],
     [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
     [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
     [Choke Size], [Gas WH Cumulative Production (10³m³)],
@@ -34,15 +35,17 @@ INSERT INTO PCE_Production (
     [Condensate WH Cumulative Production (m³)],
     [Gas Gathered Cumulative (e³m³)],
     [Condensate Gathered Cumulative (m³)],
+    [Gath. Water Cumulative (m³)],
     [Formation Producer], [Layer Producer], [Fault Block],
     [Pad Name], [Lateral Length], [Orientation],
     [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
     [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
     [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
+    [Gath. Water Avg (m³/d)],
     [Alloc. Water Avg (m³)],
     [Month],
     [Remarks]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _TC_SELECT = """
@@ -159,6 +162,7 @@ def _tc_row_to_production_tuple(
         cond_sales,
         None,
         None,
+        None,
         sales_cgr,
         cgr_tc,
         None,
@@ -174,6 +178,7 @@ def _tc_row_to_production_tuple(
         cum_cond_wh,
         None,
         None,
+        None,
         formation_s,
         layer_s,
         fault_s,
@@ -181,6 +186,7 @@ def _tc_row_to_production_tuple(
         lateral,
         orient_s,
         on_year,
+        None,
         None,
         None,
         None,
