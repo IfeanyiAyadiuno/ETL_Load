@@ -107,7 +107,7 @@ It explains **where the main update logic lives**, what each major module does, 
   - **Survey Import** → `SurveyImportDialog` in `survey_import_dialog.py`.
   - **Type Curves Import** → `TypeCurvesImportDialog` in `type_curves_import_dialog.py`.
   - **Whitson+ Mass Upload** → `WhitsonMassUploadDialog` in `whitson_mass_upload_dialog.py`.
-  - **Exports / Reports** → `ExportsDialog` (UI placeholder).
+  - **Exports / Reports** → `ExportsDialog` (gathered monthly Excel export; `exports_gathered_monthly.py`).
 
 > **Key takeaway for a manager:** The main window is just a **menu and log**. Each actual process lives in its own dialog file + engine file.
 

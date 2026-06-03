@@ -6,7 +6,8 @@ Inventory of every Python file and other artifact in the **local project folder*
 
 - **`production_update_gui.py`** — Main window, navigation, CLI dispatch for accumap audit.
 - **`settings_dialog.py`** — Settings UI / `settings.ini`.
-- **`exports_dialog.py`** — Exports placeholder UI.
+- **`exports_dialog.py`** — Exports UI (gathered monthly Excel).
+- **`exports_gathered_monthly.py`** — Gathered monthly export SQL and Excel writer.
 - **`prodview_update_dialog.py`** — Prodview UI.
 - **`prodview_update_gui.py`** — Snowflake/SQL CDA and production update logic.
 - **`prodview_date_bounds.py`** — Rolling Snowflake window and "today − lag" end date (shared with `production_update`).
