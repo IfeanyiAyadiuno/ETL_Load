@@ -199,7 +199,9 @@ class ProductionUpdateGUI(QMainWindow):
         left_cluster.setAlignment(Qt.AlignVCenter)
         left_cluster.addWidget(logo_label, 0, Qt.AlignVCenter)
         left_cluster.addLayout(title_block, 1)
-        header_row.addLayout(left_cluster, 0, Qt.AlignVCenter)
+        left_widget = QWidget()
+        left_widget.setLayout(left_cluster)
+        header_row.addWidget(left_widget, 0, Qt.AlignVCenter)
 
         header_btn_style = header_action_btn_style()
 
@@ -231,7 +233,9 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_credits.clicked.connect(self.open_credits)
         header_right.addWidget(self.btn_credits, 0, Qt.AlignRight)
 
-        header_row.addLayout(header_right, 0, Qt.AlignTop)
+        right_widget = QWidget()
+        right_widget.setLayout(header_right)
+        header_row.addWidget(right_widget, 0, Qt.AlignTop)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
