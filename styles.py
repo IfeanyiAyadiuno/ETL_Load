@@ -194,7 +194,7 @@ def app_name_style(color: str = "#000000") -> str:
 
 
 def licensing_credits_role_style() -> str:
-    """Bold Garamond role labels in Licensing dialog."""
+    """Bold Garamond role labels in Credits dialog."""
     return f"""
         QLabel {{
             color: {_TEXT};
@@ -209,7 +209,7 @@ def licensing_credits_role_style() -> str:
 
 
 def licensing_credits_name_style() -> str:
-    """Regular Garamond names in Licensing dialog."""
+    """Regular Garamond names in Credits dialog."""
     return f"""
         QLabel {{
             color: {_TEXT};
@@ -224,7 +224,7 @@ def licensing_credits_name_style() -> str:
 
 
 def ops_section_title_style() -> str:
-    """Operations panel section heading (matches header Garamond)."""
+    """RE Actions panel section heading (matches header Garamond)."""
     return f"""
         QLabel {{
             color: {_TEXT};
@@ -240,7 +240,7 @@ def ops_section_title_style() -> str:
 
 
 def header_action_btn_style() -> str:
-    """Licensing / Settings buttons in the main header."""
+    """Credits (header) and Settings (RE Actions section) action buttons."""
     return f"""
         QPushButton {{
             background-color: #ffffff;

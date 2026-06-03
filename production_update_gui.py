@@ -16,7 +16,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QHBoxLayout, QPushButton, QTextEdit, QLabel,
                              QFrame, QMessageBox, QComboBox, QProgressBar, QScrollArea,
                              QTabWidget, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QCheckBox, QRadioButton, QDialog, QGridLayout)
+                             QHeaderView, QCheckBox, QRadioButton, QDialog, QGridLayout,
+                             QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor, QPixmap
 from db_connection import get_sql_conn
@@ -46,7 +47,7 @@ from styles import (
 _PCE_BRAND_BLUE = "#002654"
 
 
-class LicensingDialog(QDialog):
+class CreditsDialog(QDialog):
     """Credits for engineering and design."""
 
     _CREDITS = (
@@ -61,14 +62,14 @@ class LicensingDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Licensing & Credits")
+        self.setWindowTitle("Credits")
         self.setModal(True)
-        self.setMinimumWidth(540)
+        self.setMinimumWidth(700)
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
         layout.setContentsMargins(24, 22, 24, 22)
 
-        title = QLabel("Licensing & Credits")
+        title = QLabel("Credits")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
@@ -77,6 +78,7 @@ class LicensingDialog(QDialog):
         credits_grid.setVerticalSpacing(12)
         credits_grid.setColumnStretch(0, 0)
         credits_grid.setColumnStretch(1, 1)
+        credits_grid.setColumnMinimumWidth(1, 380)
         for row, (role, names) in enumerate(self._CREDITS):
             role_label = QLabel(role)
             role_label.setStyleSheet(licensing_credits_role_style())
@@ -106,17 +108,19 @@ class LicensingDialog(QDialog):
         """)
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn, alignment=Qt.AlignRight)
+        self.resize(720, 420)
 
 
 class ProductionUpdateGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self._did_initial_show_resize = False
         self.initUI()
         
     def initUI(self):
         """Initialize the user interface"""
         self.setWindowTitle("Pacific Canbriam Energy - Reservoir Production Update System")
-        self.setGeometry(100, 100, 920, 780)
+        self._apply_initial_window_geometry()
         
         # Set window icon (if you have one)
         # self.setWindowIcon(QIcon('icon.png'))
@@ -131,6 +135,8 @@ class ProductionUpdateGUI(QMainWindow):
         # Create scroll area for the entire content
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("""
             QScrollArea { background-color: transparent; border: none; }
@@ -168,7 +174,7 @@ class ProductionUpdateGUI(QMainWindow):
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
             if not pixmap.isNull():
-                scaled = pixmap.scaledToHeight(120, Qt.SmoothTransformation)
+                scaled = pixmap.scaledToHeight(98, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled)
         else:
             logo_label.setText("")
@@ -191,17 +197,16 @@ class ProductionUpdateGUI(QMainWindow):
 
         header_btn_style = header_action_btn_style()
 
-        self.btn_licensing = QPushButton("Licensing")
-        self.btn_licensing.setStyleSheet(header_btn_style)
-        self.btn_licensing.setCursor(Qt.PointingHandCursor)
-        self.btn_licensing.clicked.connect(self.open_licensing)
-        header_row.addWidget(self.btn_licensing, 0, Qt.AlignVCenter)
+        self.btn_credits = QPushButton("Credits")
+        self.btn_credits.setStyleSheet(header_btn_style)
+        self.btn_credits.setCursor(Qt.PointingHandCursor)
+        self.btn_credits.clicked.connect(self.open_credits)
+        header_row.addWidget(self.btn_credits, 0, Qt.AlignVCenter)
 
         self.btn_settings = QPushButton("Settings")
         self.btn_settings.setStyleSheet(header_btn_style)
         self.btn_settings.setCursor(Qt.PointingHandCursor)
         self.btn_settings.clicked.connect(lambda: self.select_operation("Settings"))
-        header_row.addWidget(self.btn_settings, 0, Qt.AlignVCenter)
 
         icon_label = QLabel()
         icon_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -231,14 +236,18 @@ class ProductionUpdateGUI(QMainWindow):
         ops_outer.setContentsMargins(20, 16, 20, 18)
         ops_outer.setSpacing(12)
         
-        ops_title = QLabel("Operations")
+        ops_title = QLabel("RE Actions")
         ops_title.setStyleSheet(ops_section_title_style())
-        ops_outer.addWidget(ops_title)
+        ops_header_row = QHBoxLayout()
+        ops_header_row.addWidget(ops_title)
+        ops_header_row.addStretch(1)
+        ops_header_row.addWidget(self.btn_settings, 0, Qt.AlignVCenter)
+        ops_outer.addLayout(ops_header_row)
         
         buttons_layout = QVBoxLayout()
         buttons_layout.setSpacing(8)
         
-        # Create main operation buttons (Settings moved to header)
+        # Create main operation buttons
         self.btn_well_master = self.create_main_button("Well Master List", "#1e40af")
         self.btn_prodview = self.create_main_button("Prodview / Snowflake — Daily Production Retrieve", "#1e40af")
         self.btn_allocations = self.create_main_button("Production Accounting Allocations (PA)", "#1e40af")
@@ -362,11 +371,37 @@ class ProductionUpdateGUI(QMainWindow):
         # Log startup
         self.log("Reservoir Production Update System initialized")
         self.log("Select an operation to begin")
-        
+
+    def _apply_initial_window_geometry(self):
+        """Screen-aware default size and minimum so the main window is not clipped on launch."""
+        self.setMinimumSize(980, 760)
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.resize(1020, 820)
+            return
+        available = screen.availableGeometry()
+        width = min(1020, int(available.width() * 0.9))
+        height = min(820, int(available.height() * 0.9))
+        self.resize(width, height)
+        x = available.x() + (available.width() - width) // 2
+        y = available.y() + (available.height() - height) // 2
+        self.move(x, y)
+        self._initial_width = width
+        self._initial_height = height
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._did_initial_show_resize:
+            self._did_initial_show_resize = True
+            w = getattr(self, "_initial_width", 1020)
+            h = getattr(self, "_initial_height", 820)
+            self.resize(w, h)
+
     def create_main_button(self, text, color):
         """Create a styled main button"""
         btn = QPushButton(text)
         btn.setMinimumHeight(44)
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
             QPushButton {{
@@ -537,10 +572,10 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_monthly_forecasts.setChecked(False)
         
     
-    def open_licensing(self):
-        """Open licensing / credits dialog."""
-        self.log("Opening Licensing dialog...")
-        dialog = LicensingDialog(self)
+    def open_credits(self):
+        """Open credits dialog."""
+        self.log("Opening Credits...")
+        dialog = CreditsDialog(self)
         dialog.exec_()
 
     def open_settings(self):
