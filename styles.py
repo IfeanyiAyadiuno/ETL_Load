@@ -239,8 +239,13 @@ def ops_section_title_style() -> str:
     """
 
 
+def header_cluster_widget_style() -> str:
+    """Header layout wrappers (no visible panel border/background)."""
+    return "background-color: transparent; border: none;"
+
+
 def header_credits_btn_style() -> str:
-    """Compact Credits button stacked under the header PCE logo."""
+    """Credits button stacked under the header PCE logo (width set in code)."""
     return f"""
         QPushButton {{
             background-color: #ffffff;
@@ -250,10 +255,8 @@ def header_credits_btn_style() -> str:
             font-family: {_FONT_BRAND};
             font-size: 13px;
             font-weight: 700;
-            padding: 6px 12px;
+            padding: 6px 8px;
             min-height: 34px;
-            max-width: 88px;
-            min-width: 72px;
         }}
         QPushButton:hover {{
             background-color: {_PCE_NAVY};

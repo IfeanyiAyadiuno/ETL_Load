@@ -38,6 +38,7 @@ from styles import (
     dialog_title_style,
     header_action_btn_style,
     header_credits_btn_style,
+    header_cluster_widget_style,
     ops_section_title_style,
     licensing_credits_role_style,
     licensing_credits_name_style,
@@ -170,6 +171,7 @@ class ProductionUpdateGUI(QMainWindow):
 
         logo_label = QLabel()
         logo_label.setAlignment(Qt.AlignCenter)
+        logo_label.setStyleSheet(header_cluster_widget_style())
         logo_path = get_logo_path()
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
@@ -201,6 +203,8 @@ class ProductionUpdateGUI(QMainWindow):
         left_cluster.addLayout(title_block, 1)
         left_widget = QWidget()
         left_widget.setLayout(left_cluster)
+        left_widget.setStyleSheet(header_cluster_widget_style())
+        left_widget.setAutoFillBackground(False)
         header_row.addWidget(left_widget, 0, Qt.AlignVCenter)
 
         header_btn_style = header_action_btn_style()
@@ -217,24 +221,33 @@ class ProductionUpdateGUI(QMainWindow):
         header_right.setAlignment(Qt.AlignTop | Qt.AlignRight)
 
         icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(header_cluster_widget_style())
+        pce_icon_width = 0
         icon_path = get_company_icon_path()
         if os.path.isfile(icon_path):
             icon_pix = QPixmap(icon_path)
             if not icon_pix.isNull():
-                icon_label.setPixmap(icon_pix.scaledToHeight(96, Qt.SmoothTransformation))
+                icon_scaled = icon_pix.scaledToHeight(96, Qt.SmoothTransformation)
+                icon_label.setPixmap(icon_scaled)
+                icon_label.setFixedSize(icon_scaled.size())
+                pce_icon_width = icon_scaled.width()
         else:
             icon_label.setText("")
-        header_right.addWidget(icon_label, 0, Qt.AlignRight)
+        header_right.addWidget(icon_label, 0, Qt.AlignHCenter)
 
         self.btn_credits = QPushButton("Credits")
         self.btn_credits.setStyleSheet(header_credits_btn_style())
         self.btn_credits.setCursor(Qt.PointingHandCursor)
         self.btn_credits.clicked.connect(self.open_credits)
-        header_right.addWidget(self.btn_credits, 0, Qt.AlignRight)
+        if pce_icon_width > 0:
+            self.btn_credits.setFixedWidth(pce_icon_width)
+        header_right.addWidget(self.btn_credits, 0, Qt.AlignHCenter)
 
         right_widget = QWidget()
         right_widget.setLayout(header_right)
+        right_widget.setStyleSheet(header_cluster_widget_style())
+        right_widget.setAutoFillBackground(False)
         header_row.addWidget(right_widget, 0, Qt.AlignTop)
         
         header_card_layout.addLayout(header_row)
