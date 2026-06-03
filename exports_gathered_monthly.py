@@ -163,20 +163,36 @@ def _fetch_gathered_monthly_rows(
         FROM MonthSpine
         WHERE MonthStart < CAST(? AS DATE)
     ),
+    AggByProd AS (
+        SELECT
+            RTRIM(CAST(p.[Well Name] AS NVARCHAR(4000))) AS ProdWellName,
+            YEAR(CAST(p.[Date] AS DATE)) AS ProdYear,
+            MONTH(CAST(p.[Date] AS DATE)) AS ProdMonth,
+            SUM(ISNULL(CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT), 0)) AS SumGas,
+            SUM(ISNULL(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT), 0)) AS SumCond,
+            SUM(ISNULL(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT), 0)) AS SumWater
+        FROM dbo.PCE_Production AS p
+        WHERE CAST(p.[Date] AS DATE) >= CAST(? AS DATE)
+          AND CAST(p.[Date] AS DATE) <= CAST(? AS DATE)
+        GROUP BY
+            RTRIM(CAST(p.[Well Name] AS NVARCHAR(4000))),
+            YEAR(CAST(p.[Date] AS DATE)),
+            MONTH(CAST(p.[Date] AS DATE))
+    ),
     Agg AS (
         SELECT
             wm.[Well Name] AS WmWellName,
-            YEAR(CAST(p.[Date] AS DATE)) AS ProdYear,
-            MONTH(CAST(p.[Date] AS DATE)) AS ProdMonth,
-            SUM(CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT)) AS SumGas,
-            SUM(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT)) AS SumCond,
-            SUM(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT)) AS SumWater
-        FROM dbo.PCE_Production AS p
+            a.ProdYear,
+            a.ProdMonth,
+            SUM(a.SumGas) AS SumGas,
+            SUM(a.SumCond) AS SumCond,
+            SUM(a.SumWater) AS SumWater
+        FROM AggByProd AS a
         INNER JOIN dbo.PCE_WM AS wm ON (
-            wm.[Well Name] = p.[Well Name]
+            RTRIM(CAST(wm.[Well Name] AS NVARCHAR(4000))) = a.ProdWellName
             OR (
                 NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
-                AND wm.[Composite Name] = p.[Well Name]
+                AND RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))) = a.ProdWellName
             )
         )
         WHERE (
@@ -184,9 +200,7 @@ def _fetch_gathered_monthly_rows(
             OR wm.[Exception] = N''
             OR wm.[Exception] = N'N'
         )
-          AND CAST(p.[Date] AS DATE) >= CAST(? AS DATE)
-          AND CAST(p.[Date] AS DATE) <= CAST(? AS DATE)
-        GROUP BY wm.[Well Name], YEAR(CAST(p.[Date] AS DATE)), MONTH(CAST(p.[Date] AS DATE))
+        GROUP BY wm.[Well Name], a.ProdYear, a.ProdMonth
     )
     SELECT
         wm.[Value Navigator UWI] AS UWI,
@@ -198,7 +212,7 @@ def _fetch_gathered_monthly_rows(
     FROM dbo.PCE_WM AS wm
     CROSS JOIN MonthSpine AS ms
     LEFT JOIN Agg AS a
-        ON a.WmWellName = wm.[Well Name]
+        ON RTRIM(CAST(a.WmWellName AS NVARCHAR(4000))) = RTRIM(CAST(wm.[Well Name] AS NVARCHAR(4000)))
        AND a.ProdYear = YEAR(ms.MonthStart)
        AND a.ProdMonth = MONTH(ms.MonthStart)
     WHERE (
