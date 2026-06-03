@@ -167,19 +167,18 @@ class ProductionUpdateGUI(QMainWindow):
         
         header_row = QHBoxLayout()
         header_row.setSpacing(16)
-        header_row.setAlignment(Qt.AlignTop)
 
         logo_label = QLabel()
-        logo_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        logo_label.setAlignment(Qt.AlignCenter)
         logo_path = get_logo_path()
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
             if not pixmap.isNull():
                 scaled = pixmap.scaledToHeight(98, Qt.SmoothTransformation)
                 logo_label.setPixmap(scaled)
+                logo_label.setFixedSize(scaled.size())
         else:
             logo_label.setText("")
-        header_row.addWidget(logo_label, 0, Qt.AlignTop)
 
         title_block = QVBoxLayout()
         title_block.setSpacing(4)
@@ -194,7 +193,13 @@ class ProductionUpdateGUI(QMainWindow):
         sub_header.setStyleSheet(app_name_style())
         title_block.addWidget(company_header)
         title_block.addWidget(sub_header)
-        header_row.addLayout(title_block, 0)
+
+        left_cluster = QHBoxLayout()
+        left_cluster.setSpacing(16)
+        left_cluster.setAlignment(Qt.AlignVCenter)
+        left_cluster.addWidget(logo_label, 0, Qt.AlignVCenter)
+        left_cluster.addLayout(title_block, 1)
+        header_row.addLayout(left_cluster, 0, Qt.AlignVCenter)
 
         header_btn_style = header_action_btn_style()
 
@@ -226,7 +231,7 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_credits.clicked.connect(self.open_credits)
         header_right.addWidget(self.btn_credits, 0, Qt.AlignRight)
 
-        header_row.addLayout(header_right, 0)
+        header_row.addLayout(header_right, 0, Qt.AlignTop)
         
         header_card_layout.addLayout(header_row)
         layout.addWidget(header_card)
