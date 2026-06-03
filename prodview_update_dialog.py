@@ -99,9 +99,9 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Incremental Snowflake → PCE_CDA when CDA is behind (through today − 2 days)\n"
-            "  • Refreshes CDA sales columns from Allocation_Factors, then rebuilds PCE_Production\n"
-            "  • ~2–5 min depending on gap size and AF month count"
+            "  • Always Snowflake → PCE_CDA for the ~18‑month rolling window (same as Quick Update)\n"
+            "  • Refreshes CDA sales from Allocation_Factors, then rebuilds all PCE_Production from CDA\n"
+            "  • Longer than Quick Update (~5–15 min depending on database size)"
         )
         full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
@@ -259,13 +259,13 @@ class ProdviewUpdateDialog(QDialog):
         """Update info text based on selected mode."""
         if self.mode_full_rebuild.isChecked():
             self.quick_scope_body.setText(
-                "Full rebuild: incremental Snowflake when CDA is stale, AF refresh on CDA, "
-                "then rebuild all gathered PCE_Production (through today − 2)."
+                "Full rebuild: Snowflake rolling window + AF refresh on CDA, "
+                "then rebuild all PCE_Production from all PCE_CDA (through today − 2)."
             )
             self.info_text.setText(
-                "  • Refresh PCE_CDA from Snowflake for missing days through today − 2\n"
+                "  • Snowflake → PCE_CDA for the ~18‑month window (same as Quick Update)\n"
                 "  • Refresh CDA sales columns from Allocation_Factors\n"
-                "  • Rebuild PCE_Production from all PCE_CDA (+ PCE_TC sync)"
+                "  • Delete all gathered PCE_Production and rebuild from all PCE_CDA (+ PCE_TC sync)"
             )
         else:
             self.quick_scope_body.setText(
@@ -313,7 +313,7 @@ class ProdviewUpdateDialog(QDialog):
         sql_target = sql_target_label()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = "Full rebuild: incremental Snowflake + AF refresh + production rebuild"
+            mode_label = "Full rebuild: Snowflake rolling window + AF refresh + all CDA → production"
             body = (
                 "Run full rebuild?\n\n"
                 f"SQL target: {sql_target}\n"

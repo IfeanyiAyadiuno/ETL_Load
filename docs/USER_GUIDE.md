@@ -209,7 +209,7 @@ flowchart TB
 
 - **Well Master — Import New Wells** (`well_master_gui`): inserts into **`PCE_WM`** only; it does **not** update **`PCE_CDA`** or **`PCE_Production`**. Run **Prodview / Snowflake** when you need daily data for new wells.
 - **Prodview — Snowflake → CDA + production rebuild** (`prodview_update_gui.run_quick_update`): uses a **fixed rolling ~18 calendar month** Snowflake window (start/end from `prodview_date_bounds.quick_update_date_range` — end date is **today minus a short lag**, typically **2** days). Pulls Snowflake for that span, replaces matching **`PCE_CDA`** rows, deletes **`PCE_Production`** rows in that date range **except** type-curve keys (`[Well Name]` ending **` - TC`**) and **YE2-family** keys (`[Well Name]` LIKE **`YE2%`**), reloads all **`PCE_CDA`** for the production pass, recomputes sequences/cumulatives/averages in Python, **deletes and re-inserts** **`PCE_Production`** for every well name in the rebuilt dataset (full history per well for those keys), then runs **`sync_tc_to_production`** so **`PCE_TC`** rows are materialized into **`PCE_Production`**. The Prodview dialog **does not** expose **From**/**To** pickers; the window is automatic. *(This is the default radio: **Snowflake → CDA + production rebuild**.)*
-- **Prodview Full Rebuild** (`production_update.main`): **does not** call Snowflake. It first repaints selected sales-related columns on **`PCE_CDA`** from **`Allocation_Factors`** (when allocation rows exist), then **deletes all rows in **`PCE_Production`**** and rebuilds production from **all** of **`PCE_CDA`**, then runs **`sync_tc_to_production`** (same type-curve materialization as the Snowflake path).
+- **Prodview Full Rebuild** (`production_update.main`): always refreshes **`PCE_CDA`** from Snowflake for the **same ~18‑month rolling window** as **Snowflake → CDA + production rebuild** (`refresh_rolling_window_cda`), then repaints selected sales-related columns on **`PCE_CDA`** from **`Allocation_Factors`** (when allocation rows exist), **deletes all rows in **`PCE_Production`****, and rebuilds production from **all** of **`PCE_CDA`** (full history per well, not only the rolling window), then runs **`sync_tc_to_production`**.
 - **`run_prodview_update`** in `prodview_update_gui.py` (range-based Snowflake + SQL insert path) exists in code but is **not** invoked from the current Prodview dialog; the dialog uses **Snowflake → CDA + production rebuild** and **Full rebuild** only.
 
 ---
@@ -314,7 +314,7 @@ Importing wells updates **`PCE_WM` only**. The application does **not** automati
 
 - **Overview** — One-line scope for the selected mode (typical duration **~5 min** for either mode, including type-curve sync on the Quick path).  
 - **Update mode** — Two radio buttons (**Snowflake → CDA + production rebuild** is selected by default):
-  - **Full rebuild — PCE_Production from all PCE_CDA** — Refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then deletes **all** rows in **`PCE_Production`** and rebuilds from **all** of **`PCE_CDA`**. **Does not** call Snowflake. Progress bar runs **indeterminate** with an **elapsed-time** status while the job runs.  
+  - **Full rebuild — PCE_Production from all PCE_CDA** — Snowflake → **`PCE_CDA`** for the ~18‑month rolling window (same as Quick Update), refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then deletes **all** rows in **`PCE_Production`** and rebuilds from **all** of **`PCE_CDA`**. Progress bar runs **indeterminate** with an **elapsed-time** status while the job runs.  
   - **Snowflake → CDA + production rebuild** — Single Snowflake pull for the **rolling ~18 calendar months** ending on the application’s **effective end date** (**about today minus 2 days** by default — see `PRODVIEW_DATA_LAG_DAYS` in `prodview_date_bounds.py`). **No From/To pickers** in the dialog; the calendar span is **computed automatically**. Replaces **`PCE_CDA`** for that window, rebuilds **`PCE_Production`** for wells in the merged dataset (see **Caution** below), then runs **`sync_tc_to_production`**.  
 - **This will:** — Bullet summary that tracks the selected mode (matches the dialog’s **ℹ️ This will:** panel).
 
@@ -331,17 +331,17 @@ Importing wells updates **`PCE_WM` only**. The application does **not** automati
 
 ### Full rebuild — behavior summary
 
-1. Repaint Gas S2, gas sales, condensate sales, and Sales CGR on **`PCE_CDA`** from **`Allocation_Factors`** for every distinct allocation month (when allocation rows exist).  
-2. **Delete all rows** in **`PCE_Production`** and rebuild from **all** rows currently in **`PCE_CDA`**.  
-3. **Does not** query Snowflake.  
+1. **Snowflake → `PCE_CDA`** for the ~18‑month rolling window (through today − lag; same window as Quick Update).  
+2. Repaint Gas S2, gas sales, condensate sales, and Sales CGR on **`PCE_CDA`** from **`Allocation_Factors`** for every distinct allocation month (when allocation rows exist).  
+3. **Delete all rows** in **`PCE_Production`** and rebuild from **all** rows currently in **`PCE_CDA`** (full well history, not limited to the rolling window).  
 4. Call **`sync_tc_to_production`** (via **`production_update.main`**).
 
-Typical runs are on the order of **~5 minutes**; very large databases can take longer. There are **no date-range controls** for Full rebuild.
+Typical runs are **longer than Quick Update** (Snowflake + full production delete/insert); very large databases can take **15+ minutes**. There are **no date-range controls** for Full rebuild.
 
 ### Procedure
 
 1. Open **Prodview / Snowflake — Daily Production Retrieve**.  
-2. Confirm **Overview** and **Update mode** (**Snowflake → CDA + production rebuild** for routine refreshes; **Full rebuild** only when **`PCE_CDA`** is already trusted and you need a full production table rebuild from CDA + allocations).  
+2. Confirm **Overview** and **Update mode** (**Snowflake → CDA + production rebuild** for routine rolling-window refreshes; **Full rebuild** when you need Snowflake + allocations + a **complete** **`PCE_Production`** rebuild from all **`PCE_CDA`** history).  
 3. Select **Run Update**, acknowledge the confirmation, monitor **Results** and the progress bar (**determinate** for **Snowflake → CDA + production rebuild**, **indeterminate** with elapsed timer for **Full rebuild**).  
 4. **Close** exits the dialog; if a job is running, the app warns that cancellation may not stop SQL immediately.
 
@@ -500,7 +500,7 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 
 ## Operational considerations
 
-- **Full Rebuild** clears and repopulates **`PCE_Production`** from all **`PCE_CDA`** rows after refreshing selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**. It does **not** pull Snowflake. Reserve it for full production-table refresh scenarios, not for “fix one month in isolation” unless you understand the full recompute scope.  
+- **Full Rebuild** pulls Snowflake for the rolling window, refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then clears and repopulates **`PCE_Production`** from **all** **`PCE_CDA`** history. Use when you need the entire production table aligned with current CDA + allocations, not for a single-month patch in isolation.  
 - **Snowflake → CDA + production rebuild** is the usual mode for routine Snowflake refreshes (automatic rolling ~18 months); remember it recomputes **entire well histories** in **`PCE_Production`** for wells touched by the post-merge **`PCE_CDA`** dataset.  
 - Avoid forced termination of the application during active jobs; use dialog **Close** and cancel paths where provided. The Prodview dialog explicitly warns that cancellation may not stop work immediately and that the Snowflake + production job can leave partial commits after a successful step.  
 - Production database changes should follow company backup and change-control practices.
@@ -521,7 +521,7 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | 4 | **PA** — **Run Monthly Loader** for each ValNav month | Step 3 for current CDA; ValNav file on disk | **Yes** — writes **`Allocation_Factors`** and updates S2/condensate columns in **`PCE_CDA`** / **`PCE_Production`** for that month | Results log; allocation and production values for sample wells. |
 | 5 | **Public Sales** — **Run Update** for month range | **PA** for same months when ValNav side must be current; Accumap file | **Yes** — writes Accumap side of **`Allocation_Factors`** and updates gas sales / sales CGR on **`PCE_CDA`** / **`PCE_Production`** | Results log; warnings if factors missing. |
 | 6 | Optional **Survey**, **Type Curves** | Survey: **`PCE_WM`** lookup for UWI/pad; TC: WM names | Survey overwrite deletes by UWI; TC **Delete** truncates keys in **`PCE_TC`** | Import logs; row counts. |
-| 7 | Optional **Full Rebuild** (Prodview) | Current **`PCE_CDA`** is trusted | **Yes** — deletes **all** **`PCE_Production`** then rebuilds | Long run; final summary from **`production_update`**; row counts. |
+| 7 | Optional **Full Rebuild** (Prodview) | Snowflake + allocations + full production rebuild | **Yes** — Snowflake rolling window on CDA; deletes **all** **`PCE_Production`** then rebuilds from all CDA | Long run; final summary from **`production_update`**; row counts. |
 
 **After new wells only:** Background job fills **`PCE_CDA`** for the new keys; run **Step 3** (**Snowflake → CDA + production rebuild**) or **Step 7** (**Full rebuild**) when you need **`PCE_Production`** aligned.
 
@@ -537,7 +537,7 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 |------------------|---------|------------|--------------|--------|
 | `python production_update_gui.py` | Opens main GUI | `.env`, `settings.ini`, ODBC | No | Window opens; Settings saves. |
 | `python production_update_gui.py --accumap-unmatched -m "Aug 2025"` | Prints matched/unmatched Accumap UWIs; optional `-o` CSV | **`PCE_WM`**, Accumap path | No (read-only) | Terminal output or CSV. |
-| `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Populated **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
+| `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: Snowflake rolling window → CDA, refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Snowflake + **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
 | `python survey_import.py "<path>"` then `append` or `overwrite` | Survey import without GUI | File on disk, **`PCE_WM`** for mapping | **Overwrite** deletes existing rows for matching UWIs, then inserts; **append** skips (UWI, depth) pairs already in **`PCE_Surveys`** before insert | Console / exit code. |
 | `python purge_exception_wells.py` | Deletes **`PCE_CDA`**, **`PCE_Production`**, **`Allocation_Factors`**, **`PCE_Surveys`** rows for wells with **`PCE_WM.Exception = 'Y'`** | Exception flags set deliberately | **Yes** | Printed delete counts. |
 
@@ -587,7 +587,7 @@ Escalate with **Results** / log excerpts to database or application support per 
 | GasIDREC / PressuresIDREC | Snowflake keys linking a well to meter/completion data. |
 | Composite Name | Production row naming derived from well master mapping where applicable. |
 | Snowflake → CDA + production rebuild | **Prodview** default mode: automatic **rolling ~18 calendar months** of Snowflake → **`PCE_CDA`** (end ≈ **today minus 2 days** by default), then **`PCE_Production`** rebuild for wells in the merged dataset and **`sync_tc_to_production`**. **No** **From**/**To** pickers in the dialog. |
-| Full Rebuild | Repaint selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then delete all rows in **`PCE_Production`** and rebuild from **all** **`PCE_CDA`**; **no** Snowflake call. |
+| Full Rebuild | Snowflake → **`PCE_CDA`** (rolling ~18 mo), repaint selected **`PCE_CDA`** sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **all** **`PCE_CDA`**. |
 
 ---
 

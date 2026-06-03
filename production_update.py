@@ -787,27 +787,23 @@ def main(cancel_event=None):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     end_cap = prodview_effective_end_date()
-    from prodview_date_bounds import snowflake_cda_gap_range
-    from prodview_update_gui import query_pce_cda_max_date, refresh_pce_cda_from_snowflake
+    from prodview_date_bounds import rolling_window_snowflake_range
+    from prodview_update_gui import query_pce_cda_max_date, refresh_rolling_window_cda
 
     cda_max_before = query_pce_cda_max_date()
-    print(lf.detail(f"PCE_CDA max date before Snowflake check: {cda_max_before or '—'}"))
+    print(lf.detail(f"PCE_CDA max date before Snowflake refresh: {cda_max_before or '—'}"))
     print(lf.detail(f"Automatic end date (today − lag): {end_cap}"))
 
-    gap_range = snowflake_cda_gap_range(cda_max_before, end_cap)
-    if gap_range is None:
-        print(lf.detail(f"PCE_CDA is current through {end_cap}; skipping Snowflake refresh."))
-    else:
-        gap_start, gap_end = gap_range
-        print(
-            lf.step(
-                f"Incremental Snowflake → PCE_CDA refresh ({gap_start} through {gap_end})…"
-            )
+    sf_start, sf_end, _cda_rows = refresh_rolling_window_cda(log_callback=print)
+    print(
+        lf.detail(
+            f"Snowflake rolling window: {sf_start} through {sf_end} "
+            "(same as Quick Update)"
         )
-        refresh_pce_cda_from_snowflake(gap_start, gap_end, log_callback=print)
-        cda_max_after = query_pce_cda_max_date()
-        print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
-    timer.mark("Snowflake CDA gap check / refresh")
+    )
+    cda_max_after = query_pce_cda_max_date()
+    print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+    timer.mark("Snowflake → PCE_CDA rolling window refresh")
 
     if aborted():
         print(lf.warn("Cancelled after Snowflake CDA refresh."))
@@ -835,6 +831,31 @@ def main(cancel_event=None):
 
     if aborted():
         print(lf.warn("Cancelled after trimming future CDA."))
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+    window_start, window_end = rolling_window_snowflake_range()
+    with get_sql_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            DELETE FROM PCE_Production
+            WHERE [Date] > ?
+              AND [Well Name] NOT LIKE '% - TC'
+              AND [Well Name] NOT LIKE 'YE2%'
+            """,
+            (end_cap,),
+        )
+        n_prod_trim = cur.rowcount or 0
+        conn.commit()
+    if n_prod_trim:
+        print(
+            lf.detail(
+                f"Trimmed {lf.num(n_prod_trim)} PCE_Production row(s) after {end_cap}"
+            )
+        )
+
+    if aborted():
+        print(lf.warn("Cancelled after trimming future production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 2: Clear existing data
@@ -927,7 +948,20 @@ def main(cancel_event=None):
 
     with get_sql_conn() as conn:
         cur = conn.cursor()
-        sync_production_wm_metadata_from_wm_sql(cur, None, None)
+        sync_production_wm_metadata_from_wm_sql(
+            cur,
+            update_pad=False,
+            update_enersight=True,
+            update_month=True,
+        )
+        sync_production_wm_metadata_from_wm_sql(
+            cur,
+            window_start,
+            window_end,
+            update_pad=True,
+            update_enersight=False,
+            update_month=False,
+        )
         conn.commit()
     timer.mark("WM metadata sync (pad, enersight, month)")
 

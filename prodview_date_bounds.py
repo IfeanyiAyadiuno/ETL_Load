@@ -45,6 +45,75 @@ def quick_update_date_range() -> Tuple[date, date]:
     return start, end
 
 
+def rolling_window_snowflake_range() -> Tuple[date, date]:
+    """Inclusive range for Prodview Snowflake → PCE_CDA (Quick Update and Full Rebuild)."""
+    return quick_update_date_range()
+
+
+def merge_inclusive_date_ranges(
+    a: Tuple[date, date] | None,
+    b: Tuple[date, date] | None,
+) -> Tuple[date, date] | None:
+    """Widest inclusive span covering both ranges (or the one that is set)."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return min(a[0], b[0]), max(a[1], b[1])
+
+
+def query_cda_gathered_nonzero_counts(
+    start: date,
+    end: date,
+    *,
+    conn=None,
+) -> Tuple[int, int]:
+    """
+    Return (gathered_gas_nonzero_rows, gathered_water_nonzero_rows) in PCE_CDA
+    for ProdDate in [start, end]. Used to detect post-migration backfill need.
+    """
+    from db_connection import get_sql_conn
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                SUM(CASE WHEN Gathered_Gas_Production IS NOT NULL
+                          AND Gathered_Gas_Production <> 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN Gathered_Water_Production IS NOT NULL
+                          AND Gathered_Water_Production <> 0 THEN 1 ELSE 0 END)
+            FROM dbo.PCE_CDA
+            WHERE ProdDate BETWEEN ? AND ?
+            """,
+            start,
+            end,
+        )
+        row = cur.fetchone() or (0, 0)
+        return int(row[0] or 0), int(row[1] or 0)
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
+def gathered_water_backfill_range(
+    gas_nonzero_rows: int,
+    water_nonzero_rows: int,
+    effective_end: date | None = None,
+) -> Tuple[date, date] | None:
+    """
+    Re-pull Snowflake for the rolling window when CDA has gathered gas but no
+    gathered water (typical after adding Gathered_Water_Production to an existing DB).
+    """
+    if gas_nonzero_rows <= 0 or water_nonzero_rows > 0:
+        return None
+    end = effective_end or prodview_effective_end_date()
+    return quick_update_start_date(end), end
+
+
 def snowflake_cda_gap_range(
     cda_max: date | None,
     effective_end: date | None = None,

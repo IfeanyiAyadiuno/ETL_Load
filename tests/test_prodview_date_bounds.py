@@ -37,3 +37,25 @@ def test_snowflake_cda_gap_range_empty_cda_uses_rolling_window():
     start, out_end = pdb.snowflake_cda_gap_range(None, end)
     assert out_end == end
     assert start == pdb.quick_update_start_date(end)
+
+
+def test_gathered_water_backfill_when_gas_present_water_missing():
+    end = date(2026, 5, 25)
+    out = pdb.gathered_water_backfill_range(100, 0, end)
+    assert out == (pdb.quick_update_start_date(end), end)
+
+
+def test_gathered_water_backfill_skipped_when_water_present():
+    end = date(2026, 5, 25)
+    assert pdb.gathered_water_backfill_range(100, 5, end) is None
+
+
+def test_merge_inclusive_date_ranges():
+    a = (date(2026, 5, 1), date(2026, 5, 10))
+    b = (date(2026, 4, 1), date(2026, 5, 25))
+    assert pdb.merge_inclusive_date_ranges(a, b) == (date(2026, 4, 1), date(2026, 5, 25))
+
+
+def test_rolling_window_snowflake_range_matches_quick_update():
+    with patch.object(pdb, "_today", return_value=date(2026, 4, 19)):
+        assert pdb.rolling_window_snowflake_range() == pdb.quick_update_date_range()

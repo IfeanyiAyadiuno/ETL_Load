@@ -18,9 +18,9 @@ from db_connection import get_sql_conn
 from prodview_date_bounds import (
     prodview_effective_end_date,
     quick_update_date_range,
+    rolling_window_snowflake_range,
     snowflake_cda_gap_range,
 )
-from snowflake_connector import SnowflakeConnector
 from sync_typecurves_to_production import sync_tc_to_production
 
 
@@ -148,6 +148,34 @@ def _build_spine(mapping_df, date_range):
     return mapping_aug.merge(dates_df, on='_key').drop(columns='_key')
 
 
+# Snowflake may return the SQL alias or the raw VOL* name (case-insensitive).
+_SF_VALUE_ALIASES = {
+    'Gathered_Water_Production': (
+        'GATHERED_WATER_PRODUCTION',
+        'GATHERED_WATER',
+        'VOLPRODGATHWATER',
+    ),
+}
+
+
+def _normalize_join_key(series):
+    """Match WM PressuresIDREC to Snowflake IDRECCOMP (avoid '12345' vs '12345.0')."""
+    num = pd.to_numeric(series, errors='coerce')
+    out = series.astype(str).str.strip()
+    valid = num.notna()
+    if valid.any():
+        out = out.copy()
+        out.loc[valid] = num.loc[valid].astype('int64').astype(str)
+    return out.str.replace(r'\.0$', '', regex=True)
+
+
+def _resolve_sf_value_column(col_map, logical_name):
+    for key in (logical_name.upper(), *_SF_VALUE_ALIASES.get(logical_name, ())):
+        if key in col_map:
+            return col_map[key]
+    return None
+
+
 def _prepare_sf_df(df, id_col, date_col, value_cols):
     """Clean and deduplicate a Snowflake result set."""
     if df.empty:
@@ -155,12 +183,15 @@ def _prepare_sf_df(df, id_col, date_col, value_cols):
 
     col_map = {c.upper(): c for c in df.columns}
     result = pd.DataFrame()
-    result['_join_key'] = df[col_map.get(id_col.upper(), id_col)].astype(str).str.strip()
+    id_src = col_map.get(id_col.upper(), id_col)
+    result['_join_key'] = _normalize_join_key(df[id_src])
     result['ProdDate'] = pd.to_datetime(df[col_map.get(date_col.upper(), date_col)]).dt.date
 
     for vc in value_cols:
-        src = col_map.get(vc.upper(), vc)
-        result[vc] = pd.to_numeric(df[src], errors='coerce') if src in df.columns else np.nan
+        src = _resolve_sf_value_column(col_map, vc)
+        result[vc] = (
+            pd.to_numeric(df[src], errors='coerce') if src is not None else np.nan
+        )
 
     return (
         result.sort_values(['_join_key', 'ProdDate'])
@@ -200,9 +231,33 @@ def _merge_sf_data(spine_df, sf_data):
                 result[vc] = np.nan
         else:
             processed = processed.rename(columns={'_join_key': join_col})
+            result[join_col] = _normalize_join_key(result[join_col])
             result = result.merge(processed, on=[join_col, 'ProdDate'], how='left')
 
     return result
+
+
+def _log_gathered_water_merge_stats(result_df, log):
+    """Warn when Snowflake merge left gathered water empty but gas is populated."""
+    if 'Gathered_Gas_Production' not in result_df.columns:
+        return
+    if 'Gathered_Water_Production' not in result_df.columns:
+        return
+    gas = pd.to_numeric(result_df['Gathered_Gas_Production'], errors='coerce').fillna(0)
+    water = pd.to_numeric(result_df['Gathered_Water_Production'], errors='coerce').fillna(0)
+    gas_nz = int((gas != 0).sum())
+    water_nz = int((water != 0).sum())
+    log(lf.detail(f"  Gathered water non-zero after merge: {lf.num(water_nz)} rows (gas: {lf.num(gas_nz)})"))
+    if gas_nz > 0 and water_nz == 0:
+        log(
+            lf.warn(
+                "Gathered gas is populated but gathered water is all zero/NULL after "
+                "Snowflake merge. On the Windows PC, run: "
+                "python scripts/diagnose_gathered_water_snowflake.py "
+                "(checks VOLPRODGATHWATER in Snowflake). Then run Prodview "
+                "Snowflake → CDA + production rebuild (not Full rebuild only)."
+            )
+        )
 
 
 def _apply_gaswh_replacement(df):
@@ -374,6 +429,8 @@ def refresh_pce_cda_from_snowflake(
         log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells for Snowflake spine"))
 
         log(lf.step(f"Pulling Snowflake data ({start_date} to {end_date})…"))
+        from snowflake_connector import SnowflakeConnector
+
         sf = SnowflakeConnector()
         try:
             sf_data = _pull_all_snowflake_data(sf, start_date, end_date, log)
@@ -386,6 +443,7 @@ def refresh_pce_cda_from_snowflake(
         full_range = pd.date_range(start=start_date, end=end_date, freq="D").date
         spine_df = _build_spine(mapping_df, full_range)
         result_df = _merge_sf_data(spine_df, sf_data)
+        _log_gathered_water_merge_stats(result_df, log)
         result_df["Condensate_WH_Production"] = (
             result_df["GasWH_Production"] * result_df["CGR_Ratio"]
         )
@@ -422,6 +480,36 @@ def refresh_pce_cda_from_snowflake(
     finally:
         if own_conn and conn is not None:
             conn.close()
+
+
+def refresh_rolling_window_cda(
+    *,
+    log_callback=None,
+    conn=None,
+    progress_callback=None,
+):
+    """
+    Replace PCE_CDA rows for the Prodview rolling Snowflake window (~18 months).
+
+    Shared by Quick Update and Full Rebuild so both paths stay aligned.
+    Returns (start_date, end_date, rows_inserted).
+    """
+    start_date, end_date = rolling_window_snowflake_range()
+    log = partial(_emit_log, log_callback)
+    log(
+        lf.step(
+            f"Snowflake → PCE_CDA ({start_date} through {end_date}) "
+            "— rolling window"
+        )
+    )
+    n = refresh_pce_cda_from_snowflake(
+        start_date,
+        end_date,
+        log_callback=log_callback,
+        conn=conn,
+        progress_callback=progress_callback,
+    )
+    return start_date, end_date, n
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +557,8 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 
         # Single Snowflake pull
         log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
+        from snowflake_connector import SnowflakeConnector
+
         sf = SnowflakeConnector()
         try:
             sf_data = _pull_all_snowflake_data(sf, overall_start, overall_end, log)
@@ -483,6 +573,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         progress(20)
 
         result_df = _merge_sf_data(spine_df, sf_data)
+        _log_gathered_water_merge_stats(result_df, log)
         result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
         result_df, _repl = _apply_gaswh_replacement(result_df)
         log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
@@ -692,7 +783,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
         if progress_callback:
             progress_callback(val)
 
-    start_first, end_last = quick_update_date_range()
+    start_first, end_last = rolling_window_snowflake_range()
     if start_first > end_last:
         log(lf.error("Snowflake rolling-window date range is empty"))
         return {"error": "Snowflake rolling-window date range is empty"}
@@ -751,9 +842,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
         conn.commit()
         timer.mark("Trim future rows + clear rolling window production")
 
-        total_cda = refresh_pce_cda_from_snowflake(
-            start_first,
-            end_last,
+        start_first, end_last, total_cda = refresh_rolling_window_cda(
             log_callback=log_callback,
             conn=conn,
             progress_callback=progress_callback,
