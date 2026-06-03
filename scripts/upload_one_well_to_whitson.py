@@ -23,7 +23,7 @@ import pandas as pd
 CLIENT = "pacificcanbriam"
 CLIENT_ID = "Nburbd6T4XuAWa5322kyoMOexyTytUJg"
 CLIENT_SECRET = "zOjE85oNk1sXPnf2iNMXaf_vj5vrr1-sCf6MGBRi57faXpYKRFHT60gAtY0E9DoY"
-PROJECT_ID = 20
+PROJECT_ID = 2
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
