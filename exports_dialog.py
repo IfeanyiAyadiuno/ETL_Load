@@ -91,8 +91,9 @@ class ExportsDialog(QDialog):
         export_layout = export_group.layout()
 
         desc = QLabel(
-            "Export monthly sums of gathered gas, condensate, and water for all active "
-            "wells in Well Master. Select a month range from production data."
+            "Export monthly sums of gathered gas, condensate, water, and total "
+            "Hours On for all active wells in Well Master. Select a month range from "
+            "production data."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #64748b; font-size: 13px;")

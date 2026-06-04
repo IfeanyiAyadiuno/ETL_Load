@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""
+Upload production from PCE_Production to Whitson+.
+
+  python scripts/whitson_upload.py --well-name "2-01-85-26W6M - T3 - PnP - S"
+  python scripts/whitson_upload.py --all-wells --start 2024-01-01 --end 2024-12-31
+"""
+
+import argparse
+import sys
+from datetime import date, datetime
+from pathlib import Path
+
+# Whitson+ credentials
+CLIENT = "pacificcanbriam"
+CLIENT_ID = "Nburbd6T4XuAWa5322kyoMOexyTytUJg"
+CLIENT_SECRET = "zOjE85oNk1sXPnf2iNMXaf_vj5vrr1-sCf6MGBRi57faXpYKRFHT60gAtY0E9DoY"
+PROJECT_ID = 2
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from whitson_imperial_units import load_whitson_imperial_factors  # noqa: E402
+from whitson_production_push import (  # noqa: E402
+    list_production_wells,
+    make_whitson_connection,
+    push_all_wells,
+    push_well,
+)
+from db_connection import get_sql_conn  # noqa: E402
+
+
+def _parse_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--well-name", help="Single well (PCE_Production [Well Name])")
+    parser.add_argument("--all-wells", action="store_true", help="Push all wells in range")
+    parser.add_argument("--start", help="Start date YYYY-MM-DD")
+    parser.add_argument("--end", help="End date YYYY-MM-DD")
+    parser.add_argument("--project-id", type=int, default=PROJECT_ID)
+    parser.add_argument("--replace", action="store_true")
+    parser.add_argument(
+        "--no-prodview-cap",
+        action="store_true",
+        help="Do not cap end date at prodview_effective_end_date()",
+    )
+    args = parser.parse_args()
+
+    if not args.all_wells and not args.well_name:
+        parser.error("Provide --well-name or --all-wells")
+    if args.all_wells and args.well_name:
+        parser.error("Use only one of --well-name or --all-wells")
+
+    append_only = not args.replace
+    apply_cap = not args.no_prodview_cap
+    factors = load_whitson_imperial_factors()
+
+    if args.all_wells:
+        if not args.start or not args.end:
+            parser.error("--all-wells requires --start and --end")
+        summary = push_all_wells(
+            start_date=_parse_date(args.start),
+            end_date=_parse_date(args.end),
+            append_only=append_only,
+            apply_prodview_cap=apply_cap,
+            factors=factors,
+            project_id=args.project_id,
+            log_cb=print,
+        )
+        return 0 if summary["failed"] == 0 else 1
+
+    conn = get_sql_conn()
+    try:
+        if args.start and args.end:
+            start, end = _parse_date(args.start), _parse_date(args.end)
+        else:
+            from whitson_production_push import query_production_date_bounds
+
+            start, end = query_production_date_bounds(conn)
+        wells = list_production_wells(conn, start=start, end=end)
+        uwi = None
+        for name, wu in wells:
+            if name == args.well_name:
+                uwi = wu
+                break
+        whitson = make_whitson_connection()
+        status, n, err = push_well(
+            whitson,
+            conn,
+            well_name=args.well_name,
+            uwi_api=uwi,
+            start=start,
+            end=end,
+            factors=factors,
+            project_id=args.project_id,
+            append_only=append_only,
+            log_cb=print,
+        )
+    finally:
+        conn.close()
+
+    if status == "ok":
+        print(f"Uploaded {n} point(s)")
+        return 0
+    print(f"Upload failed: {err or status}")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

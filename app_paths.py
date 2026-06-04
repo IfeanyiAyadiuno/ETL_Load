@@ -16,6 +16,11 @@ def get_settings_path():
     return str(_app_dir() / "settings.ini")
 
 
+def get_whitson_imperial_ini_path():
+    """Absolute path to whitson_imperial.ini (metric → imperial factors for Whitson push)."""
+    return str(_app_dir() / "whitson_imperial.ini")
+
+
 def get_logo_path():
     """Absolute path to the main-window logo (images/pce_logo.png)."""
     return str(_app_dir() / "images" / "pce_logo.png")

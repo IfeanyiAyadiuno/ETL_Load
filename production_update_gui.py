@@ -13,13 +13,13 @@ import configparser
 import time
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QTextEdit, QLabel,
-                             QFrame, QMessageBox, QComboBox, QProgressBar, QScrollArea,
+                             QHBoxLayout, QPushButton, QLabel,
+                             QFrame, QMessageBox, QComboBox,
                              QTabWidget, QTableWidget, QTableWidgetItem,
                              QHeaderView, QCheckBox, QRadioButton, QDialog, QGridLayout,
                              QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor, QIcon, QColor, QPixmap
+from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
 from db_connection import get_sql_conn
 from monthly_loader_dialog import MonthlyLoaderDialog
 from sales_ratios_dialog import SalesRatiosDialog
@@ -134,21 +134,9 @@ class ProductionUpdateGUI(QMainWindow):
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Create scroll area for the entire content
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea { background-color: transparent; border: none; }
-            QScrollArea > QWidget > QWidget { background-color: transparent; }
-        """)
-        
-        # Create scroll content widget
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: #f1f5f9;")
-        layout = QVBoxLayout(scroll_content)
+        content = QWidget()
+        content.setStyleSheet("background-color: #f1f5f9;")
+        layout = QVBoxLayout(content)
         layout.setSpacing(18)
         layout.setContentsMargins(24, 24, 28, 24)
         
@@ -313,73 +301,8 @@ class ProductionUpdateGUI(QMainWindow):
         
         ops_outer.addLayout(buttons_layout)
         layout.addWidget(ops_card)
-        
-        # Log panel
-        log_card = QFrame()
-        log_card.setObjectName("logCard")
-        log_card.setStyleSheet("""
-            QFrame#logCard {
-                background-color: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 12px;
-            }
-        """)
-        log_card_layout = QVBoxLayout(log_card)
-        log_card_layout.setContentsMargins(20, 16, 20, 16)
-        log_card_layout.setSpacing(10)
-        
-        log_label = QLabel("Operation log")
-        log_label.setStyleSheet("""
-            QLabel {
-                color: #0f172a;
-                font-size: 12px;
-                font-weight: 700;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                padding: 0px;
-                background: transparent;
-                border: none;
-            }
-        """)
-        log_card_layout.addWidget(log_label)
-        
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(200)
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #f8fafc;
-                color: #1e293b;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                font-family: "Cascadia Mono", "Consolas", "SF Mono", monospace;
-                font-size: 11px;
-                padding: 12px;
-                selection-background-color: #bfdbfe;
-            }
-        """)
-        log_card_layout.addWidget(self.log_text)
-        
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #64748b;
-                font-size: 12px;
-                font-style: normal;
-                padding: 4px 0 0 0;
-                background: transparent;
-                border: none;
-            }
-        """)
-        log_card_layout.addWidget(self.status_label)
-        layout.addWidget(log_card)
 
-        # Add stretch at the bottom
-        layout.addStretch()
-
-        # Set the scroll content
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll, 1)
+        main_layout.addWidget(content, 1)
 
         vendor_footer = QLabel("Adobel Services Inc \u00A9")
         vendor_footer.setAlignment(Qt.AlignCenter)
@@ -398,35 +321,28 @@ class ProductionUpdateGUI(QMainWindow):
         
         # Apply styles
         self.apply_styles()
-        
-        # Log startup
-        self.log("Reservoir Production Update System initialized")
-        self.log("Select an operation to begin")
 
     def _apply_initial_window_geometry(self):
-        """Screen-aware default size and minimum so the main window is not clipped on launch."""
-        self.setMinimumSize(980, 760)
-        screen = QApplication.primaryScreen()
-        if screen is None:
-            self.resize(1020, 820)
-            return
-        available = screen.availableGeometry()
-        width = min(1020, int(available.width() * 0.9))
-        height = min(820, int(available.height() * 0.9))
-        self.resize(width, height)
-        x = available.x() + (available.width() - width) // 2
-        y = available.y() + (available.height() - height) // 2
-        self.move(x, y)
-        self._initial_width = width
-        self._initial_height = height
+        """Size window to main menu content (no operation log, no scroll)."""
+        self.setMinimumSize(920, 640)
 
     def showEvent(self, event):
         super().showEvent(event)
         if not self._did_initial_show_resize:
             self._did_initial_show_resize = True
-            w = getattr(self, "_initial_width", 1020)
-            h = getattr(self, "_initial_height", 820)
-            self.resize(w, h)
+            self.adjustSize()
+            width = max(self.width(), 920)
+            height = self.height()
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                width = min(width, int(available.width() * 0.95))
+                height = min(height, int(available.height() * 0.95))
+                x = available.x() + (available.width() - width) // 2
+                y = available.y() + (available.height() - height) // 2
+                self.move(x, y)
+            self.setMinimumSize(920, height)
+            self.resize(width, height)
 
     def create_main_button(self, text, color):
         """Create a styled main button"""
@@ -661,13 +577,8 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_exports.setEnabled(enabled)
     
     def log(self, message):
-        """Add message to log window with timestamp"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.append(f"[{timestamp}] {message}")
-        # Auto-scroll to bottom
-        cursor = self.log_text.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.log_text.setTextCursor(cursor)
+        """No main-window log panel; kept for callers that still log on open."""
+        del message
     
     def apply_styles(self):
         """Apply additional styles to the main window"""

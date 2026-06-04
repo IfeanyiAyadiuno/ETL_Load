@@ -36,16 +36,21 @@ _ABBREV_TO_MONTH = {v: k for k, v in _MONTH_ABBREV.items()}
 _COL_GAS = "SumGas"
 _COL_COND = "SumCond"
 _COL_WATER = "SumWater"
+_COL_HOURS = "SumHoursOn"
+
+_HOURS_HEADER = "Hours On (total)"
 
 _METRIC_HEADERS = {
     _COL_GAS: "Gathered Gas (e³m³)",
     _COL_COND: "Gathered Condensate (m³)",
     _COL_WATER: "Gathered Water (m³)",
+    _COL_HOURS: _HOURS_HEADER,
 }
 _IMPERIAL_HEADERS = {
     _COL_GAS: "Gathered Gas (Mcf)",
     _COL_COND: "Gathered Condensate (bbl)",
     _COL_WATER: "Gathered Water (bbl)",
+    _COL_HOURS: _HOURS_HEADER,
 }
 
 
@@ -165,7 +170,8 @@ def _fetch_gathered_monthly_rows(
             MONTH(CAST(p.[Date] AS DATE)) AS ProdMonth,
             SUM(ISNULL(CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT), 0)) AS SumGas,
             SUM(ISNULL(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT), 0)) AS SumCond,
-            SUM(ISNULL(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT), 0)) AS SumWater
+            SUM(ISNULL(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT), 0)) AS SumWater,
+            SUM(ISNULL(CAST(p.[Hours On] AS FLOAT), 0)) AS SumHoursOn
         FROM dbo.PCE_Production AS p
         WHERE CAST(p.[Date] AS DATE) >= CAST(? AS DATE)
           AND CAST(p.[Date] AS DATE) <= CAST(? AS DATE)
@@ -181,7 +187,8 @@ def _fetch_gathered_monthly_rows(
             a.ProdMonth,
             SUM(a.SumGas) AS SumGas,
             SUM(a.SumCond) AS SumCond,
-            SUM(a.SumWater) AS SumWater
+            SUM(a.SumWater) AS SumWater,
+            SUM(a.SumHoursOn) AS SumHoursOn
         FROM AggByProd AS a
         INNER JOIN dbo.PCE_WM AS wm ON (
             RTRIM(CAST(wm.[Well Name] AS NVARCHAR(4000))) = a.ProdWellName
@@ -203,7 +210,8 @@ def _fetch_gathered_monthly_rows(
         CONVERT(VARCHAR(7), ms.MonthStart, 120) AS [Month],
         COALESCE(a.SumGas, 0) AS SumGas,
         COALESCE(a.SumCond, 0) AS SumCond,
-        COALESCE(a.SumWater, 0) AS SumWater
+        COALESCE(a.SumWater, 0) AS SumWater,
+        COALESCE(a.SumHoursOn, 0) AS SumHoursOn
     FROM dbo.PCE_WM AS wm
     CROSS JOIN MonthSpine AS ms
     LEFT JOIN Agg AS a

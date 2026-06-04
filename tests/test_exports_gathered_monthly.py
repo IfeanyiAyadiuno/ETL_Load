@@ -68,11 +68,13 @@ class TestExportsGatheredMonthly(unittest.TestCase):
                 "SumGas": [1.0],
                 "SumCond": [2.0],
                 "SumWater": [3.0],
+                "SumHoursOn": [744.0],
             }
         )
         out = finalize_export_dataframe(raw, UNITS_METRIC)
         self.assertIn("Gathered Gas (e³m³)", out.columns)
         self.assertEqual(out.loc[0, "Gathered Gas (e³m³)"], 1.0)
+        self.assertEqual(out.loc[0, "Hours On (total)"], 744.0)
 
     def test_finalize_export_dataframe_imperial_conversion(self):
         import pandas as pd
@@ -85,12 +87,14 @@ class TestExportsGatheredMonthly(unittest.TestCase):
                 "SumGas": [10.0],
                 "SumCond": [20.0],
                 "SumWater": [30.0],
+                "SumHoursOn": [500.0],
             }
         )
         out = finalize_export_dataframe(raw, UNITS_IMPERIAL)
         self.assertAlmostEqual(
             out.loc[0, "Gathered Gas (Mcf)"], 10.0 * E3M3_TO_MCF
         )
+        self.assertEqual(out.loc[0, "Hours On (total)"], 500.0)
         self.assertAlmostEqual(
             out.loc[0, "Gathered Condensate (bbl)"], 20.0 * M3_TO_BBL_COND
         )
