@@ -27,6 +27,8 @@ from styles import (
     btn_brand,
     btn_neutral,
     progress_bar_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_percent_mode,
     results_area_style,
     file_path_label_style,
     configure_dialog_window_mode,
@@ -127,10 +129,8 @@ class MonthlyForecastsImportDialog(QDialog):
 
         run_group = self.create_group("Import")
         self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
         self.progress.setStyleSheet(progress_bar_style())
-        self.progress.setFixedHeight(8)
+        configure_percentage_progress_bar(self.progress)
         run_group.layout().addWidget(self.progress)
 
         self.results = QTextEdit()

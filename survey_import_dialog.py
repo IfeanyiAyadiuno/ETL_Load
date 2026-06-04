@@ -36,6 +36,8 @@ from styles import (
     btn_danger,
     btn_primary,
     progress_bar_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_percent_mode,
     results_area_style,
     file_path_label_style,
     configure_dialog_window_mode,
@@ -258,7 +260,7 @@ class SurveyImportDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
-        self.progress_bar.setFixedHeight(10)
+        configure_percentage_progress_bar(self.progress_bar)
         layout.addWidget(self.progress_bar)
 
         log_group = self.create_group("📋 Import Log")
@@ -442,7 +444,7 @@ class SurveyImportDialog(QDialog):
         self.cancel_btn.setText("Cancel")
         self.cancel_btn.setStyleSheet(btn_danger())
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
 
         self.worker = SurveyImportWorker(
@@ -476,7 +478,7 @@ class SurveyImportDialog(QDialog):
 
     def import_finished(self, result):
         try:
-            self.progress_bar.setRange(0, 100)
+            set_progress_bar_percent_mode(self.progress_bar)
             self.progress_bar.setValue(100)
             self._re_enable_controls()
             self.log("")
@@ -515,7 +517,7 @@ class SurveyImportDialog(QDialog):
             self.import_error(f"{str(e)}\n\n(See traceback in terminal / log.)")
 
     def import_error(self, error_msg):
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self._re_enable_controls()
         self.log("")

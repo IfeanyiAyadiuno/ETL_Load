@@ -24,6 +24,7 @@ from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    configure_percentage_progress_bar, set_progress_bar_percent_mode,
     info_panel_style,
     configure_dialog_window_mode,
 )
@@ -142,7 +143,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
-        self.progress_bar.setFixedHeight(10)
+        configure_percentage_progress_bar(self.progress_bar)
         progress_layout.addWidget(self.progress_bar)
         progress_group.layout().addLayout(progress_layout)
         layout.addWidget(progress_group)
@@ -365,13 +366,13 @@ class ProdviewUpdateDialog(QDialog):
         self.worker.error_signal.connect(self.update_error)
 
         if update_mode == "full_rebuild":
-            # Busy / indeterminate bar — long SQL steps often print nothing for many minutes.
-            self.progress_bar.setRange(0, 0)
+            set_progress_bar_percent_mode(self.progress_bar)
+            self.progress_bar.setValue(0)
             self._start_full_rebuild_heartbeat()
             self.status_label.setText("Running full rebuild… (0:00 elapsed)")
         else:
             self._stop_full_rebuild_heartbeat()
-            self.progress_bar.setRange(0, 100)
+            set_progress_bar_percent_mode(self.progress_bar)
             self.progress_bar.setValue(0)
             self.status_label.setText("Initializing…")
 
@@ -412,17 +413,16 @@ class ProdviewUpdateDialog(QDialog):
         self.status_label.setText(text)
 
     def update_progress(self, value):
-        """Update progress bar"""
-        # Only apply numeric progress updates when the bar is in determinate mode
+        """Update progress bar (0–100 %)."""
         if self.progress_bar.maximum() > 0:
-            self.progress_bar.setValue(value)
+            self.progress_bar.setValue(min(100, max(0, int(value))))
 
     def update_finished(self, summary):
         """Handle update completion"""
         self._stop_full_rebuild_heartbeat()
         self._run_start_ts = None
         # Ensure progress bar is back in determinate mode and completed
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)
@@ -462,7 +462,7 @@ class ProdviewUpdateDialog(QDialog):
         self._stop_full_rebuild_heartbeat()
         self._run_start_ts = None
         # Reset progress bar to determinate mode on error
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)

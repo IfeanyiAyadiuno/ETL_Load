@@ -40,6 +40,7 @@ from styles import (
     header_credits_btn_style,
     header_cluster_widget_style,
     ops_section_title_style,
+    main_menu_action_btn_style,
     licensing_credits_role_style,
     licensing_credits_name_style,
 )
@@ -266,31 +267,46 @@ class ProductionUpdateGUI(QMainWindow):
         ops_header_row.addWidget(self.btn_settings, 0, Qt.AlignVCenter)
         ops_outer.addLayout(ops_header_row)
 
-        buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(10)
-        buttons_layout.setContentsMargins(0, 2, 0, 4)
-        
+        actions_panel = QFrame()
+        actions_panel.setObjectName("actionsPanel")
+        actions_panel.setStyleSheet("""
+            QFrame#actionsPanel {
+                background-color: #f1f5f9;
+                border: none;
+                border-radius: 10px;
+            }
+        """)
+        buttons_layout = QVBoxLayout(actions_panel)
+        buttons_layout.setSpacing(12)
+        buttons_layout.setContentsMargins(12, 12, 12, 12)
+
         # Create main operation buttons
-        self.btn_well_master = self.create_main_button("Well Master List", "#1e40af")
-        self.btn_prodview = self.create_main_button("Prodview / Snowflake — Daily Production Retrieve", "#1e40af")
-        self.btn_allocations = self.create_main_button("Production Accounting Allocations (PA)", "#1e40af")
-        self.btn_ratios = self.create_main_button("Public Sales Data and Ratios", "#1e40af")
-        self.btn_survey = self.create_main_button("Survey Data Import", "#1e40af")
-        self.btn_type_curves = self.create_main_button("Type Curves Import", "#1e40af")
-        self.btn_monthly_forecasts = self.create_main_button("Monthly Forecasts Import", "#1e40af")
-        self.btn_exports = self.create_main_button("Exports / Reports", "#1e40af")
-        self.btn_whitson = self.create_main_button("Whitson+ Mass Upload", "#1e40af")
-        
-        # Add buttons to layout
-        buttons_layout.addWidget(self.btn_well_master)
-        buttons_layout.addWidget(self.btn_prodview)
-        buttons_layout.addWidget(self.btn_allocations)
-        buttons_layout.addWidget(self.btn_ratios)
-        buttons_layout.addWidget(self.btn_survey)
-        buttons_layout.addWidget(self.btn_type_curves)
-        buttons_layout.addWidget(self.btn_monthly_forecasts)
-        buttons_layout.addWidget(self.btn_whitson)
-        buttons_layout.addWidget(self.btn_exports)
+        self.btn_well_master = self.create_main_button("Well Master List")
+        self.btn_prodview = self.create_main_button(
+            "Prodview / Snowflake — Daily Production Retrieve"
+        )
+        self.btn_allocations = self.create_main_button(
+            "Production Accounting Allocations (PA)"
+        )
+        self.btn_ratios = self.create_main_button("Public Sales Data and Ratios")
+        self.btn_survey = self.create_main_button("Survey Data Import")
+        self.btn_type_curves = self.create_main_button("Type Curves Import")
+        self.btn_monthly_forecasts = self.create_main_button("Monthly Forecasts Import")
+        self.btn_exports = self.create_main_button("Exports / Reports")
+        self.btn_whitson = self.create_main_button("Whitson+ Mass Upload")
+
+        for btn in (
+            self.btn_well_master,
+            self.btn_prodview,
+            self.btn_allocations,
+            self.btn_ratios,
+            self.btn_survey,
+            self.btn_type_curves,
+            self.btn_monthly_forecasts,
+            self.btn_whitson,
+            self.btn_exports,
+        ):
+            buttons_layout.addWidget(btn)
         
         # Connect buttons to click handlers
         self.btn_well_master.clicked.connect(lambda: self.select_operation("Well Master List"))
@@ -303,9 +319,10 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_exports.clicked.connect(lambda: self.select_operation("Exports/Reports"))
         self.btn_whitson.clicked.connect(lambda: self.select_operation("Whitson Mass Upload"))
         
-        ops_outer.addLayout(buttons_layout)
-        ops_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        layout.addWidget(ops_card, 1)
+        ops_outer.addWidget(actions_panel, 0)
+        ops_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        layout.addWidget(ops_card, 0)
+        layout.addStretch(1)
 
         main_layout.addWidget(content, 1)
 
@@ -328,24 +345,24 @@ class ProductionUpdateGUI(QMainWindow):
         self.apply_styles()
 
     _MAIN_BUTTON_COUNT = 9
-    _MAIN_BUTTON_MIN_HEIGHT = 50
-    _MAIN_BUTTON_SPACING = 10
+    _MAIN_BUTTON_HEIGHT = 48
+    _MAIN_BUTTON_SPACING = 12
 
     def _content_minimum_height(self) -> int:
         """Minimum window height so action buttons are not clipped."""
         n = self._MAIN_BUTTON_COUNT
-        btn_block = n * self._MAIN_BUTTON_MIN_HEIGHT + (n - 1) * self._MAIN_BUTTON_SPACING
+        panel_pad = 24  # actions panel inner margins
+        btn_block = n * self._MAIN_BUTTON_HEIGHT + (n - 1) * self._MAIN_BUTTON_SPACING
         return (
             24 + 24  # content vertical margins
             + 130  # header card
             + 18  # gap between cards
             + 18 + 22  # ops card top/bottom margins
             + 44  # ops title row
-            + 14  # gap before buttons
-            + 6  # buttons layout margins
-            + btn_block
+            + 14  # gap before actions panel
+            + panel_pad + btn_block
             + 36  # vendor footer
-            + 24  # breathing room
+            + 16
         )
 
     def _apply_initial_window_geometry(self):
@@ -360,57 +377,27 @@ class ProductionUpdateGUI(QMainWindow):
             self._did_initial_show_resize = True
             min_h = self._content_minimum_height()
             width = max(960, self.width())
-            height = max(min_h, self.height())
+            height = min_h
             screen = QApplication.primaryScreen()
             if screen is not None:
                 available = screen.availableGeometry()
                 width = min(width, int(available.width() * 0.95))
-                height = min(height, int(available.height() * 0.95))
                 x = available.x() + (available.width() - width) // 2
                 y = available.y() + (available.height() - height) // 2
                 self.move(x, y)
             self.setMinimumSize(920, min_h)
             self.resize(width, height)
 
-    def create_main_button(self, text, color):
-        """Create a styled main button"""
+    def create_main_button(self, text):
+        """Create a full-width main menu action button."""
         btn = QPushButton(text)
-        h = self._MAIN_BUTTON_MIN_HEIGHT
-        btn.setMinimumHeight(h)
+        h = self._MAIN_BUTTON_HEIGHT
+        btn.setFixedHeight(h)
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {color};
-                color: #ffffff;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 600;
-                min-height: {h}px;
-                padding: 12px 18px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: #1d4ed8;
-            }}
-            QPushButton:pressed {{
-                background-color: #1e3a8a;
-            }}
-            QPushButton:checked {{
-                background-color: #14532d;
-                border: 2px solid #ca8a04;
-            }}
-            QPushButton:checked:hover {{
-                background-color: #166534;
-            }}
-            QPushButton:disabled {{
-                background-color: #cbd5e1;
-                color: #64748b;
-            }}
-        """)
+        btn.setStyleSheet(main_menu_action_btn_style())
         btn.setCheckable(True)
-        btn.setAutoExclusive(True)  # Only one button can be checked at a time
+        btn.setAutoExclusive(True)
         return btn
     
     def select_operation(self, operation_name):

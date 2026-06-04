@@ -26,6 +26,8 @@ from styles import (
     dialog_title_style,
     muted_body_label_style,
     progress_bar_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_percent_mode,
     results_area_style,
     section_title_style,
 )
@@ -139,7 +141,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
-        self.progress_bar.setFixedHeight(10)
+        configure_percentage_progress_bar(self.progress_bar)
         layout.addWidget(self.progress_bar)
 
         log_group = self.create_group("Upload Log")
@@ -225,7 +227,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.run_btn.setEnabled(False)
         self.close_btn.setText("Cancel")
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
 
         def log_callback(message):
@@ -246,7 +248,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.log_output.setTextCursor(cursor)
 
     def _reenable_ui(self):
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.run_btn.setEnabled(True)
         self.close_btn.setText("Close")
         parent = self.parent()

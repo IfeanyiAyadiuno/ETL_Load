@@ -40,6 +40,8 @@ from styles import (
     btn_brand,
     btn_neutral,
     progress_bar_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_percent_mode,
     results_area_style,
     configure_dialog_window_mode,
 )
@@ -147,6 +149,7 @@ class ExportsDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
+        configure_percentage_progress_bar(self.progress_bar)
         layout.addWidget(self.progress_bar)
 
         scroll.setWidget(scroll_content)
@@ -250,12 +253,14 @@ class ExportsDialog(QDialog):
         self.export_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        set_progress_bar_percent_mode(self.progress_bar)
+        self.progress_bar.setValue(0)
 
         self.worker = GatheredMonthlyExportWorker(
             from_month, to_month, units, file_path
         )
         self.worker.log_signal.connect(self.log_result)
+        self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.on_export_finished)
         self.worker.error_signal.connect(self.on_export_error)
         self.worker.start()
@@ -283,6 +288,7 @@ class ExportsDialog(QDialog):
 
 class GatheredMonthlyExportWorker(QThread):
     log_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
@@ -295,12 +301,14 @@ class GatheredMonthlyExportWorker(QThread):
 
     def run(self):
         try:
+            self.progress_signal.emit(5)
             conn = get_sql_conn()
             try:
 
                 def progress(msg: str):
                     self.log_signal.emit(msg)
 
+                self.progress_signal.emit(15)
                 df = run_gathered_monthly_export(
                     conn,
                     self.from_month,
@@ -311,8 +319,10 @@ class GatheredMonthlyExportWorker(QThread):
             finally:
                 conn.close()
 
+            self.progress_signal.emit(85)
             self.log_signal.emit(f"Writing {len(df)} rows to Excel…")
             write_excel(df, self.file_path)
+            self.progress_signal.emit(100)
             path = (
                 self.file_path
                 if self.file_path.lower().endswith(".xlsx")

@@ -41,6 +41,9 @@ from styles import (
     btn_neutral,
     btn_danger,
     progress_bar_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_busy,
+    set_progress_bar_percent_mode,
     results_area_style,
     file_path_label_style,
     muted_body_label_style,
@@ -279,7 +282,7 @@ class TypeCurvesImportDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
-        self.progress_bar.setFixedHeight(10)
+        configure_percentage_progress_bar(self.progress_bar)
         layout.addWidget(self.progress_bar)
 
         log_group = self.create_group("Log")
@@ -459,7 +462,7 @@ class TypeCurvesImportDialog(QDialog):
 
         self.set_busy(True)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
 
         def log_callback(message):
@@ -522,7 +525,7 @@ class TypeCurvesImportDialog(QDialog):
         self.log_output.append(lf.header("DELETE", Wells=str(len(stored))))
         self.set_busy(True)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        set_progress_bar_busy(self.progress_bar)
 
         def log_callback(message):
             if hasattr(self.parent(), "log"):
@@ -537,7 +540,7 @@ class TypeCurvesImportDialog(QDialog):
     def delete_finished(self, deleted_rows: int):
         self.set_busy(False)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(100)
         self.delete_worker = None
         self.validate_inputs()
@@ -547,7 +550,7 @@ class TypeCurvesImportDialog(QDialog):
     def delete_error(self, error_msg):
         self.set_busy(False)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self.delete_worker = None
         self.validate_inputs()

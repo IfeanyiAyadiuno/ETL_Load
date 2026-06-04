@@ -25,6 +25,7 @@ from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    configure_percentage_progress_bar, set_progress_bar_percent_mode,
     file_path_label_style,
     configure_dialog_window_mode,
 )
@@ -116,7 +117,7 @@ class MonthlyLoaderDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
-        self.progress_bar.setFixedHeight(10)
+        configure_percentage_progress_bar(self.progress_bar)
         layout.addWidget(self.progress_bar)
 
         # Results Area
@@ -170,7 +171,7 @@ class MonthlyLoaderDialog(QDialog):
                 self.worker.cancel()
                 self.worker.wait(5000)
                 self.log_result(lf.warn("Operation cancelled by user"))
-                self.progress_bar.setRange(0, 100)
+                set_progress_bar_percent_mode(self.progress_bar)
                 self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(False)
                 self.run_btn.setEnabled(True)
@@ -290,7 +291,7 @@ class MonthlyLoaderDialog(QDialog):
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self.results_text.clear()
 
@@ -312,12 +313,11 @@ class MonthlyLoaderDialog(QDialog):
 
     def update_progress(self, value):
         """Update progress bar"""
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(value)
+        self.progress_bar.setValue(min(100, max(0, int(value))))
 
     def loader_finished(self, _summary):
         """Handle loader completion"""
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)
@@ -325,7 +325,7 @@ class MonthlyLoaderDialog(QDialog):
 
     def loader_error(self, error_msg):
         """Handle loader error"""
-        self.progress_bar.setRange(0, 100)
+        set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(True)

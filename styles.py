@@ -270,6 +270,44 @@ def header_credits_btn_style() -> str:
     """
 
 
+def main_menu_action_btn_style() -> str:
+    """Full-width RE Production main menu action (distinct rows, not one panel)."""
+    return f"""
+        QPushButton {{
+            background-color: {_PRIMARY};
+            color: #ffffff;
+            border: 1px solid #1e3a8a;
+            border-radius: 8px;
+            font-family: {_FONT};
+            font-size: 13px;
+            font-weight: 600;
+            padding: 14px 20px;
+            min-height: 22px;
+            max-height: 56px;
+            text-align: left;
+        }}
+        QPushButton:hover {{
+            background-color: {_PRIMARY_HVR};
+            border-color: {_PRIMARY_PRE};
+        }}
+        QPushButton:pressed {{
+            background-color: {_PRIMARY_PRE};
+        }}
+        QPushButton:checked {{
+            background-color: #14532d;
+            border: 2px solid #ca8a04;
+        }}
+        QPushButton:checked:hover {{
+            background-color: #166534;
+        }}
+        QPushButton:disabled {{
+            background-color: {_DISABLED_BG};
+            color: {_DISABLED_TX};
+            border-color: {_BORDER_INPUT};
+        }}
+    """
+
+
 def header_action_btn_style() -> str:
     """Settings (RE Production System Actions section) action button."""
     return f"""
@@ -380,22 +418,52 @@ def btn_danger(large: bool = False) -> str:
 
 
 def progress_bar_style() -> str:
-    """Slim modern progress bar matching dashboard accent blue."""
+    """Progress bar with centered percentage label."""
     return f"""
         QProgressBar {{
-            background-color: {_BORDER};
-            border: none;
+            background-color: {_CARD};
+            border: 1px solid {_BORDER_INPUT};
             border-radius: 6px;
-            height: 10px;
+            min-height: 26px;
+            max-height: 28px;
             text-align: center;
-            font-size: 11px;
-            color: {_TEXT_MUTED};
+            font-size: 12px;
+            font-weight: 600;
+            color: {_TEXT};
         }}
         QProgressBar::chunk {{
             background-color: {_PRIMARY};
-            border-radius: 6px;
+            border-radius: 5px;
         }}
     """
+
+
+def configure_percentage_progress_bar(bar) -> None:
+    """Show 0–100% in the bar (call once after creating a QProgressBar)."""
+    from PyQt5.QtCore import Qt
+
+    bar.setRange(0, 100)
+    bar.setValue(0)
+    bar.setFormat("%p%")
+    bar.setAlignment(Qt.AlignCenter)
+    bar.setTextVisible(True)
+    bar.setMinimumHeight(26)
+
+
+def set_progress_bar_busy(bar, *, message: str = "Working…") -> None:
+    """Indeterminate bar when percent is unknown (no numeric range)."""
+    from PyQt5.QtCore import Qt
+
+    bar.setRange(0, 0)
+    bar.setFormat(message)
+    bar.setAlignment(Qt.AlignCenter)
+    bar.setTextVisible(True)
+    bar.setMinimumHeight(26)
+
+
+def set_progress_bar_percent_mode(bar) -> None:
+    """Restore 0–100 determinate mode with % label."""
+    configure_percentage_progress_bar(bar)
 
 
 def terminal_log_style() -> str:
