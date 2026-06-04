@@ -5,7 +5,7 @@ Push PCE_Production daily rates to Whitson+ for all wells (imperial conversion v
 from __future__ import annotations
 
 import importlib.util
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -67,11 +67,18 @@ def query_production_date_bounds(conn) -> Tuple[date, date]:
     return min_d, max_d
 
 
-def default_gui_date_range(conn) -> Tuple[date, date]:
-    """Default end = max prod date; start = max( min prod, end - 12 months )."""
+def resolve_upload_date_range(
+    conn,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> Tuple[date, date]:
+    """Use full PCE_Production span when dates omitted."""
     min_d, max_d = query_production_date_bounds(conn)
-    start = max(min_d, max_d - timedelta(days=365))
-    return start, max_d
+    return (
+        start_date if start_date is not None else min_d,
+        end_date if end_date is not None else max_d,
+    )
 
 
 _WELL_EXCLUSION = """
@@ -256,8 +263,8 @@ def push_well(
 
 def push_all_wells(
     *,
-    start_date: date,
-    end_date: date,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     append_only: bool = True,
     apply_prodview_cap: bool = True,
     factors: Optional[WhitsonImperialFactors] = None,
@@ -269,7 +276,9 @@ def push_all_wells(
     """
     Push all distinct production wells in [start_date, end_date].
 
-    Returns summary dict with ok, skipped, failed counts and errors list.
+    When dates are omitted, uses min/max dates in PCE_Production (end may be
+    capped to prodview_effective_end_date when apply_prodview_cap is True).
+    append_only=True appends points; new wells are created then loaded.
     """
     def log(msg: str) -> None:
         if log_cb:
@@ -282,28 +291,31 @@ def push_all_wells(
     project_id = project_id if project_id is not None else default_project
     factors = factors or load_whitson_imperial_factors()
 
-    end = effective_end_date(end_date, apply_prodview_cap)
-    if end < start_date:
-        raise ValueError(
-            f"Effective end date {end} is before start date {start_date}."
-        )
-    if apply_prodview_cap and end != end_date:
-        log(
-            f"End date capped to Prodview effective date: {end} "
-            f"(requested {end_date})"
-        )
-
-    summary: Dict[str, Any] = {
-        "ok": 0,
-        "skipped": 0,
-        "failed": 0,
-        "errors": [],
-        "start": start_date.isoformat(),
-        "end": end.isoformat(),
-    }
-
     conn = get_sql_conn()
     try:
+        start_date, end_date = resolve_upload_date_range(
+            conn, start_date=start_date, end_date=end_date
+        )
+
+        end = effective_end_date(end_date, apply_prodview_cap)
+        if end < start_date:
+            raise ValueError(
+                f"Effective end date {end} is before start date {start_date}."
+            )
+        if apply_prodview_cap and end != end_date:
+            log(
+                f"End date capped to Prodview effective date: {end} "
+                f"(table max {end_date})"
+            )
+
+        summary: Dict[str, Any] = {
+            "ok": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+            "start": start_date.isoformat(),
+            "end": end.isoformat(),
+        }
         wells = list_production_wells(conn, start=start_date, end=end)
         total = len(wells)
         log(f"Wells to process: {total} ({start_date} to {end})")
@@ -346,7 +358,6 @@ def push_all_wells(
             f"Done: {summary['ok']} ok, {summary['skipped']} skipped, "
             f"{summary['failed']} failed"
         )
+        return summary
     finally:
         conn.close()
-
-    return summary

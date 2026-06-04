@@ -1,11 +1,7 @@
 # whitson_mass_upload_dialog.py
-from datetime import date
-
-from PyQt5.QtCore import QDate, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import (
-    QCheckBox,
-    QDateEdit,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -37,30 +33,19 @@ from whitson_imperial_units import (
     WhitsonImperialConfigError,
     load_whitson_imperial_factors,
 )
-from whitson_production_push import default_gui_date_range, push_all_wells
+from whitson_production_push import push_all_wells
 
 
 class WhitsonUploadWorker(QThread):
-    """Worker thread: push all PCE_Production wells to Whitson+."""
+    """Worker thread: push all PCE_Production wells to Whitson+ (append only)."""
 
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(
-        self,
-        start_date: date,
-        end_date: date,
-        append_only: bool,
-        apply_prodview_cap: bool,
-        log_callback,
-    ):
+    def __init__(self, log_callback):
         super().__init__()
-        self.start_date = start_date
-        self.end_date = end_date
-        self.append_only = append_only
-        self.apply_prodview_cap = apply_prodview_cap
         self.log_callback = log_callback
         self._cancelled = False
 
@@ -84,10 +69,8 @@ class WhitsonUploadWorker(QThread):
 
             factors = load_whitson_imperial_factors()
             summary = push_all_wells(
-                start_date=self.start_date,
-                end_date=self.end_date,
-                append_only=self.append_only,
-                apply_prodview_cap=self.apply_prodview_cap,
+                append_only=True,
+                apply_prodview_cap=True,
                 factors=factors,
                 log_cb=log,
                 progress_cb=progress,
@@ -112,12 +95,11 @@ class WhitsonMassUploadDialog(QDialog):
         self.worker = None
         self.setWindowTitle("📤 Whitson+ Mass Upload")
         self.setModal(True)
-        self.setMinimumWidth(750)
-        self.setMinimumHeight(600)
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(480)
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
-        self._load_default_dates()
 
     def initUI(self):
         main_layout = QVBoxLayout(self)
@@ -140,43 +122,14 @@ class WhitsonMassUploadDialog(QDialog):
         layout.addWidget(title)
 
         whitson_intro = QLabel(
-            "Pushes daily production from PCE_Production to Whitson+ for all wells "
-            "in the date range. Well name = production [Well Name] (composite); "
-            "UWI from PCE_WM [Value Navigator UWI]. Rates and pressures are converted "
-            "to imperial using whitson_imperial.ini before upload."
+            "Uploads all daily production from PCE_Production to Whitson+. "
+            "New wells are created automatically; existing wells receive new "
+            "data only (append). Well name = production [Well Name]; UWI from "
+            "PCE_WM. Imperial conversion uses whitson_imperial.ini."
         )
         whitson_intro.setWordWrap(True)
         whitson_intro.setStyleSheet(muted_body_label_style())
         layout.addWidget(whitson_intro)
-
-        range_group = self.create_group("Date range")
-        range_layout = QHBoxLayout()
-        range_layout.addWidget(QLabel("Start:"))
-        self.start_date_edit = QDateEdit()
-        self.start_date_edit.setCalendarPopup(True)
-        self.start_date_edit.setDisplayFormat("yyyy-MM-dd")
-        range_layout.addWidget(self.start_date_edit)
-        range_layout.addWidget(QLabel("End:"))
-        self.end_date_edit = QDateEdit()
-        self.end_date_edit.setCalendarPopup(True)
-        self.end_date_edit.setDisplayFormat("yyyy-MM-dd")
-        range_layout.addWidget(self.end_date_edit)
-        range_group.layout().addLayout(range_layout)
-        layout.addWidget(range_group)
-
-        opts_group = self.create_group("Options")
-        opts_layout = QVBoxLayout()
-        self.replace_checkbox = QCheckBox(
-            "Replace existing Whitson data (unchecked = append only)"
-        )
-        opts_layout.addWidget(self.replace_checkbox)
-        self.prodview_cap_checkbox = QCheckBox(
-            "Cap end date at Prodview effective date (recommended)"
-        )
-        self.prodview_cap_checkbox.setChecked(True)
-        opts_layout.addWidget(self.prodview_cap_checkbox)
-        opts_group.layout().addLayout(opts_layout)
-        layout.addWidget(opts_group)
 
         ini_label = QLabel(f"Conversion factors: {get_whitson_imperial_ini_path()}")
         ini_label.setWordWrap(True)
@@ -194,7 +147,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(results_area_style())
-        self.log_output.setMinimumHeight(250)
+        self.log_output.setMinimumHeight(280)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
@@ -229,23 +182,6 @@ class WhitsonMassUploadDialog(QDialog):
         layout.addWidget(title_label)
         return group
 
-    def _load_default_dates(self):
-        try:
-            conn = get_sql_conn()
-            try:
-                start, end = default_gui_date_range(conn)
-            finally:
-                conn.close()
-            self.start_date_edit.setDate(QDate(start.year, start.month, start.day))
-            self.end_date_edit.setDate(QDate(end.year, end.month, end.day))
-        except Exception:
-            today = QDate.currentDate()
-            self.end_date_edit.setDate(today)
-            self.start_date_edit.setDate(today.addMonths(-12))
-
-    def _qdate_to_date(self, qd: QDate) -> date:
-        return date(qd.year(), qd.month(), qd.day())
-
     def _preflight(self) -> bool:
         try:
             load_whitson_imperial_factors()
@@ -254,16 +190,6 @@ class WhitsonMassUploadDialog(QDialog):
                 self,
                 "Whitson conversion INI",
                 f"{exc}\n\nEdit: {get_whitson_imperial_ini_path()}",
-            )
-            return False
-
-        start = self._qdate_to_date(self.start_date_edit.date())
-        end = self._qdate_to_date(self.end_date_edit.date())
-        if start > end:
-            QMessageBox.warning(
-                self,
-                "Invalid dates",
-                "Start date must be on or before end date.",
             )
             return False
 
@@ -284,19 +210,11 @@ class WhitsonMassUploadDialog(QDialog):
         if not self._preflight():
             return
 
-        start = self._qdate_to_date(self.start_date_edit.date())
-        end = self._qdate_to_date(self.end_date_edit.date())
-        append_only = not self.replace_checkbox.isChecked()
-        apply_cap = self.prodview_cap_checkbox.isChecked()
-
         self.log_output.clear()
         self.log_output.append("=" * 60)
         self.log_output.append("WHITSON+ MASS UPLOAD (PCE_Production)")
         self.log_output.append("=" * 60)
-        self.log_output.append(f"Start: {start}")
-        self.log_output.append(f"End: {end}")
-        self.log_output.append(f"Append only: {append_only}")
-        self.log_output.append(f"Prodview cap: {apply_cap}")
+        self.log_output.append("Mode: append only; create wells if missing")
         self.log_output.append("=" * 60)
         self.log_output.append("")
 
@@ -314,13 +232,7 @@ class WhitsonMassUploadDialog(QDialog):
             if parent and hasattr(parent, "log"):
                 parent.log(message)
 
-        self.worker = WhitsonUploadWorker(
-            start,
-            end,
-            append_only,
-            apply_cap,
-            log_callback,
-        )
+        self.worker = WhitsonUploadWorker(log_callback)
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.upload_finished)
@@ -352,6 +264,8 @@ class WhitsonMassUploadDialog(QDialog):
             f"{summary.get('skipped', 0)} skipped, "
             f"{summary.get('failed', 0)} failed"
         )
+        if summary.get("start") and summary.get("end"):
+            self.log(f"Dates: {summary['start']} to {summary['end']}")
         self.log("=" * 60)
 
         if success:

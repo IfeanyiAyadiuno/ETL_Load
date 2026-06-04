@@ -252,19 +252,23 @@ class ProductionUpdateGUI(QMainWindow):
             }
         """)
         ops_outer = QVBoxLayout(ops_card)
-        ops_outer.setContentsMargins(20, 16, 20, 18)
-        ops_outer.setSpacing(12)
-        
+        ops_outer.setContentsMargins(20, 18, 20, 22)
+        ops_outer.setSpacing(14)
+
         ops_title = QLabel("RE Production System Actions")
         ops_title.setStyleSheet(ops_section_title_style())
         ops_header_row = QHBoxLayout()
-        ops_header_row.addWidget(ops_title)
+        ops_header_row.setSpacing(12)
+        ops_header_row.setContentsMargins(0, 0, 0, 0)
+        ops_header_row.addWidget(ops_title, 0, Qt.AlignVCenter)
         ops_header_row.addStretch(1)
+        self.btn_settings.setMinimumHeight(40)
         ops_header_row.addWidget(self.btn_settings, 0, Qt.AlignVCenter)
         ops_outer.addLayout(ops_header_row)
-        
+
         buttons_layout = QVBoxLayout()
-        buttons_layout.setSpacing(8)
+        buttons_layout.setSpacing(10)
+        buttons_layout.setContentsMargins(0, 2, 0, 4)
         
         # Create main operation buttons
         self.btn_well_master = self.create_main_button("Well Master List", "#1e40af")
@@ -300,7 +304,8 @@ class ProductionUpdateGUI(QMainWindow):
         self.btn_whitson.clicked.connect(lambda: self.select_operation("Whitson Mass Upload"))
         
         ops_outer.addLayout(buttons_layout)
-        layout.addWidget(ops_card)
+        ops_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        layout.addWidget(ops_card, 1)
 
         main_layout.addWidget(content, 1)
 
@@ -322,17 +327,40 @@ class ProductionUpdateGUI(QMainWindow):
         # Apply styles
         self.apply_styles()
 
+    _MAIN_BUTTON_COUNT = 9
+    _MAIN_BUTTON_MIN_HEIGHT = 50
+    _MAIN_BUTTON_SPACING = 10
+
+    def _content_minimum_height(self) -> int:
+        """Minimum window height so action buttons are not clipped."""
+        n = self._MAIN_BUTTON_COUNT
+        btn_block = n * self._MAIN_BUTTON_MIN_HEIGHT + (n - 1) * self._MAIN_BUTTON_SPACING
+        return (
+            24 + 24  # content vertical margins
+            + 130  # header card
+            + 18  # gap between cards
+            + 18 + 22  # ops card top/bottom margins
+            + 44  # ops title row
+            + 14  # gap before buttons
+            + 6  # buttons layout margins
+            + btn_block
+            + 36  # vendor footer
+            + 24  # breathing room
+        )
+
     def _apply_initial_window_geometry(self):
-        """Size window to main menu content (no operation log, no scroll)."""
-        self.setMinimumSize(920, 640)
+        """Size window to fit all menu buttons without clipping."""
+        min_h = self._content_minimum_height()
+        self.setMinimumSize(920, min_h)
+        self.resize(960, min_h)
 
     def showEvent(self, event):
         super().showEvent(event)
         if not self._did_initial_show_resize:
             self._did_initial_show_resize = True
-            self.adjustSize()
-            width = max(self.width(), 920)
-            height = self.height()
+            min_h = self._content_minimum_height()
+            width = max(960, self.width())
+            height = max(min_h, self.height())
             screen = QApplication.primaryScreen()
             if screen is not None:
                 available = screen.availableGeometry()
@@ -341,13 +369,14 @@ class ProductionUpdateGUI(QMainWindow):
                 x = available.x() + (available.width() - width) // 2
                 y = available.y() + (available.height() - height) // 2
                 self.move(x, y)
-            self.setMinimumSize(920, height)
+            self.setMinimumSize(920, min_h)
             self.resize(width, height)
 
     def create_main_button(self, text, color):
         """Create a styled main button"""
         btn = QPushButton(text)
-        btn.setMinimumHeight(44)
+        h = self._MAIN_BUTTON_MIN_HEIGHT
+        btn.setMinimumHeight(h)
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet(f"""
@@ -358,9 +387,9 @@ class ProductionUpdateGUI(QMainWindow):
                 border-radius: 8px;
                 font-size: 13px;
                 font-weight: 600;
-                padding: 10px 16px;
+                min-height: {h}px;
+                padding: 12px 18px;
                 text-align: left;
-                padding-left: 16px;
             }}
             QPushButton:hover {{
                 background-color: #1d4ed8;

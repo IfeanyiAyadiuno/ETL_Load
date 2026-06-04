@@ -3,6 +3,7 @@
 Upload production from PCE_Production to Whitson+.
 
   python scripts/whitson_upload.py --well-name "2-01-85-26W6M - T3 - PnP - S"
+  python scripts/whitson_upload.py --all-wells
   python scripts/whitson_upload.py --all-wells --start 2024-01-01 --end 2024-12-31
 """
 
@@ -59,11 +60,13 @@ def main() -> int:
     factors = load_whitson_imperial_factors()
 
     if args.all_wells:
-        if not args.start or not args.end:
-            parser.error("--all-wells requires --start and --end")
+        start = _parse_date(args.start) if args.start else None
+        end = _parse_date(args.end) if args.end else None
+        if (args.start and not args.end) or (args.end and not args.start):
+            parser.error("Provide both --start and --end, or neither for full range")
         summary = push_all_wells(
-            start_date=_parse_date(args.start),
-            end_date=_parse_date(args.end),
+            start_date=start,
+            end_date=end,
             append_only=append_only,
             apply_prodview_cap=apply_cap,
             factors=factors,
