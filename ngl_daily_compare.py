@@ -39,6 +39,20 @@ def normalize_uwi(value: Any) -> Optional[str]:
     return text if text else None
 
 
+def trim_sql_uwi_for_match(uwi: str) -> str:
+    """
+    Drop a leading province ``1`` from SQL/WM UWI so it matches monthly NGL Excel.
+
+    WM often stores ``1`` + Excel UWI when the sheet UWI starts with digits
+    (e.g. ``1100/16-28-084-25W6/0`` → ``100/16-28-084-25W6/0``).
+    Already-aligned values like ``100/16-28-...`` are left unchanged.
+    """
+    text = uwi.strip()
+    if re.match(r"^1\d{3,}/", text):
+        return text[1:]
+    return text
+
+
 def parse_production_date(value: Any) -> Tuple[int, int]:
     """
     Parse PRODUCTION_DATE YYYYMM (e.g. 202208) or datetime-like values.
@@ -148,14 +162,18 @@ def read_monthly_ngl_excel(
 def load_production_for_ngl(conn) -> pd.DataFrame:
     sql = """
     SELECT
-          LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) AS Uwi
+          LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) AS UwiRaw
         , CAST([Date] AS DATE) AS ProdDate
         , CAST([Gathered Gas (e³m³/d)] AS FLOAT) AS GatheredGas
     FROM dbo.PCE_Production
     WHERE [UWI] IS NOT NULL
       AND LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) <> N''
     """
-    return pd.read_sql(sql, conn)
+    prod = pd.read_sql(sql, conn)
+    prod["Uwi"] = prod["UwiRaw"].map(
+        lambda v: trim_sql_uwi_for_match(str(v)) if pd.notna(v) else v
+    )
+    return prod
 
 
 def compute_daily_ngl_columns(
@@ -265,7 +283,7 @@ def apply_ngl_updates(
 
     ngl_cols = [c for _, r, f in NGL_EXCEL_FIELDS for c in (r, f)]
     has_match = computed[ngl_cols].notna().any(axis=1)
-    to_write = computed.loc[has_match, ["Uwi", "ProdDate"] + ngl_cols].copy()
+    to_write = computed.loc[has_match, ["UwiRaw", "ProdDate"] + ngl_cols].copy()
 
     summary = NglUpdateSummary(
         excel_rows=0,
@@ -283,7 +301,7 @@ def apply_ngl_updates(
         if len(to_write) > 0:
             sample = to_write.iloc[0]
             _log(
-                f"Sample {sample['Uwi']} {sample['ProdDate']}: "
+                f"Sample {sample['UwiRaw']} {sample['ProdDate']}: "
                 f"NGL-C2_R={sample.get('NGL-C2_R')}, NGL-C2_F={sample.get('NGL-C2_F')}"
             )
         return summary
@@ -307,7 +325,7 @@ def apply_ngl_updates(
     for _, row in to_write.iterrows():
         params = tuple(
             None if pd.isna(row[c]) else float(row[c]) for c in ngl_cols
-        ) + (row["Uwi"], row["ProdDate"])
+        ) + (row["UwiRaw"], row["ProdDate"])
         batch.append(params)
 
     if batch:
@@ -351,6 +369,12 @@ def run_ngl_daily_compare(
 
         prod = load_production_for_ngl(conn)
         _log(f"Production: {len(prod)} row(s) with UWI.")
+        trimmed = prod.loc[prod["Uwi"] != prod["UwiRaw"], "UwiRaw"].drop_duplicates()
+        if len(trimmed) > 0:
+            _log(
+                f"UWI match: stripping leading digit from {len(trimmed)} SQL UWI(s) "
+                f"(e.g. {trimmed.iloc[0]!r} → {trim_sql_uwi_for_match(str(trimmed.iloc[0]))!r})."
+            )
 
         computed = compute_daily_ngl_columns(prod, monthly)
         summary = apply_ngl_updates(

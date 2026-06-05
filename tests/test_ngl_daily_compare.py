@@ -11,6 +11,7 @@ from ngl_daily_compare import (
     days_in_month,
     normalize_uwi,
     parse_production_date,
+    trim_sql_uwi_for_match,
 )
 
 
@@ -27,6 +28,16 @@ class TestNglDailyCompare(unittest.TestCase):
         self.assertEqual(normalize_uwi("  100/16-28-084-25W6/0  "), "100/16-28-084-25W6/0")
         self.assertIsNone(normalize_uwi(None))
         self.assertIsNone(normalize_uwi("   "))
+
+    def test_trim_sql_uwi_for_match(self):
+        self.assertEqual(
+            trim_sql_uwi_for_match("1100/16-28-084-25W6/0"),
+            "100/16-28-084-25W6/0",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("100/16-28-084-25W6/0"),
+            "100/16-28-084-25W6/0",
+        )
 
     def test_compute_ratio(self):
         self.assertAlmostEqual(
@@ -72,6 +83,35 @@ class TestNglDailyCompare(unittest.TestCase):
         expected_f = 176.6 / 31
         self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], expected_f, places=6)
         self.assertAlmostEqual(out.loc[1, "NGL-C2_F"], expected_f, places=6)
+
+    def test_sql_uwi_leading_digit_matches_excel(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": "100/16-28-084-25W6/0",
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 31.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "1100/16-28-084-25W6/0",
+                    "Uwi": trim_sql_uwi_for_match("1100/16-28-084-25W6/0"),
+                    "ProdDate": pd.Timestamp("2022-08-15"),
+                    "GatheredGas": 100.0,
+                }
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
+        self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], 31.0 / 31, places=6)
 
     def test_no_excel_match_leaves_nan(self):
         monthly = pd.DataFrame(
