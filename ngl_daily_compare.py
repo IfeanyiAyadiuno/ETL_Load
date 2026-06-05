@@ -11,6 +11,7 @@ from calendar import monthrange
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 NGL_EXCEL_FIELDS = (
@@ -193,18 +194,27 @@ def load_production_for_ngl(conn) -> pd.DataFrame:
 def compute_daily_ngl_columns(
     prod: pd.DataFrame,
     monthly: pd.DataFrame,
+    *,
+    log: Optional[Callable[[str], None]] = None,
 ) -> pd.DataFrame:
     """
     Return production rows with Ratio and Fraction NGL columns added.
     Rows without Excel match keep NGL columns as NaN.
     """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
     if prod.empty:
         return prod.copy()
 
+    row_count = len(prod)
+    _log(f"  Preparing {row_count:,} production row(s)...")
     out = prod.copy()
     out["ProdYear"] = pd.to_datetime(out["ProdDate"]).dt.year
     out["ProdMonth"] = pd.to_datetime(out["ProdDate"]).dt.month
 
+    _log("  Summing monthly gathered gas by UWI...")
     gas_sum = (
         out.groupby(["Uwi", "ProdYear", "ProdMonth"], as_index=False)["GatheredGas"]
         .sum()
@@ -212,32 +222,41 @@ def compute_daily_ngl_columns(
     )
     out = out.merge(gas_sum, on=["Uwi", "ProdYear", "ProdMonth"], how="left")
 
+    _log(f"  Joining {len(monthly):,} Excel monthly row(s)...")
     monthly_key = monthly.rename(
         columns={"Year": "ProdYear", "Month": "ProdMonth"}
     )
     out = out.merge(monthly_key, on=["Uwi", "ProdYear", "ProdMonth"], how="left")
 
-    for excel_col, col_r, col_f in NGL_EXCEL_FIELDS:
-        ratio_vals = []
-        frac_vals = []
-        for _, row in out.iterrows():
-            ngl_m = row.get(excel_col)
-            y, m = int(row["ProdYear"]), int(row["ProdMonth"])
-            if pd.isna(ngl_m):
-                ratio_vals.append(None)
-                frac_vals.append(None)
-                continue
-            ratio_vals.append(
-                compute_ratio_value(
-                    ngl_m,
-                    row.get("MonthGasSum") or 0,
-                    row.get("GatheredGas"),
-                )
-            )
-            frac_vals.append(compute_fraction_value(ngl_m, y, m))
-        out[col_r] = ratio_vals
-        out[col_f] = frac_vals
+    ym = pd.to_datetime(
+        out["ProdYear"].astype(int).astype(str)
+        + "-"
+        + out["ProdMonth"].astype(int).astype(str).str.zfill(2)
+        + "-01"
+    )
+    days_in_month_col = ym.dt.daysinmonth.astype(float)
 
+    total_fields = len(NGL_EXCEL_FIELDS)
+    for idx, (excel_col, col_r, col_f) in enumerate(NGL_EXCEL_FIELDS, start=1):
+        pct = int(round(100 * idx / total_fields))
+        _log(f"  Calculating {excel_col} ({idx}/{total_fields}, {pct}%)...")
+        ngl_m = out[excel_col]
+        has_ngl = ngl_m.notna()
+
+        out[col_r] = np.nan
+        out[col_f] = np.nan
+
+        mask_r = has_ngl & out["MonthGasSum"].fillna(0).gt(0)
+        out.loc[mask_r, col_r] = (
+            ngl_m.loc[mask_r] / out.loc[mask_r, "MonthGasSum"]
+        ) * out.loc[mask_r, "GatheredGas"]
+
+        out.loc[has_ngl, col_f] = ngl_m.loc[has_ngl] / days_in_month_col.loc[has_ngl]
+
+        matched_rows = int(has_ngl.sum())
+        _log(f"    {excel_col}: {matched_rows:,} row(s) with Excel monthly data.")
+
+    _log("  NGL column calculation complete.")
     return out
 
 
@@ -476,8 +495,8 @@ def run_ngl_daily_compare(
                 f"(e.g. {sample!r} → {uwi_match_key(sample, strip_leading_digit=True)!r})."
             )
 
-        _log("Computing daily NGL columns (may take several minutes)...")
-        computed = compute_daily_ngl_columns(prod, monthly)
+        _log("Computing daily NGL columns...")
+        computed = compute_daily_ngl_columns(prod, monthly, log=_log)
         matched, unmatched, not_in_prod = find_unmatched_excel_uwis(monthly, computed)
         summary = apply_ngl_updates(
             conn,
