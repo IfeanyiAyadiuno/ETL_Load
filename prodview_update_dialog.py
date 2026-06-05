@@ -499,11 +499,9 @@ class ProdviewUpdateWorker(QThread):
                 from production_update import main as run_full_rebuild
 
                 class LogCapture:
-                    def __init__(self, log_callback, progress_callback=None):
+                    def __init__(self, log_callback):
                         self.log_callback = log_callback
-                        self.progress_callback = progress_callback
                         self.buffer = ""
-                        self.progress_value = 0  # 0–99; 100 set on completion by dialog
 
                     def write(self, text):
                         self.buffer += text
@@ -511,23 +509,19 @@ class ProdviewUpdateWorker(QThread):
                             line, self.buffer = self.buffer.split('\n', 1)
                             if line.strip():
                                 self.log_callback(line)
-                                # For full rebuild, approximate progress by bumping the
-                                # progress bar a little as log lines arrive so the user
-                                # sees forward movement.
-                                if self.progress_callback is not None:
-                                    if self.progress_value < 99:
-                                        self.progress_value += 1
-                                        self.progress_callback(self.progress_value)
 
                     def flush(self):
                         pass
 
                 old_stdout = sys.stdout
-                log_capture = LogCapture(self.log_signal.emit, self.progress_signal.emit)
+                log_capture = LogCapture(self.log_signal.emit)
                 sys.stdout = log_capture
 
                 try:
-                    summary = run_full_rebuild(cancel_event=self._cancel_event)
+                    summary = run_full_rebuild(
+                        cancel_event=self._cancel_event,
+                        progress_callback=self.progress_signal.emit,
+                    )
 
                     if log_capture.buffer.strip():
                         self.log_signal.emit(log_capture.buffer.strip())

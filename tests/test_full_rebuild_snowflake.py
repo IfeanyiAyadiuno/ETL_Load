@@ -4,6 +4,25 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import prodview_date_bounds as pdb
+from production_update import _RebuildProgress
+
+
+def test_rebuild_progress_cda_sales_midpoint():
+    seen = []
+
+    progress = _RebuildProgress(seen.append)
+    progress.phase_part("cda_sales", 72, 181)
+    assert seen[-1] == 41
+
+
+def test_rebuild_progress_does_not_hit_ninety_nine_early():
+    seen = []
+
+    progress = _RebuildProgress(seen.append)
+    for i in range(50):
+        progress.emit(i)
+    progress.phase_part("cda_sales", 72, 181)
+    assert seen[-1] < 50
 
 
 def test_full_rebuild_snowflake_range_uses_earliest_query_start():

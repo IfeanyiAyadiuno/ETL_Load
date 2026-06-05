@@ -1,5 +1,6 @@
 import time
 import re
+from typing import Callable, Optional
 
 import pandas as pd
 import numpy as np
@@ -14,6 +15,41 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 
 # Prefix for gathered-production [Month] tags on PCE_Production / PCE_FRCST_PRD.
 GATH_PRD_MONTH_PREFIX = "Gath PRD"
+
+
+class _RebuildProgress:
+    """Map full-rebuild sub-steps into 0–99% for the Prodview dialog."""
+
+    _RANGES = {
+        "snowflake": (0, 25),
+        "cda_sales": (25, 65),
+        "prep": (65, 75),
+        "insert": (75, 95),
+        "finalize": (95, 99),
+    }
+
+    def __init__(self, callback: Optional[Callable[[int], None]] = None):
+        self._callback = callback
+
+    def emit(self, percent: float) -> None:
+        if self._callback is not None:
+            self._callback(min(99, max(0, int(round(percent)))))
+
+    def phase_done(self, phase: str) -> None:
+        _, end = self._RANGES[phase]
+        self.emit(end)
+
+    def phase_part(self, phase: str, done: int, total: int) -> None:
+        start, end = self._RANGES[phase]
+        if total <= 0:
+            self.emit(end)
+            return
+        self.emit(start + (done / total) * (end - start))
+
+    def snowflake_substep(self, sub_pct: int) -> None:
+        """Map refresh_pce_cda_from_snowflake milestones (15, 30, 45) into snowflake phase."""
+        start, end = self._RANGES["snowflake"]
+        self.emit(start + (min(max(sub_pct, 0), 45) / 45.0) * (end - start))
 
 # Backward-compatible alias (prefix only; per-well labels use gathered_prd_month_label()).
 PCE_PRODUCTION_MONTH_LABEL = GATH_PRD_MONTH_PREFIX
@@ -95,7 +131,10 @@ def apply_gathered_prd_month_labels(df, enersight_lookup=None):
 
 
 def _refresh_cda_sales_from_allocation_factors(
-    log=print, cancel_event=None, update_production=True
+    log=print,
+    cancel_event=None,
+    update_production=True,
+    progress: Optional[_RebuildProgress] = None,
 ):
     """
     Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
@@ -146,9 +185,13 @@ def _refresh_cda_sales_from_allocation_factors(
             apply_full_sales_ratios_for_month(
                 conn, month_start, log=log, update_production=update_production
             )
+            if progress is not None:
+                progress.phase_part("cda_sales", i + 1, n)
             if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
                 log(lf.detail(f"CDA sales refresh progress: {i + 1}/{n} months"))
 
+    if progress is not None:
+        progress.phase_done("cda_sales")
     return True
 
 
@@ -667,7 +710,7 @@ _INSERT_COLS = [
     'Month',
 ]
 
-def insert_pce_production(df):
+def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     """
     Insert dataframe into PCE_Production table.
     Vectorized NaN->None conversion + executemany batches.
@@ -749,16 +792,20 @@ def insert_pce_production(df):
             if rows_done % commit_every_rows == 0 or rows_done == total_rows:
                 conn.commit()
 
+            if progress is not None:
+                progress.phase_part("insert", rows_done, total_rows)
             if rows_done % 50000 == 0 or rows_done == total_rows:
                 print(lf.detail(f"Insert progress: {lf.num(rows_done)}/{lf.num(total_rows)} rows"))
 
+    if progress is not None:
+        progress.phase_done("insert")
     print(lf.success(f"Inserted {lf.num(total_inserted)} rows into PCE_Production"))
     if duplicate_skipped > 0:
         print(lf.warn(f"Skipped {lf.num(duplicate_skipped)} duplicate rows"))
 
     return total_inserted
 
-def main(cancel_event=None):
+def main(cancel_event=None, progress_callback=None):
     """
     Rebuild PCE_Production from PCE_CDA.
 
@@ -780,6 +827,8 @@ def main(cancel_event=None):
     base_meta = {"mode": "full_rebuild", "duration_seconds": _duration()}
 
     timer = lf.StepTimer(log_fn=print)
+    progress = _RebuildProgress(progress_callback)
+    progress.emit(0)
 
     print(lf.header("PCE_Production population", Started=lf.timestamp()))
     if aborted():
@@ -798,7 +847,11 @@ def main(cancel_event=None):
     print(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
     print(lf.detail(f"Automatic end date (today − lag): {end_cap}"))
 
-    sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(log_callback=print)
+    sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(
+        log_callback=print,
+        progress_callback=progress.snowflake_substep,
+    )
+    progress.phase_done("snowflake")
     cda_max_after = query_pce_cda_max_date()
     print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
     timer.mark("Snowflake → PCE_CDA full lifespan refresh")
@@ -809,7 +862,10 @@ def main(cancel_event=None):
 
     # Step 1: Ensure CDA sales / S2 columns match Allocation_Factors before copying to Production
     if not _refresh_cda_sales_from_allocation_factors(
-        log=print, cancel_event=cancel_event, update_production=False
+        log=print,
+        cancel_event=cancel_event,
+        update_production=False,
+        progress=progress,
     ):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
     timer.mark("PCE_CDA sales refresh from Allocation_Factors")
@@ -856,6 +912,8 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled after trimming future production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    progress.emit(66)
+
     # Step 2: Clear existing data
     clear_pce_production()
     timer.mark("Clear PCE_Production")
@@ -870,9 +928,12 @@ def main(cancel_event=None):
         print(lf.warn("Cancelled after loading well mappings."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    progress.emit(68)
+
     # Step 4: Fetch CDA data
     df = fetch_cda_data(end_cap=end_cap, log=print)
     timer.mark("Load PCE_CDA into pandas")
+    progress.emit(70)
 
     if df.empty:
         print(lf.warn("No data to process. Exiting."))
@@ -900,6 +961,7 @@ def main(cancel_event=None):
     # Step 6: Filter to first production date for each well
     df = filter_to_first_production(df)
     timer.mark("Filter to first production")
+    progress.emit(72)
 
     if df.empty:
         print(lf.warn("No data after filtering. Exiting."))
@@ -926,13 +988,14 @@ def main(cancel_event=None):
     # Step 10: Add On Production Year
     df = add_on_production_year(df)
     timer.mark("Sequences, cumulatives, monthly avgs")
+    progress.phase_done("prep")
 
     if aborted():
         print(lf.warn("Cancelled before inserting into PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 11: Insert into PCE_Production
-    rows_inserted = insert_pce_production(df)
+    rows_inserted = insert_pce_production(df, progress=progress)
     timer.mark("Insert PCE_Production")
 
     from sync_typecurves_to_production import sync_tc_to_production
@@ -970,6 +1033,7 @@ def main(cancel_event=None):
     except Exception as e:
         print(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
     timer.mark("PCE_FRCST_PRD rebuild")
+    progress.phase_done("finalize")
 
     wells_processed = len(df["Well Name"].unique())
     total_records = len(df)
