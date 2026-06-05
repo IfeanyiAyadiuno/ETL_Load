@@ -34,6 +34,12 @@ def _load_script_credentials() -> Tuple[str, str, str, int]:
     return mod.CLIENT, mod.CLIENT_ID, mod.CLIENT_SECRET, mod.PROJECT_ID
 
 
+def get_default_project_id() -> int:
+    """Default Whitson+ project_id from scripts/whitson_upload.py."""
+    _, _, _, project_id = _load_script_credentials()
+    return int(project_id)
+
+
 def make_whitson_connection() -> whitson_connect.WhitsonConnection:
     client, client_id, client_secret, _ = _load_script_credentials()
     whitson = whitson_connect.WhitsonConnection(client, client_id, client_secret)
@@ -313,11 +319,13 @@ def push_all_wells(
             "skipped": 0,
             "failed": 0,
             "errors": [],
+            "project_id": project_id,
             "start": start_date.isoformat(),
             "end": end.isoformat(),
         }
         wells = list_production_wells(conn, start=start_date, end=end)
         total = len(wells)
+        log(f"Whitson+ project_id: {project_id}")
         log(f"Wells to process: {total} ({start_date} to {end})")
 
         whitson = make_whitson_connection()

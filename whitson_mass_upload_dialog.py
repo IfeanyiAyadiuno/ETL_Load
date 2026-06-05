@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -35,7 +36,7 @@ from whitson_imperial_units import (
     WhitsonImperialConfigError,
     load_whitson_imperial_factors,
 )
-from whitson_production_push import push_all_wells
+from whitson_production_push import get_default_project_id, push_all_wells
 
 
 class WhitsonUploadWorker(QThread):
@@ -46,8 +47,9 @@ class WhitsonUploadWorker(QThread):
     finished_signal = pyqtSignal(bool, dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, log_callback):
+    def __init__(self, project_id: int, log_callback):
         super().__init__()
+        self.project_id = project_id
         self.log_callback = log_callback
         self._cancelled = False
 
@@ -74,6 +76,7 @@ class WhitsonUploadWorker(QThread):
                 append_only=True,
                 apply_prodview_cap=True,
                 factors=factors,
+                project_id=self.project_id,
                 log_cb=log,
                 progress_cb=progress,
                 cancel_cb=cancel_cb,
@@ -127,11 +130,26 @@ class WhitsonMassUploadDialog(QDialog):
             "Uploads all daily production from PCE_Production to Whitson+. "
             "New wells are created automatically; existing wells receive new "
             "data only (append). Well name = production [Well Name]; UWI from "
-            "PCE_WM. Imperial conversion uses whitson_imperial.ini."
+            "PCE_WM. Set the Whitson+ project ID below (default from "
+            "scripts/whitson_upload.py). Imperial conversion uses whitson_imperial.ini."
         )
         whitson_intro.setWordWrap(True)
         whitson_intro.setStyleSheet(muted_body_label_style())
         layout.addWidget(whitson_intro)
+
+        project_group = self.create_group("Whitson+ project")
+        project_row = QHBoxLayout()
+        project_row.addWidget(QLabel("Project ID:"))
+        self.project_id_spin = QSpinBox()
+        self.project_id_spin.setRange(1, 99999)
+        self.project_id_spin.setValue(get_default_project_id())
+        self.project_id_spin.setToolTip(
+            "Whitson+ project to create/find wells and upload production into."
+        )
+        project_row.addWidget(self.project_id_spin)
+        project_row.addStretch(1)
+        project_group.layout().addLayout(project_row)
+        layout.addWidget(project_group)
 
         ini_label = QLabel(f"Conversion factors: {get_whitson_imperial_ini_path()}")
         ini_label.setWordWrap(True)
@@ -206,6 +224,15 @@ class WhitsonMassUploadDialog(QDialog):
             )
             return False
 
+        project_id = self.project_id_spin.value()
+        if project_id < 1:
+            QMessageBox.warning(
+                self,
+                "Invalid project",
+                "Project ID must be a positive number.",
+            )
+            return False
+
         return True
 
     def run_upload(self):
@@ -216,7 +243,9 @@ class WhitsonMassUploadDialog(QDialog):
         self.log_output.append("=" * 60)
         self.log_output.append("WHITSON+ MASS UPLOAD (PCE_Production)")
         self.log_output.append("=" * 60)
+        project_id = self.project_id_spin.value()
         self.log_output.append("Mode: append only; create wells if missing")
+        self.log_output.append(f"Project ID: {project_id}")
         self.log_output.append("=" * 60)
         self.log_output.append("")
 
@@ -234,7 +263,8 @@ class WhitsonMassUploadDialog(QDialog):
             if parent and hasattr(parent, "log"):
                 parent.log(message)
 
-        self.worker = WhitsonUploadWorker(log_callback)
+        self.project_id_spin.setEnabled(False)
+        self.worker = WhitsonUploadWorker(project_id, log_callback)
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.upload_finished)
@@ -250,6 +280,7 @@ class WhitsonMassUploadDialog(QDialog):
     def _reenable_ui(self):
         set_progress_bar_percent_mode(self.progress_bar)
         self.run_btn.setEnabled(True)
+        self.project_id_spin.setEnabled(True)
         self.close_btn.setText("Close")
         parent = self.parent()
         if parent and hasattr(parent, "set_buttons_enabled"):
@@ -266,6 +297,8 @@ class WhitsonMassUploadDialog(QDialog):
             f"{summary.get('skipped', 0)} skipped, "
             f"{summary.get('failed', 0)} failed"
         )
+        if summary.get("project_id") is not None:
+            self.log(f"Project ID: {summary['project_id']}")
         if summary.get("start") and summary.get("end"):
             self.log(f"Dates: {summary['start']} to {summary['end']}")
         self.log("=" * 60)
