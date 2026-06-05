@@ -10,6 +10,7 @@ from ngl_daily_compare import (
     compute_ratio_value,
     days_in_month,
     find_unmatched_excel_uwis,
+    find_unmatched_prod_uwis,
     normalize_uwi,
     parse_production_date,
     trim_sql_uwi_for_match,
@@ -198,6 +199,43 @@ class TestNglDailyCompare(unittest.TestCase):
         self.assertEqual(matched, 1)
         self.assertEqual(unmatched, (uwi_match_key("MISSING-UWI"),))
         self.assertEqual(not_in_prod, (uwi_match_key("MISSING-UWI"),))
+
+    def test_find_unmatched_prod_uwis(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": uwi_match_key("100/16-28-084-25W6/0"),
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 10.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "1100/16-28-084-25W6/0",
+                    "Uwi": uwi_match_key("1100/16-28-084-25W6/0", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 50.0,
+                },
+                {
+                    "UwiRaw": "1999/99-99-999-99W9/9",
+                    "Uwi": uwi_match_key("1999/99-99-999-99W9/9", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 25.0,
+                },
+            ]
+        )
+        computed = compute_daily_ngl_columns(prod, monthly)
+        matched, unmatched, not_in_excel = find_unmatched_prod_uwis(monthly, computed)
+        self.assertEqual(matched, 1)
+        self.assertEqual(unmatched, ("1999/99-99-999-99W9/9",))
+        self.assertEqual(not_in_excel, (uwi_match_key("1999/99-99-999-99W9/9", strip_leading_digit=True),))
 
     def test_no_excel_match_leaves_nan(self):
         monthly = pd.DataFrame(

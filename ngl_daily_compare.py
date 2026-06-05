@@ -273,6 +273,9 @@ class NglUpdateSummary:
     excel_uwis_matched: int = 0
     unmatched_excel_uwis: Tuple[str, ...] = ()
     excel_uwis_not_in_prod: Tuple[str, ...] = ()
+    prod_uwis_matched: int = 0
+    unmatched_prod_uwis: Tuple[str, ...] = ()
+    prod_uwis_not_in_excel: Tuple[str, ...] = ()
 
 
 def _ngl_value_columns() -> List[str]:
@@ -299,7 +302,50 @@ def find_unmatched_excel_uwis(
     return len(matched_uwis), unmatched, not_in_prod
 
 
-def log_unmatched_excel_uwis(
+def find_unmatched_prod_uwis(
+    monthly: pd.DataFrame,
+    computed: pd.DataFrame,
+) -> Tuple[int, Tuple[str, ...], Tuple[str, ...]]:
+    """
+    Return (matched_count, unmatched_sql_uwis_raw, prod_uwis_not_in_excel).
+
+    Unmatched = distinct SQL UWIs (original value) with zero rows that received NGL values.
+    Not-in-excel = normalized production UWI keys absent from Excel.
+    """
+    ngl_cols = _ngl_value_columns()
+    has_match = computed[ngl_cols].notna().any(axis=1)
+    matched_keys = set(computed.loc[has_match, "Uwi"].unique())
+    prod_keys = set(computed["Uwi"].unique())
+    excel_keys = set(monthly["Uwi"].unique())
+    unmatched_keys = prod_keys - matched_keys
+
+    raw_by_key = computed.groupby("Uwi", as_index=False)["UwiRaw"].first()
+    unmatched_raw = tuple(
+        sorted(
+            raw_by_key.loc[raw_by_key["Uwi"].isin(unmatched_keys), "UwiRaw"].tolist()
+        )
+    )
+    not_in_excel = tuple(sorted(prod_keys - excel_keys))
+    return len(matched_keys), unmatched_raw, not_in_excel
+
+
+def _log_uwi_list(
+    label: str,
+    uwis: Tuple[str, ...],
+    *,
+    log: Callable[[str], None],
+    max_list: int,
+) -> None:
+    if not uwis:
+        return
+    log(f"  {label} ({len(uwis)}):")
+    for uwi in uwis[:max_list]:
+        log(f"    {uwi}")
+    if len(uwis) > max_list:
+        log(f"    ... and {len(uwis) - max_list} more (use --unmatched-csv).")
+
+
+def log_unmatched_uwis(
     summary: NglUpdateSummary,
     *,
     log: Optional[Callable[[str], None]] = None,
@@ -308,28 +354,38 @@ def log_unmatched_excel_uwis(
     if not log:
         return
 
-    total = summary.excel_uwis
-    matched = summary.excel_uwis_matched
-    unmatched = summary.unmatched_excel_uwis
     log(
-        f"Excel UWI match: {matched} of {total} UWI(s) have production rows "
-        f"with NGL values."
+        f"Excel UWI match: {summary.excel_uwis_matched} of {summary.excel_uwis} "
+        "UWI(s) have production rows with NGL values."
     )
-    if not unmatched:
+    if summary.unmatched_excel_uwis:
+        _log_uwi_list("Unmatched Excel UWI(s)", summary.unmatched_excel_uwis, log=log, max_list=max_list)
+        if summary.excel_uwis_not_in_prod:
+            log(
+                f"  Of those, {len(summary.excel_uwis_not_in_prod)} UWI(s) are not present "
+                "in production at all (after trim/case normalize)."
+            )
+    else:
         log("  All Excel UWIs matched at least one production row.")
-        return
 
-    log(f"  Unmatched Excel UWI(s) ({len(unmatched)}):")
-    for uwi in unmatched[:max_list]:
-        log(f"    {uwi}")
-    if len(unmatched) > max_list:
-        log(f"    ... and {len(unmatched) - max_list} more (use --unmatched-csv).")
-
-    if summary.excel_uwis_not_in_prod:
-        log(
-            f"  Of those, {len(summary.excel_uwis_not_in_prod)} UWI(s) are not present "
-            "in production at all (after trim/case normalize)."
+    log(
+        f"SQL UWI match: {summary.prod_uwis_matched} of {summary.prod_uwis} "
+        "UWI(s) received NGL values from Excel."
+    )
+    if summary.unmatched_prod_uwis:
+        _log_uwi_list(
+            "Unmatched SQL UWI(s)",
+            summary.unmatched_prod_uwis,
+            log=log,
+            max_list=max_list,
         )
+        if summary.prod_uwis_not_in_excel:
+            log(
+                f"  Of those, {len(summary.prod_uwis_not_in_excel)} UWI(s) are not present "
+                "in Excel at all (after trim/case normalize)."
+            )
+    else:
+        log("  All SQL UWIs matched at least one Excel monthly row.")
 
 
 def clear_ngl_columns(conn) -> None:
@@ -429,18 +485,29 @@ def apply_ngl_updates(
     return summary
 
 
-def write_unmatched_excel_uwis_csv(
+def write_unmatched_uwis_csv(
     path: str,
     summary: NglUpdateSummary,
 ) -> None:
     not_in_prod = set(summary.excel_uwis_not_in_prod)
-    rows = [
+    not_in_excel = set(summary.prod_uwis_not_in_excel)
+    rows: List[dict] = [
         {
+            "source": "excel",
             "uwi": uwi,
-            "in_production": uwi not in not_in_prod,
+            "in_other_side": uwi not in not_in_prod,
         }
         for uwi in summary.unmatched_excel_uwis
     ]
+    for uwi_raw in summary.unmatched_prod_uwis:
+        match_key = uwi_match_key(str(uwi_raw), strip_leading_digit=True)
+        rows.append(
+            {
+                "source": "sql",
+                "uwi": uwi_raw,
+                "in_other_side": match_key not in not_in_excel,
+            }
+        )
     pd.DataFrame(rows).to_csv(path, index=False)
 
 
@@ -497,7 +564,12 @@ def run_ngl_daily_compare(
 
         _log("Computing daily NGL columns...")
         computed = compute_daily_ngl_columns(prod, monthly, log=_log)
-        matched, unmatched, not_in_prod = find_unmatched_excel_uwis(monthly, computed)
+        excel_matched, excel_unmatched, excel_not_in_prod = find_unmatched_excel_uwis(
+            monthly, computed
+        )
+        prod_matched, prod_unmatched, prod_not_in_excel = find_unmatched_prod_uwis(
+            monthly, computed
+        )
         summary = apply_ngl_updates(
             conn,
             computed,
@@ -508,15 +580,18 @@ def run_ngl_daily_compare(
         summary.excel_rows = len(monthly)
         summary.excel_uwis = int(monthly["Uwi"].nunique())
         summary.prod_uwis = int(computed["Uwi"].nunique())
-        summary.excel_uwis_matched = matched
-        summary.unmatched_excel_uwis = unmatched
-        summary.excel_uwis_not_in_prod = not_in_prod
-        summary.unmatched_excel_keys = len(unmatched)
+        summary.excel_uwis_matched = excel_matched
+        summary.unmatched_excel_uwis = excel_unmatched
+        summary.excel_uwis_not_in_prod = excel_not_in_prod
+        summary.prod_uwis_matched = prod_matched
+        summary.unmatched_prod_uwis = prod_unmatched
+        summary.prod_uwis_not_in_excel = prod_not_in_excel
+        summary.unmatched_excel_keys = len(excel_unmatched)
         if dry_run:
-            log_unmatched_excel_uwis(summary, log=log)
+            log_unmatched_uwis(summary, log=log)
             if unmatched_csv:
-                write_unmatched_excel_uwis_csv(unmatched_csv, summary)
-                _log(f"Wrote unmatched Excel UWIs to {unmatched_csv}")
+                write_unmatched_uwis_csv(unmatched_csv, summary)
+                _log(f"Wrote unmatched UWIs (Excel + SQL) to {unmatched_csv}")
         return summary
     finally:
         if own_conn and conn is not None:

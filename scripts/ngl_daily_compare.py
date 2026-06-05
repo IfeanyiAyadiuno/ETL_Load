@@ -44,7 +44,7 @@ def main() -> int:
     parser.add_argument(
         "--unmatched-csv",
         default=None,
-        help="Dry-run only: write unmatched Excel UWIs to this CSV path",
+        help="Dry-run only: write unmatched Excel and SQL UWIs to this CSV path",
     )
     args = parser.parse_args()
 
@@ -76,6 +76,8 @@ def main() -> int:
     print(f"  Rows w/o UWI (hint):    {summary.prod_rows_without_uwi_hint}")
     print(f"  Excel UWIs matched:     {summary.excel_uwis_matched} of {summary.excel_uwis}")
     print(f"  Excel UWIs unmatched:   {len(summary.unmatched_excel_uwis)}")
+    print(f"  SQL UWIs matched:       {summary.prod_uwis_matched} of {summary.prod_uwis}")
+    print(f"  SQL UWIs unmatched:     {len(summary.unmatched_prod_uwis)}")
     print(f"  Rows with Excel match:  {summary.rows_with_excel_match}")
     print(f"  Rows updated:           {summary.rows_updated}")
     if args.dry_run:
