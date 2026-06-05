@@ -12,6 +12,7 @@ from ngl_daily_compare import (
     normalize_uwi,
     parse_production_date,
     trim_sql_uwi_for_match,
+    uwi_match_key,
 )
 
 
@@ -36,7 +37,21 @@ class TestNglDailyCompare(unittest.TestCase):
         )
         self.assertEqual(
             trim_sql_uwi_for_match("100/16-28-084-25W6/0"),
-            "100/16-28-084-25W6/0",
+            "00/16-28-084-25W6/0",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("200/b-049-D/094-A-05/2\n"),
+            "00/b-049-D/094-A-05/2",
+        )
+
+    def test_uwi_match_key_case_insensitive(self):
+        self.assertEqual(
+            uwi_match_key("00/b-049-d/094-a-05/2", strip_leading_digit=False),
+            uwi_match_key("00/B-049-D/094-A-05/2", strip_leading_digit=False),
+        )
+        self.assertEqual(
+            uwi_match_key("200/B-049-D/094-A-05/2", strip_leading_digit=True),
+            uwi_match_key("00/b-049-d/094-a-05/2", strip_leading_digit=False),
         )
 
     def test_compute_ratio(self):
@@ -88,7 +103,7 @@ class TestNglDailyCompare(unittest.TestCase):
         monthly = pd.DataFrame(
             [
                 {
-                    "Uwi": "100/16-28-084-25W6/0",
+                    "Uwi": uwi_match_key("100/16-28-084-25W6/0"),
                     "Year": 2022,
                     "Month": 8,
                     "NGL-C2": 31.0,
@@ -103,7 +118,7 @@ class TestNglDailyCompare(unittest.TestCase):
             [
                 {
                     "UwiRaw": "1100/16-28-084-25W6/0",
-                    "Uwi": trim_sql_uwi_for_match("1100/16-28-084-25W6/0"),
+                    "Uwi": uwi_match_key("1100/16-28-084-25W6/0", strip_leading_digit=True),
                     "ProdDate": pd.Timestamp("2022-08-15"),
                     "GatheredGas": 100.0,
                 }
@@ -112,6 +127,35 @@ class TestNglDailyCompare(unittest.TestCase):
         out = compute_daily_ngl_columns(prod, monthly)
         self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
         self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], 31.0 / 31, places=6)
+
+    def test_sql_uwi_case_insensitive_matches_excel(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": uwi_match_key("00/b-049-d/094-a-05/2"),
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 62.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "200/B-049-D/094-A-05/2",
+                    "Uwi": uwi_match_key("200/B-049-D/094-A-05/2", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-10"),
+                    "GatheredGas": 200.0,
+                }
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
+        self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], 62.0 / 31, places=6)
 
     def test_no_excel_match_leaves_nan(self):
         monthly = pd.DataFrame(

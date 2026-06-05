@@ -35,20 +35,31 @@ _COLUMN_ALIASES = {
 def normalize_uwi(value: Any) -> Optional[str]:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
-    text = str(value).strip()
+    text = _clean_uwi_text(str(value))
     return text if text else None
 
 
-def trim_sql_uwi_for_match(uwi: str) -> str:
-    """
-    Drop a leading province ``1`` from SQL/WM UWI so it matches monthly NGL Excel.
+def _clean_uwi_text(uwi: str) -> str:
+    return str(uwi).replace("\r", "").replace("\n", "").strip()
 
-    WM often stores ``1`` + Excel UWI when the sheet UWI starts with digits
-    (e.g. ``1100/16-28-084-25W6/0`` → ``100/16-28-084-25W6/0``).
-    Already-aligned values like ``100/16-28-...`` are left unchanged.
+
+def uwi_match_key(uwi: str, *, strip_leading_digit: bool = False) -> str:
     """
-    text = uwi.strip()
-    if re.match(r"^1\d{3,}/", text):
+    Normalize UWI for joining Excel to SQL (case-insensitive).
+
+    SQL UWIs drop the first leading digit (province prefix) before match.
+    Example SQL: ``200/b-049-D/094-A-05/2`` → ``00/B-049-D/094-A-05/2``.
+    """
+    text = _clean_uwi_text(uwi)
+    if strip_leading_digit and len(text) > 1 and text[0].isdigit():
+        text = text[1:]
+    return text.upper()
+
+
+def trim_sql_uwi_for_match(uwi: str) -> str:
+    """Drop first leading digit from SQL UWI (case preserved; for logging)."""
+    text = _clean_uwi_text(uwi)
+    if len(text) > 1 and text[0].isdigit():
         return text[1:]
     return text
 
@@ -143,7 +154,7 @@ def read_monthly_ngl_excel(
         except ValueError:
             continue
         entry: Dict[str, Any] = {
-            "Uwi": uwi,
+            "Uwi": uwi_match_key(uwi, strip_leading_digit=False),
             "Year": year,
             "Month": month,
         }
@@ -170,8 +181,11 @@ def load_production_for_ngl(conn) -> pd.DataFrame:
       AND LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) <> N''
     """
     prod = pd.read_sql(sql, conn)
+    prod["UwiRaw"] = prod["UwiRaw"].map(
+        lambda v: _clean_uwi_text(str(v)) if pd.notna(v) else v
+    )
     prod["Uwi"] = prod["UwiRaw"].map(
-        lambda v: trim_sql_uwi_for_match(str(v)) if pd.notna(v) else v
+        lambda v: uwi_match_key(str(v), strip_leading_digit=True) if pd.notna(v) else v
     )
     return prod
 
@@ -369,11 +383,21 @@ def run_ngl_daily_compare(
 
         prod = load_production_for_ngl(conn)
         _log(f"Production: {len(prod)} row(s) with UWI.")
-        trimmed = prod.loc[prod["Uwi"] != prod["UwiRaw"], "UwiRaw"].drop_duplicates()
+        trimmed = prod.loc[
+            prod["UwiRaw"].map(
+                lambda v: len(str(v)) > 1 and str(v)[0].isdigit() if pd.notna(v) else False
+            ),
+            "UwiRaw",
+        ].drop_duplicates()
+        _log(
+            "UWI match: strip first leading digit from SQL UWIs; "
+            "case-insensitive match to Excel."
+        )
         if len(trimmed) > 0:
+            sample = str(trimmed.iloc[0])
             _log(
-                f"UWI match: stripping leading digit from {len(trimmed)} SQL UWI(s) "
-                f"(e.g. {trimmed.iloc[0]!r} → {trim_sql_uwi_for_match(str(trimmed.iloc[0]))!r})."
+                f"  {len(trimmed)} distinct SQL UWI(s) trimmed "
+                f"(e.g. {sample!r} → {uwi_match_key(sample, strip_leading_digit=True)!r})."
             )
 
         computed = compute_daily_ngl_columns(prod, monthly)
