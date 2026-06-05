@@ -165,6 +165,37 @@ class WellMasterDB:
         return s if s else None
 
     @staticmethod
+    def sanitize_text_field(value):
+        """Trim leading/trailing whitespace; blank becomes None."""
+        if value is None:
+            return None
+        s = str(value).strip()
+        return s if s else None
+
+    @staticmethod
+    def sanitize_well_update(update):
+        """Trim text fields on a well update dict before writing to PCE_WM."""
+        text_keys = (
+            "well_name",
+            "formation",
+            "layer",
+            "fault_block",
+            "pad_name",
+            "completions_tech",
+            "value_nav_uwi",
+            "orient",
+            "composite_name",
+        )
+        out = dict(update)
+        for key in text_keys:
+            if key in out:
+                out[key] = WellMasterDB.sanitize_text_field(out[key])
+        if "exception" in out and out["exception"] is not None:
+            exc = str(out["exception"]).strip().upper()
+            out["exception"] = exc if exc else "N"
+        return out
+
+    @staticmethod
     def sync_composite_names_from_parts():
         """
         Recompute ``[Composite Name]`` from Well Name, Layer Producer,
@@ -322,8 +353,9 @@ WHERE
             errors = []
             wells_to_purge = set()
 
-            for update in updates:
-                well_name = update.get('well_name')
+            for raw_update in updates:
+                update = WellMasterDB.sanitize_well_update(raw_update)
+                well_name = update.get("well_name")
                 if not well_name:
                     errors.append("Missing well name")
                     continue

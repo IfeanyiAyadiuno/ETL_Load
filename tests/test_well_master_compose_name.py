@@ -31,6 +31,27 @@ class TestWellMasterComposeName(unittest.TestCase):
             computed,
         )
 
+    def test_sanitize_text_field_trims_whitespace(self):
+        self.assertEqual(
+            WellMasterDB.sanitize_text_field("  02/a-028-I/094-B-08/0  "),
+            "02/a-028-I/094-B-08/0",
+        )
+        self.assertIsNone(WellMasterDB.sanitize_text_field("   "))
+
+    def test_sanitize_well_update_trims_all_text_fields(self):
+        cleaned = WellMasterDB.sanitize_well_update(
+            {
+                "well_name": "  L-16  ",
+                "value_nav_uwi": " 100/16-28-084-25W6/0 ",
+                "pad_name": " Pad A ",
+                "exception": " n ",
+            }
+        )
+        self.assertEqual(cleaned["well_name"], "L-16")
+        self.assertEqual(cleaned["value_nav_uwi"], "100/16-28-084-25W6/0")
+        self.assertEqual(cleaned["pad_name"], "Pad A")
+        self.assertEqual(cleaned["exception"], "N")
+
 
 if __name__ == "__main__":
     unittest.main()

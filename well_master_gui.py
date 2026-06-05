@@ -1059,7 +1059,14 @@ class WellMasterDialog(QDialog):
             errors = []
 
             for well in new_wells:
-                wn = _strip_leading_snowflake_asterisk(well.get('well_name', ''))
+                wn = WellMasterDB.sanitize_text_field(
+                    _strip_leading_snowflake_asterisk(well.get("well_name", ""))
+                )
+                gas_idrec = WellMasterDB.sanitize_text_field(well.get("gas_idrec"))
+                pressures_idrec = WellMasterDB.sanitize_text_field(well.get("pressures_idrec"))
+                if not wn or not gas_idrec or not pressures_idrec:
+                    errors.append(f"{well.get('well_name', '')}: missing Well Name or IDREC")
+                    continue
                 try:
                     cursor.execute("""
                         INSERT INTO PCE_WM (
@@ -1067,7 +1074,7 @@ class WellMasterDialog(QDialog):
                             [GasIDREC],
                             [PressuresIDREC]
                         ) VALUES (?, ?, ?)
-                    """, wn, well['gas_idrec'], well['pressures_idrec'])
+                    """, wn, gas_idrec, pressures_idrec)
                     inserted += 1
                 except Exception as e:
                     errors.append(f"{wn}: {str(e)}")
