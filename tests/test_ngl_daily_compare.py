@@ -39,11 +39,23 @@ class TestNglDailyCompare(unittest.TestCase):
         )
         self.assertEqual(
             trim_sql_uwi_for_match("100/16-28-084-25W6/0"),
-            "00/16-28-084-25W6/0",
+            "100/16-28-084-25W6/0",
         )
         self.assertEqual(
             trim_sql_uwi_for_match("200/b-049-D/094-A-05/2\n"),
             "00/b-049-D/094-A-05/2",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("02/a-028-I/094-B-08/0"),
+            "02/a-028-I/094-B-08/0",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("102/05-32-084-25W6/0"),
+            "02/05-32-084-25W6/0",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("200/a-056-A/094-B-09/2"),
+            "00/a-056-A/094-B-09/2",
         )
 
     def test_uwi_match_key_case_insensitive(self):
@@ -129,6 +141,34 @@ class TestNglDailyCompare(unittest.TestCase):
         out = compute_daily_ngl_columns(prod, monthly)
         self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
         self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], 31.0 / 31, places=6)
+
+    def test_sql_uwi_02_prefix_not_stripped_matches_excel(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": uwi_match_key("02/A-028-I/094-B-08/0"),
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 62.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "02/a-028-I/094-B-08/0",
+                    "Uwi": uwi_match_key("02/a-028-I/094-B-08/0", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-10"),
+                    "GatheredGas": 200.0,
+                }
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
 
     def test_sql_uwi_case_insensitive_matches_excel(self):
         monthly = pd.DataFrame(

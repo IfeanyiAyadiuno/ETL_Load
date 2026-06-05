@@ -41,28 +41,59 @@ def normalize_uwi(value: Any) -> Optional[str]:
 
 
 def _clean_uwi_text(uwi: str) -> str:
-    return str(uwi).replace("\r", "").replace("\n", "").strip()
+    text = str(uwi).replace("\r", "").replace("\n", "").strip()
+    for ch in ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
+        text = text.replace(ch, "-")
+    return text
+
+
+def _should_strip_province_prefix(text: str) -> bool:
+    """True when WM stored one extra province digit before the Excel UWI."""
+    slash = text.find("/")
+    if slash <= 0:
+        return False
+    seg = text[:slash]
+    if not seg.isdigit():
+        return False
+    if len(seg) >= 4:
+        return True
+    if len(seg) == 3:
+        if seg == "200":
+            return True
+        if seg[0] in "12" and seg[1] == "0" and seg[2] != "0":
+            return True
+    return False
+
+
+def _strip_sql_province_prefix(uwi: str) -> str:
+    """
+    Remove one leading province digit from WM/SQL UWI when WM prepended it.
+
+    Examples: ``200/b-049`` → ``00/b-049``, ``102/05-32`` → ``02/05-32``,
+    ``1100/16-28`` → ``100/16-28``. Already-correct values like ``02/a-028``,
+    ``00/B-078``, or ``100/16-28`` are left unchanged.
+    """
+    text = _clean_uwi_text(uwi)
+    if len(text) <= 1 or not _should_strip_province_prefix(text):
+        return text
+    return text[1:]
 
 
 def uwi_match_key(uwi: str, *, strip_leading_digit: bool = False) -> str:
     """
     Normalize UWI for joining Excel to SQL (case-insensitive).
 
-    SQL UWIs drop the first leading digit (province prefix) before match.
-    Example SQL: ``200/b-049-D/094-A-05/2`` → ``00/B-049-D/094-A-05/2``.
+    SQL UWIs may drop one WM province prefix digit before match.
     """
     text = _clean_uwi_text(uwi)
-    if strip_leading_digit and len(text) > 1 and text[0].isdigit():
-        text = text[1:]
+    if strip_leading_digit:
+        text = _strip_sql_province_prefix(text)
     return text.upper()
 
 
 def trim_sql_uwi_for_match(uwi: str) -> str:
-    """Drop first leading digit from SQL UWI (case preserved; for logging)."""
-    text = _clean_uwi_text(uwi)
-    if len(text) > 1 and text[0].isdigit():
-        return text[1:]
-    return text
+    """Drop WM province prefix from SQL UWI when present (case preserved; for logging)."""
+    return _strip_sql_province_prefix(uwi)
 
 
 def parse_production_date(value: Any) -> Tuple[int, int]:
@@ -547,12 +578,15 @@ def run_ngl_daily_compare(
         _log(f"Production: {len(prod)} row(s) with UWI.")
         trimmed = prod.loc[
             prod["UwiRaw"].map(
-                lambda v: len(str(v)) > 1 and str(v)[0].isdigit() if pd.notna(v) else False
+                lambda v: (
+                    pd.notna(v)
+                    and _strip_sql_province_prefix(str(v)) != _clean_uwi_text(str(v))
+                )
             ),
             "UwiRaw",
         ].drop_duplicates()
         _log(
-            "UWI match: strip first leading digit from SQL UWIs; "
+            "UWI match: strip WM province prefix digit from SQL UWIs when present; "
             "case-insensitive match to Excel."
         )
         if len(trimmed) > 0:

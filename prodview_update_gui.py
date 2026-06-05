@@ -898,11 +898,15 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         progress(90)
         timer.mark("PCE_TC sync + sequence recalc")
 
-        from production_update import sync_production_wm_metadata_from_wm_sql
+        from production_update import (
+            sync_production_uwi_from_wm_sql,
+            sync_production_wm_metadata_from_wm_sql,
+        )
 
         sync_production_wm_metadata_from_wm_sql(cursor, overall_start, overall_end)
+        sync_production_uwi_from_wm_sql(cursor, overall_start, overall_end)
         conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month)")
+        timer.mark("WM metadata sync (pad, enersight, month, UWI)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
@@ -977,6 +981,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
             filter_to_first_production,
             apply_pad_name_from_well_master,
             query_wells_with_cda_in_range,
+            sync_production_uwi_from_wm_sql,
             sync_production_wm_metadata_from_wm_sql,
         )
 
@@ -1094,8 +1099,9 @@ def run_quick_update(progress_callback=None, log_callback=None):
             update_enersight=False,
             update_month=False,
         )
+        sync_production_uwi_from_wm_sql(cursor)
         conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month)")
+        timer.mark("WM metadata sync (pad, enersight, month, UWI)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd

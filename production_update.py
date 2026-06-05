@@ -519,6 +519,45 @@ def sync_production_gathered_month_labels_from_wm_sql(cursor, date_start=None, d
     )
 
 
+def sync_production_uwi_from_wm_sql(cursor, date_start=None, date_end=None):
+    """
+    Set ``PCE_Production.[UWI]`` from ``PCE_WM.[Value Navigator UWI]``.
+
+    Matches ``scripts/add_pce_ngl_columns.sql`` Part 2 (composite / well name, non-exception WM).
+    """
+    date_filter = ""
+    params: list = []
+    if date_start is not None and date_end is not None:
+        date_filter = " AND p.[Date] BETWEEN ? AND ?"
+        params = [date_start, date_end]
+
+    sql = f"""
+UPDATE p
+SET p.[UWI] = LTRIM(RTRIM(CAST(ca.[Value Navigator UWI] AS NVARCHAR(4000))))
+FROM PCE_Production AS p
+CROSS APPLY (
+    SELECT TOP 1 wm.[Value Navigator UWI]
+    FROM PCE_WM AS wm
+    WHERE (
+              wm.[Well Name] = p.[Well Name]
+           OR (
+                  NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
+              AND wm.[Composite Name] = p.[Well Name]
+              )
+          )
+      AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
+      AND NULLIF(LTRIM(RTRIM(CAST(wm.[Value Navigator UWI] AS NVARCHAR(4000)))), N'') IS NOT NULL
+) AS ca
+WHERE p.[Well Name] NOT LIKE N'% - TC'
+  AND p.[Well Name] NOT LIKE N'YE2%'
+{date_filter}
+"""
+    if params:
+        cursor.execute(sql, params)
+    else:
+        cursor.execute(sql)
+
+
 def apply_well_names(df, composite_map, fallback_map):
     """
     Apply well name mapping: use Composite Name if available, otherwise use Well Name.
@@ -1023,8 +1062,9 @@ def main(cancel_event=None, progress_callback=None):
             update_enersight=False,
             update_month=False,
         )
+        sync_production_uwi_from_wm_sql(cur)
         conn.commit()
-    timer.mark("WM metadata sync (pad, enersight, month)")
+    timer.mark("WM metadata sync (pad, enersight, month, UWI)")
 
     try:
         from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
