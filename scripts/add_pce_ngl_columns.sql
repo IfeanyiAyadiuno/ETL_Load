@@ -6,6 +6,7 @@
      matched to WM [Composite Name] or [Well Name] (same rules as Enersight sync).
 
   Run in SSMS before: python scripts/ngl_daily_compare.py --excel "…"
+  Also run scripts/create_pce_ngl_staging.sql once (bulk staging table).
 */
 
 SET NOCOUNT ON;

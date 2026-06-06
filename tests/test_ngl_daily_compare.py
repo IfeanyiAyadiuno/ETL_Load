@@ -4,7 +4,10 @@ import unittest
 
 import pandas as pd
 
+from datetime import date
+
 from ngl_daily_compare import (
+    build_staging_insert_rows,
     compute_daily_ngl_columns,
     compute_fraction_value,
     compute_ratio_value,
@@ -374,6 +377,46 @@ class TestNglDailyCompare(unittest.TestCase):
         self.assertEqual(matched, 1)
         self.assertEqual(unmatched, ("1999/99-99-999-99W9/9",))
         self.assertEqual(not_in_excel, (uwi_match_key("1999/99-99-999-99W9/9", strip_leading_digit=True),))
+
+    def test_build_staging_insert_rows(self):
+        ngl_cols = [
+            "NGL-C2_R",
+            "NGL-C3_R",
+            "NGL-C4_R",
+            "NGL-C5_R",
+            "PA_NGLs_R",
+            "NGL-C2_F",
+            "NGL-C3_F",
+            "NGL-C4_F",
+            "NGL-C5_F",
+            "PA_NGLs_F",
+        ]
+        to_write = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "100/10-30-084-25W6/0",
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "NGL-C2_R": 1.5,
+                    "NGL-C3_R": None,
+                    "NGL-C4_R": 0.0,
+                    "NGL-C5_R": None,
+                    "PA_NGLs_R": None,
+                    "NGL-C2_F": 2.0,
+                    "NGL-C3_F": None,
+                    "NGL-C4_F": None,
+                    "NGL-C5_F": None,
+                    "PA_NGLs_F": None,
+                }
+            ]
+        )
+        rows = build_staging_insert_rows(to_write, ngl_cols)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "100/10-30-084-25W6/0")
+        self.assertEqual(rows[0][1], date(2022, 8, 1))
+        self.assertEqual(rows[0][2], 1.5)
+        self.assertIsNone(rows[0][3])
+        self.assertEqual(rows[0][4], 0.0)
+        self.assertEqual(rows[0][7], 2.0)
 
     def test_no_excel_match_leaves_nan(self):
         monthly = pd.DataFrame(

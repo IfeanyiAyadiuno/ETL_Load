@@ -2,12 +2,17 @@
 """
 Spread monthly NGL Excel volumes to daily Ratio (_R) and Fraction (_F) on PCE_Production.
 
-Prerequisites:
-  1. Run scripts/add_pce_ngl_columns.sql in SSMS (UWI + 10 NGL columns + UWI backfill).
+Prerequisites (run once in SSMS):
+  1. scripts/add_pce_ngl_columns.sql — UWI + 10 NGL columns + UWI backfill
+  2. scripts/create_pce_ngl_staging.sql — staging table for bulk UPDATE
 
 Usage:
   python scripts/ngl_daily_compare.py --excel "path/to/ngl.xlsx" --dry-run
   python scripts/ngl_daily_compare.py --excel "path/to/ngl.xlsx"
+  python scripts/ngl_daily_compare.py --excel "path/to/ngl.xlsx" --no-clear
+
+Writes via dbo.PCE_NGL_Daily_Staging (bulk INSERT) then one UPDATE … JOIN
+into PCE_Production. Use --no-clear if NGL columns were already cleared.
 """
 
 import argparse

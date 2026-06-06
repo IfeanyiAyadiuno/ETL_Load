@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 from calendar import monthrange
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from datetime import date, datetime
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,9 @@ NGL_EXCEL_FIELDS = (
     ("NGL-C5", "NGL-C5_R", "NGL-C5_F"),
     ("PA_NGLs", "PA_NGLs_R", "PA_NGLs_F"),
 )
+
+NGL_STAGING_TABLE = "dbo.PCE_NGL_Daily_Staging"
+_STAGING_CHUNK_SIZE = 25_000
 
 _EXCEL_HEADER_ROW = 2  # row 3 in Excel (0-based)
 _COLUMN_ALIASES = {
@@ -422,6 +426,116 @@ def log_unmatched_uwis(
         log("  All SQL UWIs matched at least one Excel monthly row.")
 
 
+def _float_or_none(value: Any) -> Optional[float]:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
+def _prod_date_value(value: Any) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    if isinstance(value, datetime):
+        return value.date()
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        raise ValueError(f"Cannot convert production date: {value!r}")
+    return parsed.date()
+
+
+def build_staging_insert_rows(
+    to_write: pd.DataFrame,
+    ngl_cols: Sequence[str],
+) -> List[tuple]:
+    """Build (UwiRaw, ProdDate, …NGL cols) tuples for fast_executemany INSERT."""
+    uwis = to_write["UwiRaw"].tolist()
+    dates = [_prod_date_value(d) for d in to_write["ProdDate"].tolist()]
+    col_vals = [to_write[c].tolist() for c in ngl_cols]
+    n_rows = len(to_write)
+    n_cols = len(ngl_cols)
+    rows: List[tuple] = []
+    for i in range(n_rows):
+        ngl_tuple = tuple(_float_or_none(col_vals[j][i]) for j in range(n_cols))
+        rows.append((uwis[i], dates[i]) + ngl_tuple)
+    return rows
+
+
+def _staging_insert_sql(ngl_cols: Sequence[str]) -> str:
+    col_list = ", ".join(
+        f"[{name}]" for name in ("UwiRaw", "ProdDate", *ngl_cols)
+    )
+    placeholders = ", ".join("?" * (2 + len(ngl_cols)))
+    return f"INSERT INTO {NGL_STAGING_TABLE} ({col_list}) VALUES ({placeholders})"
+
+
+def _bulk_update_from_staging_sql(ngl_cols: Sequence[str]) -> str:
+    set_clause = ", ".join(f"p.[{col}] = s.[{col}]" for col in ngl_cols)
+    return f"""
+        UPDATE p
+        SET {set_clause}
+        FROM dbo.PCE_Production AS p
+        INNER JOIN {NGL_STAGING_TABLE} AS s
+            ON LTRIM(RTRIM(CAST(p.[UWI] AS NVARCHAR(4000)))) = s.UwiRaw
+           AND CAST(p.[Date] AS DATE) = s.ProdDate
+    """
+
+
+def _load_staging_table(
+    conn,
+    to_write: pd.DataFrame,
+    ngl_cols: Sequence[str],
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> int:
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    rows = build_staging_insert_rows(to_write, ngl_cols)
+    if not rows:
+        return 0
+
+    cur = conn.cursor()
+    cur.fast_executemany = True
+    cur.execute(f"TRUNCATE TABLE {NGL_STAGING_TABLE}")
+
+    insert_sql = _staging_insert_sql(ngl_cols)
+    total = len(rows)
+    _log(f"Loading {total:,} row(s) into {NGL_STAGING_TABLE}...")
+    for start in range(0, total, _STAGING_CHUNK_SIZE):
+        chunk = rows[start : start + _STAGING_CHUNK_SIZE]
+        cur.executemany(insert_sql, chunk)
+        loaded = min(start + len(chunk), total)
+        pct = int(round(100 * loaded / total))
+        _log(f"  Staging: {loaded:,} / {total:,} ({pct}%)")
+    return total
+
+
+def _apply_staging_to_production(
+    conn,
+    ngl_cols: Sequence[str],
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> int:
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    cur = conn.cursor()
+    _log("Applying staged NGL values to PCE_Production (single UPDATE … JOIN)...")
+    cur.execute(_bulk_update_from_staging_sql(ngl_cols))
+    updated = cur.rowcount
+    if updated < 0:
+        cur.execute("SELECT @@ROWCOUNT")
+        row = cur.fetchone()
+        updated = int(row[0]) if row else 0
+    return updated
+
+
 def clear_ngl_columns(conn) -> None:
     cur = conn.cursor()
     cur.execute(
@@ -489,33 +603,19 @@ def apply_ngl_updates(
             )
         return summary
 
-    cur = conn.cursor()
     if clear_first:
         clear_ngl_columns(conn)
         _log("Cleared existing trial NGL columns on rows with UWI.")
 
-    update_sql = """
-        UPDATE dbo.PCE_Production
-        SET
-              [NGL-C2_R] = ?, [NGL-C3_R] = ?, [NGL-C4_R] = ?,
-              [NGL-C5_R] = ?, [PA_NGLs_R] = ?,
-              [NGL-C2_F] = ?, [NGL-C3_F] = ?, [NGL-C4_F] = ?,
-              [NGL-C5_F] = ?, [PA_NGLs_F] = ?
-        WHERE LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) = ?
-          AND CAST([Date] AS DATE) = ?
-    """
-    batch: List[tuple] = []
-    for _, row in to_write.iterrows():
-        params = tuple(
-            None if pd.isna(row[c]) else float(row[c]) for c in ngl_cols
-        ) + (row["UwiRaw"], row["ProdDate"])
-        batch.append(params)
+    if to_write.empty:
+        conn.commit()
+        _log("No production rows to update.")
+        return summary
 
-    if batch:
-        cur.executemany(update_sql, batch)
-        summary.rows_updated = len(batch)
+    _load_staging_table(conn, to_write, ngl_cols, log=log)
+    summary.rows_updated = _apply_staging_to_production(conn, ngl_cols, log=log)
     conn.commit()
-    _log(f"Updated {summary.rows_updated} production row(s).")
+    _log(f"Updated {summary.rows_updated:,} production row(s).")
     return summary
 
 

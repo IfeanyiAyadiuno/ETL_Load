@@ -27,12 +27,13 @@ Documentation entry points: **[README.md](README.md)** (how to run from source),
 11. [Type Curves Import](#type-curves-import)  
 12. [Whitson+ Mass Upload](#whitson-mass-upload)  
 13. [Exports / Reports](#exports--reports)  
-14. [Operational considerations](#operational-considerations)  
-15. [Runbook — script order and maintenance](#runbook--script-order-and-maintenance)  
-16. [Troubleshooting](#troubleshooting)  
-17. [Appendix A — Figures checklist](#appendix-a--figures-checklist-for-screenshots)  
-18. [Appendix B — Glossary](#appendix-b--glossary)  
-19. [Appendix C — Logical database schema (SQL Server)](#appendix-c--logical-database-schema-sql-server)  
+14. [NGL daily compare (trial script)](#ngl-daily-compare-trial-script)  
+15. [Operational considerations](#operational-considerations)  
+16. [Runbook — script order and maintenance](#runbook--script-order-and-maintenance)  
+17. [Troubleshooting](#troubleshooting)  
+18. [Appendix A — Figures checklist](#appendix-a--figures-checklist-for-screenshots)  
+19. [Appendix B — Glossary](#appendix-b--glossary)  
+20. [Appendix C — Logical database schema (SQL Server)](#appendix-c--logical-database-schema-sql-server)  
 
 ---
 
@@ -498,12 +499,37 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 
 ---
 
+## NGL daily compare (trial script)
+
+Standalone trial to spread **monthly** NGL volumes from Excel onto daily **`PCE_Production`** rows using **Ratio** (`_R`) and **Fraction** (`_F`) methods. Not wired into the main GUI until a method is chosen.
+
+**Prerequisites**
+
+1. Run **`scripts/add_pce_ngl_columns.sql`** in SSMS once (adds **`[UWI]`** and ten trial NGL columns; backfill is also done on production rebuild).  
+2. Monthly NGL Excel with header on **row 3** (`PRODUCTION_DATE`, `UWI`, `NGL-C2` … `PA_NGLs`).
+
+**Commands** (from project folder):
+
+```text
+python scripts/ngl_daily_compare.py --excel "I:\path\NGL_summary.xlsx" --dry-run
+python scripts/ngl_daily_compare.py --excel "I:\path\NGL_summary.xlsx"
+```
+
+Use **`--unmatched-csv path.csv`** on dry run to export Excel/SQL UWIs that did not match.
+
+**Performance — database resources**
+
+Large updates (hundreds of thousands of **`PCE_Production`** rows) can take a long time. The script reads the full production table and issues batched **`UPDATE`**s. If runs are routinely slow or time out, **request additional SQL Server resource allocation from IT/DBA** (CPU, memory, I/O, or tier) so bulk updates complete faster. This is an infrastructure change, not an application setting.
+
+---
+
 ## Operational considerations
 
 - **Full Rebuild** pulls Snowflake for the rolling window, refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then clears and repopulates **`PCE_Production`** from **all** **`PCE_CDA`** history. Use when you need the entire production table aligned with current CDA + allocations, not for a single-month patch in isolation.  
 - **Snowflake → CDA + production rebuild** is the usual mode for routine Snowflake refreshes (automatic rolling ~18 months); remember it recomputes **entire well histories** in **`PCE_Production`** for wells touched by the post-merge **`PCE_CDA`** dataset.  
 - Avoid forced termination of the application during active jobs; use dialog **Close** and cancel paths where provided. The Prodview dialog explicitly warns that cancellation may not stop work immediately and that the Snowflake + production job can leave partial commits after a successful step.  
-- Production database changes should follow company backup and change-control practices.
+- Production database changes should follow company backup and change-control practices.  
+- **Database performance:** **Full rebuild**, **Snowflake → CDA + production rebuild**, **PA** / **Public Sales** month loops, and the **NGL daily compare** script all issue heavy read/write work against SQL Server. If jobs run slowly or block other users, **ask IT/DBA for more database resource allocation** (compute, memory, storage I/O, or a higher service tier) rather than expecting the desktop app alone to speed up.
 
 ---
 
@@ -540,6 +566,8 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: Snowflake rolling window → CDA, refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Snowflake + **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
 | `python survey_import.py "<path>"` then `append` or `overwrite` | Survey import without GUI | File on disk, **`PCE_WM`** for mapping | **Overwrite** deletes existing rows for matching UWIs, then inserts; **append** skips (UWI, depth) pairs already in **`PCE_Surveys`** before insert | Console / exit code. |
 | `python purge_exception_wells.py` | Deletes **`PCE_CDA`**, **`PCE_Production`**, **`Allocation_Factors`**, **`PCE_Surveys`** rows for wells with **`PCE_WM.Exception = 'Y'`** | Exception flags set deliberately | **Yes** | Printed delete counts. |
+| `python scripts/ngl_daily_compare.py --excel "…" --dry-run` | Trial NGL Ratio/Fraction columns on **`PCE_Production`**; dry run logs matches only | **`add_pce_ngl_columns.sql`**, **`[UWI]`** populated | No (dry run) | Summary: Excel/SQL UWI match counts. |
+| `python scripts/ngl_daily_compare.py --excel "…"` | Writes ten **`_R` / `_F`** NGL columns | Same as above | **Yes** — bulk **`UPDATE`** on **`PCE_Production`** | SSMS spot-check; see [NGL daily compare](#ngl-daily-compare-trial-script). Request **more DB resources** if the run is too slow. |
 
 `[IMAGE: Runbook reference — example SSMS row-count query results after a refresh]`
 
