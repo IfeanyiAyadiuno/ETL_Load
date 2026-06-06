@@ -39,7 +39,7 @@ class TestNglDailyCompare(unittest.TestCase):
         )
         self.assertEqual(
             trim_sql_uwi_for_match("100/16-28-084-25W6/0"),
-            "100/16-28-084-25W6/0",
+            "00/16-28-084-25W6/0",
         )
         self.assertEqual(
             trim_sql_uwi_for_match("200/b-049-D/094-A-05/2\n"),
@@ -60,6 +60,10 @@ class TestNglDailyCompare(unittest.TestCase):
         self.assertEqual(
             trim_sql_uwi_for_match("100/01-06-085-25W6/0"),
             "00/01-06-085-25W6/0",
+        )
+        self.assertEqual(
+            trim_sql_uwi_for_match("100/10-30-084-25W6/0"),
+            "00/10-30-084-25W6/0",
         )
 
     def test_uwi_match_key_case_insensitive(self):
@@ -147,6 +151,68 @@ class TestNglDailyCompare(unittest.TestCase):
         self.assertAlmostEqual(out.loc[0, "NGL-C2_F"], 31.0 / 31, places=6)
 
     def test_sql_uwi_100_bc_prefix_strips_to_00_matches_excel(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": uwi_match_key("00/10-30-084-25W6/0"),
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 31.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "100/10-30-084-25W6/0",
+                    "Uwi": uwi_match_key("100/10-30-084-25W6/0", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 50.0,
+                }
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
+
+    def test_sql_uwi_100_16_28_strips_to_00_matches_excel(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": uwi_match_key("00/16-28-084-25W6/0"),
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 31.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "UwiRaw": "100/16-28-084-25W6/0",
+                    "Uwi": uwi_match_key("100/16-28-084-25W6/0", strip_leading_digit=True),
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 50.0,
+                }
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        self.assertFalse(pd.isna(out.loc[0, "NGL-C2_F"]))
+
+    def test_sql_uwi_1100_alberta_strips_once_to_100(self):
+        self.assertEqual(
+            uwi_match_key("1100/16-28-084-25W6/0", strip_leading_digit=True),
+            uwi_match_key("100/16-28-084-25W6/0", strip_leading_digit=False),
+        )
+
+    def test_sql_uwi_100_01_prefix_strips_to_00_matches_excel(self):
         monthly = pd.DataFrame(
             [
                 {

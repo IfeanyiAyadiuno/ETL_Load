@@ -60,8 +60,8 @@ def _should_strip_province_prefix(text: str) -> bool:
     if len(seg) == 3:
         if seg == "200":
             return True
-        if seg == "100" and len(text) > 4 and text[4] == "0":
-            # WM: 1 + Excel ``00/01-06...`` stored as ``100/01-06...`` (not AB ``100/16-28``)
+        if seg == "100":
+            # WM: leading 1 + Excel ``00/10-30...`` stored as ``100/10-30...``
             return True
         if seg[0] in "12" and seg[1] == "0" and seg[2] != "0":
             return True
@@ -72,10 +72,9 @@ def _strip_sql_province_prefix(uwi: str) -> str:
     """
     Remove one leading province digit from WM/SQL UWI when WM prepended it.
 
-    Examples: ``200/b-049`` → ``00/b-049``, ``100/01-06`` → ``00/01-06``,
-    ``102/05-32`` → ``02/05-32``, ``1100/16-28`` → ``100/16-28``.
-    Already-correct values like ``02/a-028``, ``00/B-078``, or Alberta ``100/16-28``
-    are left unchanged.
+    Examples: ``200/b-049`` → ``00/b-049``, ``100/10-30`` → ``00/10-30``,
+    ``102/05-32`` → ``02/05-32``, ``1100/16-28`` → ``100/16-28`` (one digit only).
+    Already-correct values like ``02/a-028`` or ``00/B-078`` are left unchanged.
     """
     text = _clean_uwi_text(uwi)
     if len(text) <= 1 or not _should_strip_province_prefix(text):
