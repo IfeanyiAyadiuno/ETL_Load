@@ -7,10 +7,13 @@ Standalone trial; not integrated into production rebuild until method is chosen.
 from __future__ import annotations
 
 import re
+import threading
+import time
 from calendar import monthrange
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -25,6 +28,45 @@ NGL_EXCEL_FIELDS = (
 
 NGL_STAGING_TABLE = "dbo.PCE_NGL_Daily_Staging"
 _STAGING_CHUNK_SIZE = 25_000
+_STAGING_PREP_PROGRESS = 50_000
+_SQL_HEARTBEAT_SEC = 15
+
+
+def _format_elapsed(seconds: float) -> str:
+    total = max(0, int(seconds))
+    minutes, secs = divmod(total, 60)
+    if minutes:
+        return f"{minutes}:{secs:02d}"
+    return f"{secs}s"
+
+
+@contextmanager
+def _sql_heartbeat(
+    log: Optional[Callable[[str], None]],
+    label: str,
+    *,
+    interval_sec: int = _SQL_HEARTBEAT_SEC,
+) -> Iterator[None]:
+    """Log elapsed time while a blocking SQL call runs on the main thread."""
+    if not log:
+        yield
+        return
+
+    stop = threading.Event()
+    start = time.monotonic()
+
+    def _tick() -> None:
+        while not stop.wait(interval_sec):
+            log(f"  {label}… {_format_elapsed(time.monotonic() - start)} elapsed")
+
+    thread = threading.Thread(target=_tick, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+        log(f"  {label} done ({_format_elapsed(time.monotonic() - start)}).")
 
 _EXCEL_HEADER_ROW = 2  # row 3 in Excel (0-based)
 _COLUMN_ALIASES = {
@@ -209,7 +251,11 @@ def read_monthly_ngl_excel(
     return pd.DataFrame(rows)
 
 
-def load_production_for_ngl(conn) -> pd.DataFrame:
+def load_production_for_ngl(
+    conn,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> pd.DataFrame:
     sql = """
     SELECT
           LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) AS UwiRaw
@@ -219,7 +265,15 @@ def load_production_for_ngl(conn) -> pd.DataFrame:
     WHERE [UWI] IS NOT NULL
       AND LTRIM(RTRIM(CAST([UWI] AS NVARCHAR(4000)))) <> N''
     """
+    if log:
+        log("  Querying PCE_Production from SQL Server...")
+    start = time.monotonic()
     prod = pd.read_sql(sql, conn)
+    if log:
+        log(
+            f"  Loaded {len(prod):,} production row(s) "
+            f"({_format_elapsed(time.monotonic() - start)})."
+        )
     prod["UwiRaw"] = prod["UwiRaw"].map(
         lambda v: _clean_uwi_text(str(v)) if pd.notna(v) else v
     )
@@ -450,6 +504,9 @@ def _prod_date_value(value: Any) -> date:
 def build_staging_insert_rows(
     to_write: pd.DataFrame,
     ngl_cols: Sequence[str],
+    *,
+    log: Optional[Callable[[str], None]] = None,
+    progress_every: int = _STAGING_PREP_PROGRESS,
 ) -> List[tuple]:
     """Build (UwiRaw, ProdDate, …NGL cols) tuples for fast_executemany INSERT."""
     uwis = to_write["UwiRaw"].tolist()
@@ -461,6 +518,11 @@ def build_staging_insert_rows(
     for i in range(n_rows):
         ngl_tuple = tuple(_float_or_none(col_vals[j][i]) for j in range(n_cols))
         rows.append((uwis[i], dates[i]) + ngl_tuple)
+        if log and progress_every > 0 and (i + 1) % progress_every == 0:
+            pct = int(round(100 * (i + 1) / n_rows))
+            log(f"  Preparing rows: {i + 1:,} / {n_rows:,} ({pct}%)")
+    if log and n_rows > 0:
+        log(f"  Preparing rows: {n_rows:,} / {n_rows:,} (100%)")
     return rows
 
 
@@ -495,23 +557,31 @@ def _load_staging_table(
         if log:
             log(msg)
 
-    rows = build_staging_insert_rows(to_write, ngl_cols)
+    total_rows = len(to_write)
+    _log(f"Preparing {total_rows:,} row(s) for staging...")
+    rows = build_staging_insert_rows(to_write, ngl_cols, log=log)
     if not rows:
         return 0
 
     cur = conn.cursor()
     cur.fast_executemany = True
-    cur.execute(f"TRUNCATE TABLE {NGL_STAGING_TABLE}")
+    with _sql_heartbeat(log, "Truncating staging table"):
+        cur.execute(f"TRUNCATE TABLE {NGL_STAGING_TABLE}")
 
     insert_sql = _staging_insert_sql(ngl_cols)
     total = len(rows)
     _log(f"Loading {total:,} row(s) into {NGL_STAGING_TABLE}...")
     for start in range(0, total, _STAGING_CHUNK_SIZE):
         chunk = rows[start : start + _STAGING_CHUNK_SIZE]
-        cur.executemany(insert_sql, chunk)
+        with _sql_heartbeat(
+            log,
+            f"Staging insert {start + 1:,}–{min(start + len(chunk), total):,} of {total:,}",
+            interval_sec=10,
+        ):
+            cur.executemany(insert_sql, chunk)
         loaded = min(start + len(chunk), total)
         pct = int(round(100 * loaded / total))
-        _log(f"  Staging: {loaded:,} / {total:,} ({pct}%)")
+        _log(f"  Staging load: {loaded:,} / {total:,} ({pct}%)")
     return total
 
 
@@ -526,8 +596,12 @@ def _apply_staging_to_production(
             log(msg)
 
     cur = conn.cursor()
-    _log("Applying staged NGL values to PCE_Production (single UPDATE … JOIN)...")
-    cur.execute(_bulk_update_from_staging_sql(ngl_cols))
+    _log(
+        "Applying staged NGL values to PCE_Production "
+        "(single UPDATE … JOIN — may take several minutes)..."
+    )
+    with _sql_heartbeat(log, "UPDATE … JOIN into PCE_Production"):
+        cur.execute(_bulk_update_from_staging_sql(ngl_cols))
     updated = cur.rowcount
     if updated < 0:
         cur.execute("SELECT @@ROWCOUNT")
@@ -536,10 +610,13 @@ def _apply_staging_to_production(
     return updated
 
 
-def clear_ngl_columns(conn) -> None:
+def clear_ngl_columns(
+    conn,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
     cur = conn.cursor()
-    cur.execute(
-        """
+    sql = """
         UPDATE dbo.PCE_Production
         SET
               [NGL-C2_R] = NULL, [NGL-C3_R] = NULL, [NGL-C4_R] = NULL,
@@ -548,7 +625,10 @@ def clear_ngl_columns(conn) -> None:
               [NGL-C5_F] = NULL, [PA_NGLs_F] = NULL
         WHERE [UWI] IS NOT NULL
         """
-    )
+    if log:
+        log("Clearing existing NGL columns on rows with UWI (may take a few minutes)...")
+    with _sql_heartbeat(log, "Clear NGL columns"):
+        cur.execute(sql)
     conn.commit()
 
 
@@ -604,8 +684,7 @@ def apply_ngl_updates(
         return summary
 
     if clear_first:
-        clear_ngl_columns(conn)
-        _log("Cleared existing trial NGL columns on rows with UWI.")
+        clear_ngl_columns(conn, log=log)
 
     if to_write.empty:
         conn.commit()
@@ -663,22 +742,27 @@ def run_ngl_daily_compare(
         if log:
             log(msg)
 
+    run_start = time.monotonic()
+    _log("[1/5] Reading monthly NGL Excel...")
     monthly = read_monthly_ngl_excel(excel_path, sheet_name=sheet_name, uwi_column=uwi_column)
-    _log(f"Excel: {len(monthly)} monthly row(s), {monthly['Uwi'].nunique()} UWI(s).")
+    _log(
+        f"  Excel: {len(monthly):,} monthly row(s), "
+        f"{monthly['Uwi'].nunique()} UWI(s)."
+    )
 
     own_conn = conn is None
     if own_conn:
         conn = get_sql_conn()
     try:
+        _log("[2/5] Loading production from SQL...")
         without_uwi = _count_prod_without_uwi(conn)
         if without_uwi > 0:
             _log(
-                f"Warning: {without_uwi} production row(s) lack UWI — "
+                f"  Warning: {without_uwi:,} production row(s) lack UWI — "
                 "run scripts/add_pce_ngl_columns.sql Part 2 first."
             )
 
-        prod = load_production_for_ngl(conn)
-        _log(f"Production: {len(prod)} row(s) with UWI.")
+        prod = load_production_for_ngl(conn, log=log)
         trimmed = prod.loc[
             prod["UwiRaw"].map(
                 lambda v: (
@@ -699,13 +783,20 @@ def run_ngl_daily_compare(
                 f"(e.g. {sample!r} → {uwi_match_key(sample, strip_leading_digit=True)!r})."
             )
 
-        _log("Computing daily NGL columns...")
+        _log("[3/5] Computing daily NGL columns...")
         computed = compute_daily_ngl_columns(prod, monthly, log=_log)
+        _log("[4/5] Checking UWI matches...")
         excel_matched, excel_unmatched, excel_not_in_prod = find_unmatched_excel_uwis(
             monthly, computed
         )
         prod_matched, prod_unmatched, prod_not_in_excel = find_unmatched_prod_uwis(
             monthly, computed
+        )
+        ngl_cols = _ngl_value_columns()
+        rows_to_apply = int(computed[ngl_cols].notna().any(axis=1).sum())
+        _log(
+            f"[5/5] Writing to SQL ({'dry run' if dry_run else 'live'}) — "
+            f"{rows_to_apply:,} row(s) to apply..."
         )
         summary = apply_ngl_updates(
             conn,
@@ -729,6 +820,7 @@ def run_ngl_daily_compare(
             if unmatched_csv:
                 write_unmatched_uwis_csv(unmatched_csv, summary)
                 _log(f"Wrote unmatched UWIs (Excel + SQL) to {unmatched_csv}")
+        _log(f"Finished ({_format_elapsed(time.monotonic() - run_start)} total).")
         return summary
     finally:
         if own_conn and conn is not None:
