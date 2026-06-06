@@ -176,6 +176,56 @@ def days_in_month(year: int, month: int) -> int:
     return monthrange(year, month)[1]
 
 
+def _ngl_needs_ratio_forward_fill(value: Any) -> bool:
+    """True when Excel NGL is missing or zero — use last valid ratio instead."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return True
+    if pd.isna(value):
+        return True
+    return float(value) == 0.0
+
+
+def _ratio_coef_column(excel_col: str) -> str:
+    return f"__{excel_col}_ratio_coef"
+
+
+def add_last_valid_ratio_coefs(
+    monthly: pd.DataFrame,
+    prod_month_gas: pd.DataFrame,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> pd.DataFrame:
+    """
+    Per UWI + NGL component, forward-fill ratio (monthly_NGL / month_gas_sum)
+    for months where Excel NGL is zero or missing.
+    """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    work = monthly.rename(columns={"Year": "ProdYear", "Month": "ProdMonth"}).copy()
+    work = work.merge(prod_month_gas, on=["Uwi", "ProdYear", "ProdMonth"], how="left")
+    work = work.sort_values(["Uwi", "ProdYear", "ProdMonth"])
+
+    for excel_col, _, _ in NGL_EXCEL_FIELDS:
+        coef_col = _ratio_coef_column(excel_col)
+        ngl = work[excel_col]
+        gas = work["MonthGasSum"].fillna(0)
+        valid = ngl.notna() & ngl.gt(0) & gas.gt(0)
+        work[coef_col] = np.where(valid, ngl / gas, np.nan)
+        work[coef_col] = work.groupby("Uwi", sort=False)[coef_col].ffill()
+
+        needs_fill = work[excel_col].map(_ngl_needs_ratio_forward_fill)
+        filled = int((needs_fill & work[coef_col].notna()).sum())
+        if filled:
+            _log(
+                f"  {excel_col}: {filled:,} zero/missing monthly row(s) "
+                "use last valid ratio."
+            )
+
+    return work
+
+
 def compute_ratio_value(
     monthly_ngl: float,
     month_gas_sum: float,
@@ -315,8 +365,15 @@ def compute_daily_ngl_columns(
     out = out.merge(gas_sum, on=["Uwi", "ProdYear", "ProdMonth"], how="left")
 
     _log(f"  Joining {len(monthly):,} Excel monthly row(s)...")
-    monthly_key = monthly.rename(
-        columns={"Year": "ProdYear", "Month": "ProdMonth"}
+    prod_month_gas = (
+        out.groupby(["Uwi", "ProdYear", "ProdMonth"], as_index=False)["MonthGasSum"]
+        .first()
+    )
+    _log("  Building last-valid ratio coefficients for zero/missing Excel NGL...")
+    monthly_key = add_last_valid_ratio_coefs(
+        monthly,
+        prod_month_gas,
+        log=log,
     )
     out = out.merge(monthly_key, on=["Uwi", "ProdYear", "ProdMonth"], how="left")
 
@@ -333,20 +390,29 @@ def compute_daily_ngl_columns(
         pct = int(round(100 * idx / total_fields))
         _log(f"  Calculating {excel_col} ({idx}/{total_fields}, {pct}%)...")
         ngl_m = out[excel_col]
-        has_ngl = ngl_m.notna()
+        coef_col = _ratio_coef_column(excel_col)
+        has_excel_row = out[excel_col].notna() | out[coef_col].notna()
 
         out[col_r] = np.nan
         out[col_f] = np.nan
 
-        mask_r = has_ngl & out["MonthGasSum"].fillna(0).gt(0)
-        out.loc[mask_r, col_r] = (
-            ngl_m.loc[mask_r] / out.loc[mask_r, "MonthGasSum"]
-        ) * out.loc[mask_r, "GatheredGas"]
+        mask_r = out[coef_col].notna() & out["GatheredGas"].notna()
+        out.loc[mask_r, col_r] = out.loc[mask_r, coef_col] * out.loc[mask_r, "GatheredGas"]
 
-        out.loc[has_ngl, col_f] = ngl_m.loc[has_ngl] / days_in_month_col.loc[has_ngl]
+        has_positive_ngl = ngl_m.notna() & ngl_m.gt(0)
+        out.loc[has_positive_ngl, col_f] = (
+            ngl_m.loc[has_positive_ngl] / days_in_month_col.loc[has_positive_ngl]
+        )
 
-        matched_rows = int(has_ngl.sum())
-        _log(f"    {excel_col}: {matched_rows:,} row(s) with Excel monthly data.")
+        matched_rows = int(has_excel_row.sum())
+        ratio_rows = int(mask_r.sum())
+        _log(
+            f"    {excel_col}: {matched_rows:,} row(s) with Excel month; "
+            f"{ratio_rows:,} ratio (_R) value(s)."
+        )
+
+    coef_cols = [_ratio_coef_column(excel_col) for excel_col, _, _ in NGL_EXCEL_FIELDS]
+    out = out.drop(columns=coef_cols, errors="ignore")
 
     _log("  NGL column calculation complete.")
     return out

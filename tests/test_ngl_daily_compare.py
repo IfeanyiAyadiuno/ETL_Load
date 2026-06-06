@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import date
 
 from ngl_daily_compare import (
+    add_last_valid_ratio_coefs,
     build_staging_insert_rows,
     compute_daily_ngl_columns,
     compute_fraction_value,
@@ -95,6 +96,90 @@ class TestNglDailyCompare(unittest.TestCase):
             176.6 / days_in_month(2022, 8),
             places=6,
         )
+
+    def test_zero_ngl_uses_last_valid_ratio(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 400.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                },
+                {
+                    "Uwi": "UWI-1",
+                    "Year": 2022,
+                    "Month": 9,
+                    "NGL-C2": 0.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                },
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "UwiRaw": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-08-15"),
+                    "GatheredGas": 100.0,
+                },
+                {
+                    "Uwi": "UWI-1",
+                    "UwiRaw": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-09-15"),
+                    "GatheredGas": 200.0,
+                },
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        # Aug ratio coef = 400 / 100 = 4.0; Sep reuses 4.0 because Excel NGL-C2 is 0.
+        self.assertAlmostEqual(out.loc[0, "NGL-C2_R"], 400.0, places=6)
+        self.assertAlmostEqual(out.loc[1, "NGL-C2_R"], 800.0, places=6)
+        self.assertTrue(pd.isna(out.loc[1, "NGL-C2_F"]))
+
+    def test_add_last_valid_ratio_coefs_forward_fill(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 300.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                },
+                {
+                    "Uwi": "UWI-1",
+                    "Year": 2022,
+                    "Month": 9,
+                    "NGL-C2": 0.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                },
+            ]
+        )
+        prod_month_gas = pd.DataFrame(
+            [
+                {"Uwi": "UWI-1", "ProdYear": 2022, "ProdMonth": 8, "MonthGasSum": 300.0},
+                {"Uwi": "UWI-1", "ProdYear": 2022, "ProdMonth": 9, "MonthGasSum": 600.0},
+            ]
+        )
+        out = add_last_valid_ratio_coefs(monthly, prod_month_gas)
+        aug = out[(out["ProdYear"] == 2022) & (out["ProdMonth"] == 8)].iloc[0]
+        sep = out[(out["ProdYear"] == 2022) & (out["ProdMonth"] == 9)].iloc[0]
+        self.assertAlmostEqual(aug["__NGL-C2_ratio_coef"], 1.0, places=6)
+        self.assertAlmostEqual(sep["__NGL-C2_ratio_coef"], 1.0, places=6)
 
     def test_compute_daily_ngl_columns_ratio_and_fraction(self):
         monthly = pd.DataFrame(
