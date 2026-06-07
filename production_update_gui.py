@@ -615,6 +615,12 @@ def main():
         sys.exit(run_accumap_unmatched_cli(sys.argv[2:]))
 
     app = QApplication(sys.argv)
+
+    from password_dialog import require_application_password
+
+    if not require_application_password():
+        sys.exit(0)
+
     gui = ProductionUpdateGUI()
     gui.show()
     sys.exit(app.exec_())
