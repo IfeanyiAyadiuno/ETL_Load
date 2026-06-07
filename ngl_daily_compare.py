@@ -30,6 +30,8 @@ NGL_STAGING_TABLE = "dbo.PCE_NGL_Daily_Staging"
 _STAGING_CHUNK_SIZE = 25_000
 _STAGING_PREP_PROGRESS = 50_000
 _SQL_HEARTBEAT_SEC = 15
+DEFAULT_GAS_HURDLE_MULTIPLIER = 5
+DEFAULT_GAS_ROLLING_MONTHS = 3
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -301,6 +303,84 @@ def read_monthly_ngl_excel(
     return pd.DataFrame(rows)
 
 
+def rolling_gathered_gas_avg(
+    df: pd.DataFrame,
+    *,
+    months: int = DEFAULT_GAS_ROLLING_MONTHS,
+) -> pd.Series:
+    """
+    Trailing calendar-month average of GatheredGas per UWI.
+
+    For each production day, averages mean daily gas over the prior ``months``
+    complete calendar months (current month excluded).
+    """
+    if df.empty:
+        return pd.Series(dtype=float)
+
+    work = df.copy()
+    work["_orig_idx"] = work.index
+    sorted_work = work.sort_values(["Uwi", "ProdDate"])
+    sorted_work["_period"] = pd.to_datetime(sorted_work["ProdDate"]).dt.to_period("M")
+
+    uwi_month = (
+        sorted_work.groupby(["Uwi", "_period"], as_index=False)["GatheredGas"]
+        .mean()
+        .sort_values(["Uwi", "_period"])
+    )
+    uwi_month["RollingGasAvg"] = uwi_month.groupby("Uwi", sort=False)[
+        "GatheredGas"
+    ].transform(lambda s: s.shift(1).rolling(months, min_periods=1).mean())
+
+    sorted_work = sorted_work.merge(
+        uwi_month[["Uwi", "_period", "RollingGasAvg"]],
+        on=["Uwi", "_period"],
+        how="left",
+    )
+
+    result = pd.Series(np.nan, index=df.index, dtype=float)
+    result.loc[sorted_work["_orig_idx"]] = sorted_work["RollingGasAvg"].to_numpy()
+    return result
+
+
+def apply_gas_hurdle_to_ratio(
+    df: pd.DataFrame,
+    col_r: str,
+    *,
+    hurdle_multiplier: float = DEFAULT_GAS_HURDLE_MULTIPLIER,
+    log: Optional[Callable[[str], None]] = None,
+) -> Tuple[pd.DataFrame, int]:
+    """
+    When GatheredGas exceeds hurdle_multiplier × RollingGasAvg, keep previous day _R.
+    """
+    if "RollingGasAvg" not in df.columns:
+        raise ValueError("apply_gas_hurdle_to_ratio requires RollingGasAvg column")
+
+    out = df.sort_values(["Uwi", "ProdDate"]).copy()
+    hurdle = hurdle_multiplier * out["RollingGasAvg"]
+    spike = (
+        out["GatheredGas"].notna()
+        & hurdle.notna()
+        & hurdle.gt(0)
+        & out["GatheredGas"].gt(hurdle)
+    )
+    prev_r = out.groupby("Uwi", sort=False)[col_r].shift(1)
+
+    replaced = spike & prev_r.notna()
+    out.loc[replaced, col_r] = prev_r.loc[replaced]
+
+    replaced_count = int(replaced.sum())
+    no_prev_count = int((spike & prev_r.isna()).sum())
+    if log and replaced_count:
+        log(f"    {col_r}: {replaced_count:,} spike day(s) use previous _R.")
+    if log and no_prev_count:
+        log(
+            f"    {col_r}: {no_prev_count:,} spike day(s) kept raw _R "
+            "(no previous day)."
+        )
+
+    return out, replaced_count
+
+
 def load_production_for_ngl(
     conn,
     *,
@@ -385,6 +465,13 @@ def compute_daily_ngl_columns(
     )
     days_in_month_col = ym.dt.daysinmonth.astype(float)
 
+    _log(
+        f"  Computing {DEFAULT_GAS_ROLLING_MONTHS}-month rolling gathered-gas "
+        "average per UWI (hurdle baseline)..."
+    )
+    out = out.sort_values(["Uwi", "ProdDate"])
+    out["RollingGasAvg"] = rolling_gathered_gas_avg(out)
+
     total_fields = len(NGL_EXCEL_FIELDS)
     for idx, (excel_col, col_r, col_f) in enumerate(NGL_EXCEL_FIELDS, start=1):
         pct = int(round(100 * idx / total_fields))
@@ -399,6 +486,8 @@ def compute_daily_ngl_columns(
         mask_r = out[coef_col].notna() & out["GatheredGas"].notna()
         out.loc[mask_r, col_r] = out.loc[mask_r, coef_col] * out.loc[mask_r, "GatheredGas"]
 
+        out, _ = apply_gas_hurdle_to_ratio(out, col_r, log=log)
+
         has_positive_ngl = ngl_m.notna() & ngl_m.gt(0)
         out.loc[has_positive_ngl, col_f] = (
             ngl_m.loc[has_positive_ngl] / days_in_month_col.loc[has_positive_ngl]
@@ -412,7 +501,7 @@ def compute_daily_ngl_columns(
         )
 
     coef_cols = [_ratio_coef_column(excel_col) for excel_col, _, _ in NGL_EXCEL_FIELDS]
-    out = out.drop(columns=coef_cols, errors="ignore")
+    out = out.drop(columns=[*coef_cols, "RollingGasAvg"], errors="ignore")
 
     _log("  NGL column calculation complete.")
     return out

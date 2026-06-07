@@ -8,6 +8,7 @@ from datetime import date
 
 from ngl_daily_compare import (
     add_last_valid_ratio_coefs,
+    apply_gas_hurdle_to_ratio,
     build_staging_insert_rows,
     compute_daily_ngl_columns,
     compute_fraction_value,
@@ -17,6 +18,7 @@ from ngl_daily_compare import (
     find_unmatched_prod_uwis,
     normalize_uwi,
     parse_production_date,
+    rolling_gathered_gas_avg,
     trim_sql_uwi_for_match,
     uwi_match_key,
 )
@@ -96,6 +98,105 @@ class TestNglDailyCompare(unittest.TestCase):
             176.6 / days_in_month(2022, 8),
             places=6,
         )
+
+    def test_rolling_gathered_gas_avg_prior_three_months(self):
+        prod = pd.DataFrame(
+            [
+                {"Uwi": "UWI-1", "ProdDate": pd.Timestamp("2022-05-15"), "GatheredGas": 80.0},
+                {"Uwi": "UWI-1", "ProdDate": pd.Timestamp("2022-06-15"), "GatheredGas": 100.0},
+                {"Uwi": "UWI-1", "ProdDate": pd.Timestamp("2022-07-15"), "GatheredGas": 120.0},
+                {"Uwi": "UWI-1", "ProdDate": pd.Timestamp("2022-08-01"), "GatheredGas": 50.0},
+            ]
+        )
+        avg = rolling_gathered_gas_avg(prod)
+        self.assertTrue(pd.isna(avg.iloc[0]))
+        self.assertAlmostEqual(avg.iloc[3], 100.0, places=6)
+
+    def test_apply_gas_hurdle_normal_day_keeps_raw_r(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 100.0,
+                    "NGL-C2_R": 25.0,
+                    "RollingGasAvg": 100.0,
+                }
+            ]
+        )
+        out, replaced = apply_gas_hurdle_to_ratio(df, "NGL-C2_R")
+        self.assertEqual(replaced, 0)
+        self.assertAlmostEqual(out.iloc[0]["NGL-C2_R"], 25.0, places=6)
+
+    def test_apply_gas_hurdle_spike_uses_previous_r(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 100.0,
+                    "NGL-C2_R": 50.0,
+                    "RollingGasAvg": 100.0,
+                },
+                {
+                    "Uwi": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-08-02"),
+                    "GatheredGas": 600.0,
+                    "NGL-C2_R": 300.0,
+                    "RollingGasAvg": 100.0,
+                },
+            ]
+        )
+        out, replaced = apply_gas_hurdle_to_ratio(df, "NGL-C2_R")
+        self.assertEqual(replaced, 1)
+        spike_row = out.loc[out["ProdDate"] == pd.Timestamp("2022-08-02")].iloc[0]
+        self.assertAlmostEqual(spike_row["NGL-C2_R"], 50.0, places=6)
+
+    def test_apply_gas_hurdle_spike_without_previous_keeps_raw_r(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "ProdDate": pd.Timestamp("2022-08-01"),
+                    "GatheredGas": 600.0,
+                    "NGL-C2_R": 300.0,
+                    "RollingGasAvg": 100.0,
+                }
+            ]
+        )
+        out, replaced = apply_gas_hurdle_to_ratio(df, "NGL-C2_R")
+        self.assertEqual(replaced, 0)
+        self.assertAlmostEqual(out.iloc[0]["NGL-C2_R"], 300.0, places=6)
+
+    def test_compute_daily_ngl_columns_gas_hurdle_spike(self):
+        monthly = pd.DataFrame(
+            [
+                {
+                    "Uwi": "UWI-1",
+                    "Year": 2022,
+                    "Month": 8,
+                    "NGL-C2": 700.0,
+                    "NGL-C3": 0.0,
+                    "NGL-C4": 0.0,
+                    "NGL-C5": 0.0,
+                    "PA_NGLs": 0.0,
+                }
+            ]
+        )
+        prod = pd.DataFrame(
+            [
+                {"Uwi": "UWI-1", "UwiRaw": "UWI-1", "ProdDate": pd.Timestamp("2022-05-15"), "GatheredGas": 100.0},
+                {"Uwi": "UWI-1", "UwiRaw": "UWI-1", "ProdDate": pd.Timestamp("2022-06-15"), "GatheredGas": 100.0},
+                {"Uwi": "UWI-1", "UwiRaw": "UWI-1", "ProdDate": pd.Timestamp("2022-07-15"), "GatheredGas": 100.0},
+                {"Uwi": "UWI-1", "UwiRaw": "UWI-1", "ProdDate": pd.Timestamp("2022-08-01"), "GatheredGas": 100.0},
+                {"Uwi": "UWI-1", "UwiRaw": "UWI-1", "ProdDate": pd.Timestamp("2022-08-02"), "GatheredGas": 600.0},
+            ]
+        )
+        out = compute_daily_ngl_columns(prod, monthly)
+        aug1 = out.loc[out["ProdDate"] == pd.Timestamp("2022-08-01")].iloc[0]
+        aug2 = out.loc[out["ProdDate"] == pd.Timestamp("2022-08-02")].iloc[0]
+        self.assertAlmostEqual(aug1["NGL-C2_R"], 100.0, places=6)
+        self.assertAlmostEqual(aug2["NGL-C2_R"], 100.0, places=6)
 
     def test_zero_ngl_uses_last_valid_ratio(self):
         monthly = pd.DataFrame(
