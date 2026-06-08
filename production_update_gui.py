@@ -286,7 +286,7 @@ class ProductionUpdateGUI(QMainWindow):
             "Prodview / Snowflake — Daily Production Retrieve"
         )
         self.btn_allocations = self.create_main_button(
-            "Production Accounting Allocations (PA)"
+            "ValNav Monthly Update (Sales + NGL)"
         )
         self.btn_ratios = self.create_main_button("Public Sales Data and Ratios")
         self.btn_survey = self.create_main_button("Survey Data Import")
@@ -463,7 +463,7 @@ class ProductionUpdateGUI(QMainWindow):
     
     def open_monthly_loader(self):
         """Open the monthly loader dialog"""
-        self.log("Opening PA Allocations dialog...")
+        self.log("Opening ValNav Monthly Update dialog...")
         
         # Load settings
         config = configparser.ConfigParser()

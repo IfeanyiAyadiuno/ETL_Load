@@ -21,18 +21,17 @@ Documentation entry points: **[README.md](README.md)** (how to run from source),
 5. [Settings](#settings)  
 6. [Well Master List](#well-master-list)  
 7. [Prodview / Snowflake — Daily Production Retrieve](#prodview--snowflake--daily-production-retrieve)  
-8. [Production Accounting Allocations (PA)](#production-accounting-allocations-pa)  
+8. [ValNav Monthly Update (Sales + NGL)](#valnav-monthly-update-sales--ngl)  
 9. [Public Sales Data and Ratios](#public-sales-data-and-ratios)  
 10. [Survey Data Import](#survey-data-import)  
 11. [Type Curves Import](#type-curves-import)  
 12. [Whitson+ Mass Upload](#whitson-mass-upload)  
 13. [Exports / Reports](#exports--reports)  
-14. [NGL daily compare (trial script)](#ngl-daily-compare-trial-script)  
-15. [Operational considerations](#operational-considerations)  
-16. [Runbook — script order and maintenance](#runbook--script-order-and-maintenance)  
-17. [Troubleshooting](#troubleshooting)  
-18. [Appendix A — Figures checklist](#appendix-a--figures-checklist-for-screenshots)  
-19. [Appendix B — Glossary](#appendix-b--glossary)  
+14. [Operational considerations](#operational-considerations)  
+15. [Runbook — script order and maintenance](#runbook--script-order-and-maintenance)  
+16. [Troubleshooting](#troubleshooting)  
+17. [Appendix A — Figures checklist](#appendix-a--figures-checklist-for-screenshots)  
+18. [Appendix B — Glossary](#appendix-b--glossary)  
 20. [Appendix C — Logical database schema (SQL Server)](#appendix-c--logical-database-schema-sql-server)  
 
 ---
@@ -100,7 +99,7 @@ python -m pytest -q
 
 **Optional reporting views:** Your DBA may deploy read-only views (for example joins between production and type curves). The desktop app does **not** ship view DDL in the application package; routine ETL uses **`PCE_TC`**, **`PCE_Production`**, and Python-side **`sync_tc_to_production`** instead of view-based writes.
 
-**Production Accounting Allocations (PA)** loads **ValNav** data into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** only for **S2 gas** and **condensate sales** (the same columns that depend on ValNav-based factors), via **`monthly_loader_gui.py`** calling **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**.
+**ValNav Monthly Update (Sales + NGL)** loads **ValNav** data into **`Allocation_Factors`**, updates **`PCE_CDA`** and **`PCE_Production`** for **S2 gas** and **condensate sales**, and spreads monthly **NGL** volumes to daily **Ratio** (`_R`) columns on **`PCE_Production`** for the selected month only. Sales allocation uses **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**; NGL uses **`ngl_monthly_update.run_ngl_monthly_from_valnav`** from the same ValNav sheet and PA UWI matching.
 
 **Public Sales Data and Ratios** loads **Accumap** (public sales gas) into **`Allocation_Factors`**, then updates **`PCE_CDA`** and **`PCE_Production`** for **gas sales production** and **sales CGR**, using **`sales_ratios_gui.py`** and **`sales_allocation_updates`**.
 
@@ -108,7 +107,7 @@ python -m pytest -q
 
 1. Maintain **Well Master** (including new wells from Snowflake where required).  
 2. Execute **Prodview / Snowflake** per the agreed refresh schedule.  
-3. Run **PA** when the monthly **ValNav** file is ready (PA applies ValNav to **`Allocation_Factors`** and refreshes **S2** and **condensate sales** on **`PCE_CDA`** / **`PCE_Production`**).  
+3. Run **ValNav Monthly Update (Sales + NGL)** when the monthly **ValNav** file is ready (applies ValNav to **`Allocation_Factors`**, refreshes **S2** and **condensate sales** on **`PCE_CDA`** / **`PCE_Production`**, and writes monthly **NGL** ratios for the selected month).  
 4. Run **Public Sales Data and Ratios** when the **Accumap** file is ready and you need **gas sales** and **sales CGR** updated for a month range (it applies Accumap to **`Allocation_Factors`** and updates the remaining sales fields on **`PCE_CDA`** / **`PCE_Production`**).
 
 **Why this order:** Daily wellhead-style rows should already exist in **`PCE_CDA`** from Prodview. **PA** does not replace **Public Sales**—each module owns a different subset of **`Allocation_Factors`** and of the calculated sales columns. The Public Sales dialog may warn you if factors or CDA rows are missing for the selected range.
@@ -225,7 +224,7 @@ Application title: **Pacific Canbriam Energy - Production Update System**. Heade
 |---|----------------|
 | 1 | Well Master List |
 | 2 | Prodview / Snowflake — Daily Production Retrieve |
-| 3 | Production Accounting Allocations (PA) |
+| 3 | ValNav Monthly Update (Sales + NGL) |
 | 4 | Public Sales Data and Ratios |
 | 5 | Survey Data Import |
 | 6 | Type Curves Import |
@@ -357,23 +356,25 @@ Typical runs are **longer than Quick Update** (full-history Snowflake + full pro
 
 ---
 
-## Production Accounting Allocations (PA)
+## ValNav Monthly Update (Sales + NGL)
 
-**Objective:** For the selected month, write **ValNav**-based rows and columns into **`Allocation_Factors`**, then update **`PCE_CDA`** and **`PCE_Production`** for **S2 gas** and **condensate sales** only, via **`sales_allocation_updates.apply_valnav_allocation_to_cda_and_production`**.
+**Objective:** For the selected month, write **ValNav**-based rows into **`Allocation_Factors`**, update **`PCE_CDA`** and **`PCE_Production`** for **S2 gas** and **condensate sales**, and write daily **NGL Ratio** columns (`NGL-C2_R` … `NGL-C5_R`, `PA_NGLs_R`) on **`PCE_Production`** for matched wells in that month.
 
-**Prerequisites:** **ValNav Template** set in **Settings**; ValNav source file must exist for the target month.
+**Prerequisites:** **ValNav Template** set in **Settings**; ValNav source file must exist for the target month. Run **`scripts/add_pce_ngl_columns.sql`** and **`scripts/create_pce_ngl_staging.sql`** in SSMS once before the first NGL write (adds **`[UWI]`** and five Ratio columns on **`PCE_Production`**).
 
 **Accumap** is **not** part of this step: public **sales gas** and **sales CGR** are handled when you run **Public Sales Data and Ratios** using the **Accumap Template**.
 
-**Month control:** Dropdown contains roughly the **last 24** calendar months, **oldest first**. Select the month that matches the files being loaded (first list item is the oldest in the window).
+**NGL columns:** ValNav sheet must include **`NGL-C2`** … **`NGL-C5`** and **`NGLs`** (mapped to **`PA_NGLs_R`**). **`LITEMIX`** is ignored. If NGL columns are missing, sales allocation still runs and NGL is skipped with a warning in **Results**.
+
+**Month control:** Dropdown contains roughly the **last 24** calendar months, **oldest first**. Select the month that matches the ValNav sheet being loaded (first list item is the oldest in the window). NGL is updated for the **selected month only**.
 
 **Procedure**
 
-1. Open **Production Accounting Allocations (PA)**.  
+1. Open **ValNav Monthly Update (Sales + NGL)**.  
 2. Select **Month**.  
 3. Verify status: database and **ValNav file**.  
 4. **Run Monthly Loader**; confirm the dialog.  
-5. Review **Results** (counts, warnings, elapsed time).
+5. Review **Results** (ValNav match counts, NGL wells/rows updated, warnings, elapsed time).
 
 `[IMAGE: PA dialog — month, ValNav path, status, Run Monthly Loader, Results]`
 
@@ -499,37 +500,13 @@ The dialog displays a **Coming soon** notice. No export jobs are initiated from 
 
 ---
 
-## NGL daily compare (trial script)
-
-Standalone trial to spread **monthly** NGL volumes from Excel onto daily **`PCE_Production`** rows using **Ratio** (`_R`) and **Fraction** (`_F`) methods. Not wired into the main GUI until a method is chosen.
-
-**Prerequisites**
-
-1. Run **`scripts/add_pce_ngl_columns.sql`** in SSMS once (adds **`[UWI]`** and ten trial NGL columns; backfill is also done on production rebuild).  
-2. Monthly NGL Excel with header on **row 3** (`PRODUCTION_DATE`, `UWI`, `NGL-C2` … `PA_NGLs`).
-
-**Commands** (from project folder):
-
-```text
-python scripts/ngl_daily_compare.py --excel "I:\path\NGL_summary.xlsx" --dry-run
-python scripts/ngl_daily_compare.py --excel "I:\path\NGL_summary.xlsx"
-```
-
-Use **`--unmatched-csv path.csv`** on dry run to export Excel/SQL UWIs that did not match.
-
-**Performance — database resources**
-
-Large updates (hundreds of thousands of **`PCE_Production`** rows) can take a long time. The script reads the full production table and issues batched **`UPDATE`**s. If runs are routinely slow or time out, **request additional SQL Server resource allocation from IT/DBA** (CPU, memory, I/O, or tier) so bulk updates complete faster. This is an infrastructure change, not an application setting.
-
----
-
 ## Operational considerations
 
 - **Full Rebuild** pulls Snowflake for the rolling window, refreshes selected **`PCE_CDA`** sales columns from **`Allocation_Factors`**, then clears and repopulates **`PCE_Production`** from **all** **`PCE_CDA`** history. Use when you need the entire production table aligned with current CDA + allocations, not for a single-month patch in isolation.  
 - **Snowflake → CDA + production rebuild** is the usual mode for routine Snowflake refreshes (automatic rolling ~18 months); remember it recomputes **entire well histories** in **`PCE_Production`** for wells touched by the post-merge **`PCE_CDA`** dataset.  
 - Avoid forced termination of the application during active jobs; use dialog **Close** and cancel paths where provided. The Prodview dialog explicitly warns that cancellation may not stop work immediately and that the Snowflake + production job can leave partial commits after a successful step.  
 - Production database changes should follow company backup and change-control practices.  
-- **Database performance:** **Full rebuild**, **Snowflake → CDA + production rebuild**, **PA** / **Public Sales** month loops, and the **NGL daily compare** script all issue heavy read/write work against SQL Server. If jobs run slowly or block other users, **ask IT/DBA for more database resource allocation** (compute, memory, storage I/O, or a higher service tier) rather than expecting the desktop app alone to speed up.
+- **Database performance:** **Full rebuild**, **Snowflake → CDA + production rebuild**, **ValNav Monthly Update** / **Public Sales** month loops, and NGL staging bulk **`UPDATE`**s all issue heavy read/write work against SQL Server. If jobs run slowly or block other users, **ask IT/DBA for more database resource allocation** (compute, memory, storage I/O, or a higher service tier) rather than expecting the desktop app alone to speed up.
 
 ---
 
@@ -544,7 +521,7 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | 1 | **Settings** — confirm SQL Server, **ValNav** and **Accumap** paths | — | No | **Save Settings**; reopen Settings to confirm persistence. |
 | 2 | **Well Master** — add or fix wells, **Import New Wells** if needed | Valid **`PCE_WM`** for every well you expect in Snowflake | Removing wells deletes dependent rows (see purge note below) | Row exists in **`PCE_WM`** with **GasIDREC** populated for Snowflake pulls. |
 | 3 | **Prodview** — **Snowflake → CDA + production rebuild** (default) or **Full rebuild** | Step 2 for new wells; VPN/Snowflake for Snowflake mode | **Yes** — see [Prodview / Snowflake](#prodview--snowflake--daily-production-retrieve) (CDA window replace; full per-well **`PCE_Production`** rebuild for wells in scope; **`sync_tc_to_production`**) | Dialog **Results**: row counts, `SNOWFLAKE + PRODUCTION COMPLETE` summary; spot-check dates in **`PCE_CDA`**. |
-| 4 | **PA** — **Run Monthly Loader** for each ValNav month | Step 3 for current CDA; ValNav file on disk | **Yes** — writes **`Allocation_Factors`** and updates S2/condensate columns in **`PCE_CDA`** / **`PCE_Production`** for that month | Results log; allocation and production values for sample wells. |
+| 4 | **ValNav Monthly Update (Sales + NGL)** — **Run Monthly Loader** for each ValNav month | Step 3 for current CDA; ValNav file on disk; **`add_pce_ngl_columns.sql`** + staging table for NGL | **Yes** — writes **`Allocation_Factors`**, updates S2/condensate on **`PCE_CDA`** / **`PCE_Production`**, and writes NGL **`_R`** columns for the selected month | Results log; NGL wells/rows updated; allocation and production values for sample wells. |
 | 5 | **Public Sales** — **Run Update** for month range | **PA** for same months when ValNav side must be current; Accumap file | **Yes** — writes Accumap side of **`Allocation_Factors`** and updates gas sales / sales CGR on **`PCE_CDA`** / **`PCE_Production`** | Results log; warnings if factors missing. |
 | 6 | Optional **Survey**, **Type Curves** | Survey: **`PCE_WM`** lookup for UWI/pad; TC: WM names | Survey overwrite deletes by UWI; TC **Delete** truncates keys in **`PCE_TC`** | Import logs; row counts. |
 | 7 | Optional **Full Rebuild** (Prodview) | Snowflake + allocations + full production rebuild | **Yes** — Snowflake rolling window on CDA; deletes **all** **`PCE_Production`** then rebuilds from all CDA | Long run; final summary from **`production_update`**; row counts. |
@@ -566,9 +543,6 @@ Use this section for **routine refreshes**, **new wells**, and **optional CLI ut
 | `python production_update.py` | Same pipeline as **Prodview Full Rebuild**: Snowflake rolling window → CDA, refresh CDA sales from **`Allocation_Factors`**, delete all **`PCE_Production`**, rebuild from **`PCE_CDA`** | Snowflake + **`PCE_CDA`** | **Yes** — full **`PCE_Production`** delete | Console summary; row counts. |
 | `python survey_import.py "<path>"` then `append` or `overwrite` | Survey import without GUI | File on disk, **`PCE_WM`** for mapping | **Overwrite** deletes existing rows for matching UWIs, then inserts; **append** skips (UWI, depth) pairs already in **`PCE_Surveys`** before insert | Console / exit code. |
 | `python purge_exception_wells.py` | Deletes **`PCE_CDA`**, **`PCE_Production`**, **`Allocation_Factors`**, **`PCE_Surveys`** rows for wells with **`PCE_WM.Exception = 'Y'`** | Exception flags set deliberately | **Yes** | Printed delete counts. |
-| `python scripts/ngl_daily_compare.py --excel "…" --dry-run` | Trial NGL Ratio/Fraction columns on **`PCE_Production`**; dry run logs matches only | **`add_pce_ngl_columns.sql`**, **`[UWI]`** populated | No (dry run) | Summary: Excel/SQL UWI match counts. |
-| `python scripts/ngl_daily_compare.py --excel "…"` | Writes ten **`_R` / `_F`** NGL columns | Same as above | **Yes** — bulk **`UPDATE`** on **`PCE_Production`** | SSMS spot-check; see [NGL daily compare](#ngl-daily-compare-trial-script). Request **more DB resources** if the run is too slow. |
-
 `[IMAGE: Runbook reference — example SSMS row-count query results after a refresh]`
 
 ---

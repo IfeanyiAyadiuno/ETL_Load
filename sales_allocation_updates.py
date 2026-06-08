@@ -196,6 +196,25 @@ def _accumap_uwi_search_keys(raw: str) -> List[str]:
     return out
 
 
+def resolve_valnav_uwi_to_well_name(
+    uwi_str: str, pce_uwi_dict: Dict[str, str]
+) -> Optional[str]:
+    """
+    Map one ValNav McDaniel UWI to PCE_WM [Well Name] (same rules as PA monthly loader).
+    """
+    u = str(uwi_str).strip()
+    if not u or u.lower() == "nan":
+        return None
+    normalized = normalize_uwi_for_matching(u)
+    if normalized in pce_uwi_dict:
+        return pce_uwi_dict[normalized]
+    if len(u) > 1 and u[0].isdigit():
+        try_uwi = u[1:].lower()
+        if try_uwi in pce_uwi_dict:
+            return pce_uwi_dict[try_uwi]
+    return None
+
+
 def resolve_accumap_uwi_to_well_name(
     uwi_str: str, pce_uwi_dict: Dict[str, str]
 ) -> Optional[str]:

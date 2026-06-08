@@ -1,14 +1,18 @@
 /*
-  dbo.PCE_NGL_Daily_Staging — bulk load target for NGL daily compare
+  dbo.PCE_NGL_Daily_Staging — bulk load target for ValNav monthly NGL update
 
-  Python loads computed daily NGL values here, then one UPDATE … JOIN copies
+  Python loads computed daily NGL Ratio values here, then one UPDATE … JOIN copies
   them into dbo.PCE_Production (by UWI + Date).
 
   Prerequisites:
-    scripts/add_pce_ngl_columns.sql (UWI + 10 NGL columns on PCE_Production)
+    scripts/add_pce_ngl_columns.sql (UWI + five Ratio _R columns on PCE_Production)
 
-  Run once in SSMS before:
-    python scripts/ngl_daily_compare.py --excel "…"
+  Run once in SSMS before the first ValNav Monthly Update (Sales + NGL) run.
+
+  If an older staging table exists with Fraction (_F) columns, drop and recreate:
+
+    DROP TABLE dbo.PCE_NGL_Daily_Staging;
+    -- then run this script again
 */
 
 SET NOCOUNT ON;
@@ -28,11 +32,6 @@ CREATE TABLE dbo.PCE_NGL_Daily_Staging (
     , [NGL-C4_R]  FLOAT          NULL
     , [NGL-C5_R]  FLOAT          NULL
     , [PA_NGLs_R] FLOAT          NULL
-    , [NGL-C2_F]  FLOAT          NULL
-    , [NGL-C3_F]  FLOAT          NULL
-    , [NGL-C4_F]  FLOAT          NULL
-    , [NGL-C5_F]  FLOAT          NULL
-    , [PA_NGLs_F] FLOAT          NULL
 );
 GO
 

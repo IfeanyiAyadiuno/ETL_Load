@@ -15,36 +15,17 @@ from datetime import datetime, timedelta
 import os
 import traceback
 from db_connection import get_sql_conn
-
-
-_SUP_TO_DIGIT = str.maketrans(
-    {
-        "\u00b2": "2",
-        "\u00b3": "3",
-        "\u00b9": "1",
-        "\u2070": "0",
-        "\u2074": "4",
-        "\u2075": "5",
-        "\u2076": "6",
-        "\u2077": "7",
-        "\u2078": "8",
-        "\u2079": "9",
-    }
+from sales_allocation_updates import (
+    fetch_pce_uwi_to_well_name,
+    resolve_valnav_uwi_to_well_name,
 )
-
-
-def _norm_header(s: str) -> str:
-    """Lowercase, trim; map Unicode superscript digits (e.g. ³ in e³m³) to ASCII for matching."""
-    t = str(s).strip().replace("\xa0", " ")
-    while "  " in t:
-        t = t.replace("  ", " ")
-    t = t.translate(_SUP_TO_DIGIT).lower()
-    return t
-
-
-def _strip_valnav_column_names(df: pd.DataFrame) -> None:
-    """In-place: trim Excel headers (trailing spaces / NBSP break exact name matches)."""
-    df.columns = [str(c).strip().replace("\xa0", " ") for c in df.columns]
+from valnav_columns import (
+    resolve_valnav_column,
+    resolve_valnav_cond_column,
+    resolve_valnav_gas_column,
+    resolve_valnav_uwi_column,
+    strip_valnav_column_names,
+)
 
 
 def resolve_valnav_sheet_name(sheet_names, month_start: datetime) -> str:
@@ -72,32 +53,6 @@ def resolve_valnav_sheet_name(sheet_names, month_start: datetime) -> str:
         f"{month_abbr} is not in the ValNav Excel file. "
         f"Add a worksheet named like '{month_abbr}' or '{month_full}'. "
         f"Available sheets: {available}."
-    )
-
-
-def _resolve_valnav_column(df: pd.DataFrame, logical_name: str, *candidates: str) -> str:
-    """
-    Return the actual column name in df for the first matching candidate (exact, then
-    case-insensitive / normalized). Raises KeyError with column list if none match.
-    """
-    cols = list(df.columns)
-    for want in candidates:
-        if want in df.columns:
-            return want
-    by_norm = {}
-    for c in cols:
-        k = _norm_header(c)
-        if k not in by_norm:
-            by_norm[k] = c
-    for want in candidates:
-        k = _norm_header(want)
-        if k in by_norm:
-            return by_norm[k]
-    preview = ", ".join(repr(str(c)) for c in cols[:40])
-    more = f" … (+{len(cols) - 40} more)" if len(cols) > 40 else ""
-    raise KeyError(
-        f"{logical_name}: no column matching {candidates!r}. "
-        f"Sheet columns ({len(cols)}): {preview}{more}"
     )
 
 
@@ -204,36 +159,11 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
 
         # Read ValNav data
         df_valnav = pd.read_excel(valnav_path, sheet_name=target_valnav_sheet)
-        _strip_valnav_column_names(df_valnav)
+        strip_valnav_column_names(df_valnav)
 
-        col_uwi = _resolve_valnav_column(
-            df_valnav,
-            "UWI / McDaniel id",
-            "McDaniel database",
-            "McDaniel Database",
-        )
-        col_gas = _resolve_valnav_column(
-            df_valnav,
-            "S2 gas volume (was 'Gas Actual Volume')",
-            "Gas Actual Volume",
-            "Gas actual volume",
-            "Gas Actual Vol",
-            "Gas Actual Volume (10³m³)",
-            "Gas Actual Volume (103m3)",
-            "Gas Actual Volume (e3m3)",
-            "Gas Actual Volume (e³m³)",  # ValNav template: superscript ³ in header
-            "Gas Actual Volume e3m3",
-        )
-        col_cond = _resolve_valnav_column(
-            df_valnav,
-            "Allocation dispensed condensate",
-            "Allocation Disp Condensate Volume (m³)",
-            "Allocation Disp Condensate Volume (m3)",
-            "Allocation Disp Condensate Volume",
-            "Condensate Volume (m³)",
-            "Condensate Volume (m3)",
-            "Condensate Volume",
-        )
+        col_uwi = resolve_valnav_uwi_column(df_valnav)
+        col_gas = resolve_valnav_gas_column(df_valnav)
+        col_cond = resolve_valnav_cond_column(df_valnav)
         log(
             lf.detail(
                 f"ValNav sheet {target_valnav_sheet!r}: UWI column {col_uwi!r}, "
@@ -282,46 +212,8 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         # -----------------------------------------------------------------
         log(lf.step("Fetching well mappings from PCE_WM"))
         
-        cursor.execute(
-            "SELECT [Value Navigator UWI], [Well Name] "
-            "FROM PCE_WM "
-            "WHERE [Value Navigator UWI] IS NOT NULL "
-            "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')"
-        )
-        all_pce_uwis = cursor.fetchall()
-        
-        # Create lookup dictionaries
-        pce_uwi_dict = {}
-        pce_original_to_wellname = {}
-        
-        for pce_uwi, well_name in all_pce_uwis:
-            if pce_uwi:
-                pce_uwi_str = str(pce_uwi).strip()
-                pce_original_to_wellname[pce_uwi_str] = well_name
-                
-                variations = [pce_uwi_str.lower()]
-                
-                if len(pce_uwi_str) > 1 and pce_uwi_str[0].isdigit():
-                    variations.append(pce_uwi_str[1:].lower())
-                
-                if '/' in pce_uwi_str:
-                    parts = pce_uwi_str.split('/')
-                    if len(parts) > 0:
-                        last_part = parts[-1]
-                        if last_part.isdigit():
-                            clean_last = str(int(last_part))
-                            new_uwi = '/'.join(parts[:-1] + [clean_last])
-                            variations.append(new_uwi.lower())
-                        
-                        if last_part.isdigit() and len(last_part) == 1:
-                            padded_last = last_part.zfill(2)
-                            new_uwi = '/'.join(parts[:-1] + [padded_last])
-                            variations.append(new_uwi.lower())
-                
-                for variation in variations:
-                    pce_uwi_dict[variation] = well_name
-        
-        log(lf.detail(f"Loaded {lf.num(len(pce_original_to_wellname))} UWIs from PCE_WM table"))
+        pce_uwi_dict = fetch_pce_uwi_to_well_name(cursor)
+        log(lf.detail(f"Loaded {lf.num(len(pce_uwi_dict))} UWI lookup key(s) from PCE_WM"))
         progress(45)
         
         # -----------------------------------------------------------------
@@ -383,30 +275,10 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         matched_wells = {}
         unmatched_valnav = []
         
-        def normalize_uwi_for_matching(uwi_str):
-            normalized = uwi_str.lower()
-            if normalized.endswith('/02'):
-                normalized = normalized[:-3] + '/2'
-            return normalized
-        
         for uwi in valnav_uwis:
             uwi_str = str(uwi)
-            matched = False
-            
-            normalized_uwi = normalize_uwi_for_matching(uwi_str)
-            
-            if normalized_uwi in pce_uwi_dict:
-                well_name = pce_uwi_dict[normalized_uwi]
-                matched = True
-            
-            if not matched:
-                if len(uwi_str) > 1 and uwi_str[0].isdigit():
-                    try_uwi = uwi_str[1:].lower()
-                    if try_uwi in pce_uwi_dict:
-                        well_name = pce_uwi_dict[try_uwi]
-                        matched = True
-            
-            if matched:
+            well_name = resolve_valnav_uwi_to_well_name(uwi_str, pce_uwi_dict)
+            if well_name:
                 if well_name not in matched_wells:
                     cda_data = cda_lookup.get(well_name, {
                         'prodview_wh_gas': 0, 
@@ -685,7 +557,13 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         log(lf.step("Applying ValNav allocation to PCE_CDA and PCE_Production"))
         apply_valnav_allocation_to_cda_and_production(conn, month_start, log=log)
 
-        progress(95)
+        progress(88)
+        from ngl_monthly_update import run_ngl_monthly_from_valnav
+
+        log(lf.step("Applying monthly NGL ratios to PCE_Production"))
+        ngl_summary = run_ngl_monthly_from_valnav(conn, df_valnav, month_start, log=log)
+        progress(98)
+
         conn.close()
         progress(100)
         
@@ -702,6 +580,10 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             'duration': total_time,
             'warnings': ', '.join(warning_messages) if warning_messages else None,
             'month': month_str,
+            'ngl_skipped': ngl_summary.skipped,
+            'ngl_skip_reason': ngl_summary.skip_reason,
+            'ngl_wells': ngl_summary.wells_matched,
+            'ngl_rows_updated': ngl_summary.rows_updated,
         }
         
         complete_metrics = {
@@ -711,9 +593,13 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             "Wells matched": summary["matched_wells"],
             "Wells added (zeros)": summary["wells_added"],
             "Total wells": summary["total_wells"],
+            "NGL wells": summary["ngl_wells"],
+            "NGL prod rows updated": summary["ngl_rows_updated"],
             "Duration": lf.elapsed(total_time),
             "Note": "Run Public Sales Data and Ratios to load Accumap and refresh gas sales + CGR",
         }
+        if ngl_summary.skipped:
+            complete_metrics["NGL skipped"] = ngl_summary.skip_reason
         if summary["warnings"]:
             complete_metrics["Warnings"] = summary["warnings"]
         log(lf.summary("COMPLETE", complete_metrics))

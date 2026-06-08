@@ -1,12 +1,21 @@
 /*
-  dbo.PCE_Production — [UWI] and trial NGL daily columns (Ratio _R / Fraction _F)
+  dbo.PCE_Production — [UWI] and monthly NGL Ratio (_R) columns
 
-  1. Adds [UWI] and ten nullable FLOAT columns for NGL compare plotting.
+  1. Adds [UWI] and five nullable FLOAT Ratio columns for ValNav monthly NGL update.
   2. Backfills [UWI] from PCE_WM.[Value Navigator UWI] using production [Well Name]
      matched to WM [Composite Name] or [Well Name] (same rules as Enersight sync).
 
-  Run in SSMS before: python scripts/ngl_daily_compare.py --excel "…"
+  Run in SSMS once before using ValNav Monthly Update (Sales + NGL) in the GUI.
   Also run scripts/create_pce_ngl_staging.sql once (bulk staging table).
+
+  Legacy Fraction (_F) columns: if present from an earlier trial, drop them after
+  confirming no downstream reports depend on them:
+
+    ALTER TABLE dbo.PCE_Production DROP COLUMN
+          [NGL-C2_F], [NGL-C3_F], [NGL-C4_F], [NGL-C5_F], [PA_NGLs_F];
+
+  If dbo.PCE_NGL_Daily_Staging still has _F columns, DROP and recreate using
+  scripts/create_pce_ngl_staging.sql (see that script for DROP/recreate notes).
 */
 
 SET NOCOUNT ON;
@@ -55,36 +64,6 @@ BEGIN
 END;
 GO
 
-IF COL_LENGTH(N'dbo.PCE_Production', N'NGL-C2_F') IS NULL
-BEGIN
-    ALTER TABLE dbo.PCE_Production ADD [NGL-C2_F] FLOAT NULL;
-END;
-GO
-
-IF COL_LENGTH(N'dbo.PCE_Production', N'NGL-C3_F') IS NULL
-BEGIN
-    ALTER TABLE dbo.PCE_Production ADD [NGL-C3_F] FLOAT NULL;
-END;
-GO
-
-IF COL_LENGTH(N'dbo.PCE_Production', N'NGL-C4_F') IS NULL
-BEGIN
-    ALTER TABLE dbo.PCE_Production ADD [NGL-C4_F] FLOAT NULL;
-END;
-GO
-
-IF COL_LENGTH(N'dbo.PCE_Production', N'NGL-C5_F') IS NULL
-BEGIN
-    ALTER TABLE dbo.PCE_Production ADD [NGL-C5_F] FLOAT NULL;
-END;
-GO
-
-IF COL_LENGTH(N'dbo.PCE_Production', N'PA_NGLs_F') IS NULL
-BEGIN
-    ALTER TABLE dbo.PCE_Production ADD [PA_NGLs_F] FLOAT NULL;
-END;
-GO
-
 -- --- Part 2: populate [UWI] from Well Master ---
 UPDATE p
 SET p.[UWI] = LTRIM(RTRIM(CAST(ca.[Value Navigator UWI] AS NVARCHAR(4000))))
@@ -112,12 +91,11 @@ GO
 
 UPDATE dbo.PCE_Production SET [UWI] = NULL;
 
-  Clear trial NGL columns before re-run of ngl_daily_compare.py (optional):
+  Clear NGL ratio columns for a month re-run (optional; the monthly loader also
+  NULLs ratio columns for matched wells in the selected month before write):
 
 UPDATE dbo.PCE_Production
 SET
       [NGL-C2_R] = NULL, [NGL-C3_R] = NULL, [NGL-C4_R] = NULL,
-      [NGL-C5_R] = NULL, [PA_NGLs_R] = NULL,
-      [NGL-C2_F] = NULL, [NGL-C3_F] = NULL, [NGL-C4_F] = NULL,
-      [NGL-C5_F] = NULL, [PA_NGLs_F] = NULL;
+      [NGL-C5_R] = NULL, [PA_NGLs_R] = NULL;
 */

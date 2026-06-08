@@ -36,7 +36,7 @@ class MonthlyLoaderDialog(QDialog):
         super().__init__(parent)
         self.settings_section = settings_section
         self.worker = None
-        self.setWindowTitle("📊 Production Accounting Allocations (PA)")
+        self.setWindowTitle("📊 ValNav Monthly Update (Sales + NGL)")
         self.setModal(True)
         self.setMinimumWidth(750)
         self.setMinimumHeight(700)
@@ -63,7 +63,7 @@ class MonthlyLoaderDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("📊 Production Accounting Allocations (PA)")
+        title = QLabel("📊 ValNav Monthly Update (Sales + NGL)")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
@@ -296,7 +296,11 @@ class MonthlyLoaderDialog(QDialog):
         self.results_text.clear()
 
         self.log_result(
-            lf.header("PA MONTHLY LOADER", Started=lf.timestamp(), Month=month)
+            lf.header(
+                "VALNAV MONTHLY UPDATE (SALES + NGL)",
+                Started=lf.timestamp(),
+                Month=month,
+            )
         )
 
         valnav_path = self.settings_section.get('valnav_template', '')
