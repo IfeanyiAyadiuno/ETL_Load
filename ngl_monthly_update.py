@@ -19,6 +19,7 @@ import pandas as pd
 from sales_allocation_updates import (
     calendar_month_bounds,
     fetch_pce_uwi_to_well_name,
+    fetch_pce_wm_well_to_production_name,
     resolve_valnav_uwi_to_well_name,
 )
 from valnav_columns import resolve_valnav_ngl_columns, resolve_valnav_uwi_column
@@ -541,6 +542,12 @@ def run_ngl_monthly_from_valnav(
         month=month,
         pce_uwi_dict=pce_uwi_dict,
     )
+    wm_to_prod = fetch_pce_wm_well_to_production_name(cur)
+    if not monthly.empty:
+        monthly = monthly.copy()
+        monthly["WellName"] = monthly["WellName"].map(
+            lambda w: wm_to_prod.get(str(w).strip(), str(w).strip())
+        )
     summary.monthly_rows = len(monthly)
     if monthly.empty:
         summary.skipped = True

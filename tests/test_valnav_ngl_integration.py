@@ -5,7 +5,10 @@ import unittest
 import pandas as pd
 
 from ngl_monthly_update import read_ngl_monthly_from_valnav
-from sales_allocation_updates import resolve_valnav_uwi_to_well_name
+from sales_allocation_updates import (
+    production_well_name_from_wm,
+    resolve_valnav_uwi_to_well_name,
+)
 from valnav_columns import resolve_valnav_ngl_columns, strip_valnav_column_names
 
 
@@ -34,6 +37,20 @@ class TestValnavNglIntegration(unittest.TestCase):
         self.assertEqual(
             resolve_valnav_uwi_to_well_name("200/B-049-D/094-A-05/2", pce_uwi_dict),
             "Pad Well",
+        )
+
+    def test_production_well_name_from_wm_uses_composite(self):
+        self.assertEqual(
+            production_well_name_from_wm("PAD-A COMPOSITE", "WELL-A"),
+            "PAD-A COMPOSITE",
+        )
+        self.assertEqual(
+            production_well_name_from_wm(None, "WELL-B"),
+            "WELL-B",
+        )
+        self.assertEqual(
+            production_well_name_from_wm("  ", "WELL-C"),
+            "WELL-C",
         )
 
     def test_resolve_valnav_uwi_to_well_name_exact_match(self):

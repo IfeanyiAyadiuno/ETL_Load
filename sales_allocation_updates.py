@@ -34,6 +34,41 @@ def calendar_month_bounds(month_start: MonthStart) -> Tuple[date, date, int]:
     return first, last, days
 
 
+def production_well_name_from_wm(composite: Any, well_name: Any) -> Optional[str]:
+    """
+    Key stored on PCE_Production.[Well Name] — Composite Name when set, else Well Name.
+    Same rule as production_update.apply_well_names.
+    """
+    wn_s: Optional[str] = None
+    if well_name is not None and not (isinstance(well_name, float) and pd.isna(well_name)):
+        t = str(well_name).strip()
+        if t:
+            wn_s = t
+    if not wn_s:
+        return None
+    if composite is not None and not (isinstance(composite, float) and pd.isna(composite)):
+        comp_s = str(composite).strip()
+        if comp_s:
+            return comp_s
+    return wn_s
+
+
+def fetch_pce_wm_well_to_production_name(cursor) -> Dict[str, str]:
+    """PCE_WM [Well Name] -> key on PCE_Production.[Well Name] (composite when set)."""
+    cursor.execute(
+        "SELECT [Well Name], [Composite Name] "
+        "FROM PCE_WM "
+        "WHERE [Well Name] IS NOT NULL "
+        "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')"
+    )
+    out: Dict[str, str] = {}
+    for well_name, composite in cursor.fetchall():
+        prod_key = production_well_name_from_wm(composite, well_name)
+        if prod_key:
+            out[str(well_name).strip()] = prod_key
+    return out
+
+
 def fetch_pce_uwi_to_well_name(cursor) -> Dict[str, str]:
     """Lowercased UWI variants -> PCE_WM [Well Name] (same rules as monthly_loader_gui)."""
     cursor.execute(
