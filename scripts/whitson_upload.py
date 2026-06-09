@@ -90,7 +90,7 @@ def main() -> int:
                 uwi = wu
                 break
         whitson = make_whitson_connection()
-        status, n, err = push_well(
+        status, n, err, _attrs_ok = push_well(
             whitson,
             conn,
             well_name=args.well_name,

@@ -19,6 +19,12 @@ from whitson_imperial_units import (
     build_payload_point,
     load_whitson_imperial_factors,
 )
+from whitson_well_attributes import (
+    WellMetadata,
+    build_whitson_well_create_payload,
+    fetch_well_metadata_for_whitson,
+    sync_whitson_well_attributes,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
@@ -184,6 +190,7 @@ def ensure_whitson_well(
     name: str,
     uwi_api: Optional[str],
     *,
+    metadata: Optional[WellMetadata] = None,
     log_cb: Optional[Callable[[str], None]] = None,
 ) -> Optional[int]:
     def log(msg: str) -> None:
@@ -204,9 +211,13 @@ def ensure_whitson_well(
         except RuntimeError as exc:
             log(f"  UWI lookup failed: {exc}")
 
-    create_payload: Dict[str, Any] = {"project_id": project_id, "name": name}
-    if uwi_api:
-        create_payload["uwi_api"] = uwi_api
+    wm = metadata or WellMetadata()
+    create_payload = build_whitson_well_create_payload(
+        wm,
+        project_id=project_id,
+        name=name,
+        uwi_api=uwi_api,
+    )
     whitson.create_well(payload=create_payload)
     well_id = whitson.find_well_id_by_name(project_id, name)
     if well_id:
@@ -226,9 +237,9 @@ def push_well(
     project_id: int,
     append_only: bool = True,
     log_cb: Optional[Callable[[str], None]] = None,
-) -> Tuple[str, int, Optional[str]]:
+) -> Tuple[str, int, Optional[str], bool]:
     """
-    Push one well. Returns (status, point_count, error_message).
+    Push one well. Returns (status, point_count, error_message, attributes_synced).
     status: ok | skipped | failed
     """
     def log(msg: str) -> None:
@@ -237,20 +248,33 @@ def push_well(
 
     if not uwi_api:
         log(f"SKIP {well_name!r}: no Value Navigator UWI in PCE_WM")
-        return "skipped", 0, "no UWI"
+        return "skipped", 0, "no UWI", False
 
     df = fetch_production_for_well(conn, well_name, start, end)
     if df.empty:
         log(f"SKIP {well_name!r}: no rows in date range")
-        return "skipped", 0, "no production rows"
+        return "skipped", 0, "no production rows", False
+
+    metadata = fetch_well_metadata_for_whitson(conn, well_name)
+    if metadata.uwi_api and not uwi_api:
+        uwi_api = metadata.uwi_api
 
     payload = build_whitson_payload(df, factors)
     well_id = ensure_whitson_well(
-        whitson, project_id, well_name, uwi_api, log_cb=log_cb
+        whitson,
+        project_id,
+        well_name,
+        uwi_api,
+        metadata=metadata,
+        log_cb=log_cb,
     )
     if not well_id:
         log(f"FAIL {well_name!r}: could not find or create Whitson well")
-        return "failed", 0, "well not found or created"
+        return "failed", 0, "well not found or created", False
+
+    attrs_synced = sync_whitson_well_attributes(
+        whitson, well_id, metadata, log_cb=log_cb
+    )
 
     resp = whitson.upload_production_to_well(
         well_id, payload, append_only=append_only
@@ -258,13 +282,13 @@ def push_well(
     if resp.status_code < 200 or resp.status_code >= 300:
         err = (resp.text or "")[:500]
         log(f"FAIL {well_name!r}: HTTP {resp.status_code} {err}")
-        return "failed", len(payload), err
+        return "failed", len(payload), err, attrs_synced
 
     log(
         f"OK {well_name!r} (UWI {uwi_api!r}) -> id={well_id}, "
         f"{len(payload)} point(s), HTTP {resp.status_code}"
     )
-    return "ok", len(payload), None
+    return "ok", len(payload), None, attrs_synced
 
 
 def push_all_wells(
@@ -318,6 +342,8 @@ def push_all_wells(
             "ok": 0,
             "skipped": 0,
             "failed": 0,
+            "attributes_synced": 0,
+            "attributes_failed": 0,
             "errors": [],
             "project_id": project_id,
             "start": start_date.isoformat(),
@@ -338,7 +364,7 @@ def push_all_wells(
                 log("Upload cancelled.")
                 break
             try:
-                status, _n, err = push_well(
+                status, _n, err, attrs_ok = push_well(
                     whitson,
                     conn,
                     well_name=well_name,
@@ -351,6 +377,11 @@ def push_all_wells(
                     log_cb=log_cb,
                 )
                 summary[status] = summary.get(status, 0) + 1
+                if status == "ok":
+                    if attrs_ok:
+                        summary["attributes_synced"] += 1
+                    else:
+                        summary["attributes_failed"] += 1
                 if status == "failed" and err:
                     summary["errors"].append({"well": well_name, "error": err})
             except Exception as exc:
@@ -364,7 +395,9 @@ def push_all_wells(
 
         log(
             f"Done: {summary['ok']} ok, {summary['skipped']} skipped, "
-            f"{summary['failed']} failed"
+            f"{summary['failed']} failed; "
+            f"attributes synced {summary['attributes_synced']}, "
+            f"attribute sync issues {summary['attributes_failed']}"
         )
         return summary
     finally:
