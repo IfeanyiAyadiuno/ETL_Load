@@ -19,6 +19,10 @@ import pandas as pd
 import pyodbc
 import requests
 
+import ssl_trust
+
+ssl_trust.configure_ssl_trust()
+
 try:
     from snowflake.sqlalchemy import URL
     from sqlalchemy import create_engine, text

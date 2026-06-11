@@ -7,6 +7,8 @@ client = your_whitson_client
 client_id = your_client_id
 client_secret = your_client_secret
 project_id = 2
+; Optional: path to corporate proxy/root CA PEM if SSL verify fails on some PCs
+; ca_bundle = C:/Company/certs/corp-root-ca.pem
 
 [PATHS]
 valnav_template = C:/Company/Data/ValNav/Production-Accounting-Template.xlsx
