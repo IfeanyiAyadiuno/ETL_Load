@@ -195,6 +195,61 @@ def _refresh_cda_sales_from_allocation_factors(
     return True
 
 
+def _refresh_ngl_from_allocation_factors(
+    log=print,
+    cancel_event=None,
+):
+    """
+    Repaint NGL ratio columns on PCE_Production from Allocation_Factors monthly volumes.
+
+    Runs every distinct month in AF that has any NGL volume. Returns False if cancelled
+    mid-loop; True otherwise (including when no NGL months exist).
+    """
+    from ngl_monthly_update import run_ngl_monthly_from_allocation_factors
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    with get_sql_conn() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT MonthStartDate
+            FROM Allocation_Factors
+            WHERE [NGL_C2] IS NOT NULL
+               OR [NGL_C3] IS NOT NULL
+               OR [NGL_C4] IS NOT NULL
+               OR [NGL_C5] IS NOT NULL
+               OR [PA_NGLs] IS NOT NULL
+            ORDER BY MonthStartDate
+            """
+        )
+        months = [row[0] for row in cursor.fetchall()]
+
+    if not months:
+        log(lf.warn("No Allocation_Factors NGL rows; PCE_Production NGL ratios unchanged."))
+        return True
+
+    log(
+        lf.step(
+            f"Refreshing PCE_Production NGL ratios from Allocation_Factors "
+            f"({lf.num(len(months))} months)…"
+        )
+    )
+
+    n = len(months)
+    with get_sql_conn() as conn:
+        for i, month_start in enumerate(months):
+            if aborted():
+                log(lf.warn("Cancelled during NGL ratio refresh."))
+                return False
+            run_ngl_monthly_from_allocation_factors(conn, month_start, log=log)
+            if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
+                log(lf.detail(f"NGL refresh progress: {i + 1}/{n} months"))
+
+    return True
+
+
 def clear_pce_production():
     """Clear all data from PCE_Production table"""
     with get_sql_conn() as conn:
@@ -1045,6 +1100,13 @@ def main(cancel_event=None, progress_callback=None):
     except Exception as e:
         print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
     timer.mark("PCE_TC → PCE_Production sync")
+
+    if not _refresh_ngl_from_allocation_factors(
+        log=print,
+        cancel_event=cancel_event,
+    ):
+        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+    timer.mark("NGL ratio refresh from Allocation_Factors")
 
     with get_sql_conn() as conn:
         cur = conn.cursor()

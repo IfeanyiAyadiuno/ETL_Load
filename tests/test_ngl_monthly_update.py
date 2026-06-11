@@ -1,21 +1,51 @@
 """Tests for monthly NGL ratio helpers (no SQL / Excel file)."""
 
 import unittest
-from datetime import date
+from datetime import date, datetime
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
 from ngl_monthly_update import (
+    AF_NGL_TO_MONTHLY,
     add_last_valid_ratio_coefs,
     apply_gas_hurdle_to_ratio,
     build_staging_insert_rows,
     compute_daily_ngl_ratio_columns,
+    read_ngl_monthly_from_allocation_factors,
     read_ngl_monthly_from_valnav,
     rolling_gathered_gas_avg,
 )
 
 
 class TestNglMonthlyUpdate(unittest.TestCase):
+    @patch("ngl_monthly_update.pd.read_sql")
+    def test_read_ngl_monthly_from_allocation_factors(self, mock_read_sql):
+        mock_read_sql.return_value = pd.DataFrame(
+            [
+                {
+                    "WellName": "WM-Well-A",
+                    "NGL_C2": 100.0,
+                    "NGL_C3": None,
+                    "NGL_C4": 0.0,
+                    "NGL_C5": None,
+                    "PA_NGLs": 50.0,
+                }
+            ]
+        )
+        conn = MagicMock()
+        out = read_ngl_monthly_from_allocation_factors(
+            conn, datetime(2022, 8, 1)
+        )
+        self.assertEqual(len(out), 1)
+        row = out.iloc[0]
+        self.assertEqual(row["WellName"], "WM-Well-A")
+        self.assertEqual(row["Year"], 2022)
+        self.assertEqual(row["Month"], 8)
+        self.assertAlmostEqual(row["NGL-C2"], 100.0)
+        self.assertAlmostEqual(row["NGLs"], 50.0)
+        self.assertEqual(len(AF_NGL_TO_MONTHLY), 5)
+
     def test_read_ngl_monthly_from_valnav_pa_match(self):
         df_valnav = pd.DataFrame(
             [

@@ -1085,6 +1085,12 @@ def run_quick_update(progress_callback=None, log_callback=None):
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
         timer.mark("PCE_TC → PCE_Production sync")
 
+        from production_update import _refresh_ngl_from_allocation_factors
+
+        log(lf.step("Refreshing NGL ratios from Allocation_Factors..."))
+        _refresh_ngl_from_allocation_factors(log=log)
+        timer.mark("NGL ratio refresh from Allocation_Factors")
+
         sync_production_wm_metadata_from_wm_sql(
             cursor,
             update_pad=False,

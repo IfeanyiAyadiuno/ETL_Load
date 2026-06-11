@@ -94,7 +94,9 @@ class MonthlyLoaderDialog(QDialog):
         valnav_group.layout().addLayout(valnav_layout)
         valnav_hint = QLabel(
             "Worksheet tab must include the selected month abbreviation and year "
-            "(e.g. Apr 2026 or April 2026)."
+            "(e.g. Apr 2026 or April 2026). "
+            "NGL volumes must be loaded into Allocation_Factors first via "
+            "scripts/ngl_allocation_load.py (terminal)."
         )
         valnav_hint.setWordWrap(True)
         valnav_hint.setStyleSheet("color: #64748b; font-size: 12px;")

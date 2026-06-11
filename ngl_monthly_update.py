@@ -1,7 +1,8 @@
 """
-Monthly NGL Ratio (_R) spread from ValNav Excel to PCE_Production.
+Monthly NGL Ratio (_R) spread from Allocation_Factors to PCE_Production.
 
-Integrated with the ValNav PA monthly loader (same file, PA UWI matching, selected month).
+Monthly NGL volumes live in Allocation_Factors (bulk Excel load or preserved on PA reload).
+ValNav Monthly Update applies daily _R columns for the selected month.
 """
 
 from __future__ import annotations
@@ -24,13 +25,22 @@ from sales_allocation_updates import (
 )
 from valnav_columns import resolve_valnav_ngl_columns, resolve_valnav_uwi_column
 
-# (ValNav excel column key, PCE_Production column)
+# (monthly NGL key in ratio math, PCE_Production column)
 NGL_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("NGL-C2", "NGL-C2_R"),
     ("NGL-C3", "NGL-C3_R"),
     ("NGL-C4", "NGL-C4_R"),
     ("NGL-C5", "NGL-C5_R"),
     ("NGLs", "PA_NGLs_R"),
+)
+
+# Allocation_Factors column -> monthly NGL key for ratio math
+AF_NGL_TO_MONTHLY: Tuple[Tuple[str, str], ...] = (
+    ("NGL_C2", "NGL-C2"),
+    ("NGL_C3", "NGL-C3"),
+    ("NGL_C4", "NGL-C4"),
+    ("NGL_C5", "NGL-C5"),
+    ("PA_NGLs", "NGLs"),
 )
 
 NGL_STAGING_TABLE = "dbo.PCE_NGL_Daily_Staging"
@@ -90,6 +100,67 @@ def _ngl_needs_ratio_forward_fill(value: Any) -> bool:
     if pd.isna(value):
         return True
     return float(value) == 0.0
+
+
+def read_ngl_monthly_from_allocation_factors(
+    conn,
+    month_start: datetime,
+) -> pd.DataFrame:
+    """Build monthly NGL rows from Allocation_Factors for the selected month."""
+    month_first, _, _ = calendar_month_bounds(month_start)
+    year, month = month_start.year, month_start.month
+    sql = """
+    SELECT
+          [Well Name] AS WellName
+        , [NGL_C2]
+        , [NGL_C3]
+        , [NGL_C4]
+        , [NGL_C5]
+        , [PA_NGLs]
+    FROM Allocation_Factors
+    WHERE MonthStartDate = ?
+      AND (
+            [NGL_C2] IS NOT NULL
+         OR [NGL_C3] IS NOT NULL
+         OR [NGL_C4] IS NOT NULL
+         OR [NGL_C5] IS NOT NULL
+         OR [PA_NGLs] IS NOT NULL
+      )
+    """
+    df = pd.read_sql(sql, conn, params=[month_first])
+    if df.empty:
+        return pd.DataFrame(
+            columns=["WellName", "Year", "Month"] + [k for k, _ in NGL_FIELDS]
+        )
+
+    rows: List[dict] = []
+    for _, row in df.iterrows():
+        well_name = row.get("WellName")
+        if well_name is None or (isinstance(well_name, float) and pd.isna(well_name)):
+            continue
+        wn = str(well_name).strip()
+        if not wn:
+            continue
+        entry: Dict[str, Any] = {
+            "WellName": wn,
+            "Year": year,
+            "Month": month,
+        }
+        for af_col, monthly_key in AF_NGL_TO_MONTHLY:
+            val = row.get(af_col)
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                entry[monthly_key] = None
+            else:
+                entry[monthly_key] = float(val)
+        rows.append(entry)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=["WellName", "Year", "Month"] + [k for k, _ in NGL_FIELDS]
+        )
+    return pd.DataFrame(rows).drop_duplicates(
+        subset=["WellName", "Year", "Month"], keep="last"
+    )
 
 
 def read_ngl_monthly_from_valnav(
@@ -499,49 +570,23 @@ def apply_ngl_monthly_updates(
     return int(updated)
 
 
-def run_ngl_monthly_from_valnav(
+def run_ngl_monthly_from_allocation_factors(
     conn,
-    df_valnav: pd.DataFrame,
     month_start: datetime,
     *,
     log: Optional[Callable[[str], None]] = None,
 ) -> NglMonthlySummary:
-    """Compute and write monthly NGL ratios for the ValNav sheet month."""
+    """Compute and write monthly NGL ratios from Allocation_Factors for one month."""
 
     def _log(msg: str) -> None:
         if log:
             log(msg)
 
     summary = NglMonthlySummary()
-    col_ngl = resolve_valnav_ngl_columns(df_valnav)
-    if col_ngl is None:
-        summary.skipped = True
-        summary.skip_reason = "ValNav sheet missing NGL columns (NGL-C2…C5, NGLs)."
-        _log(f"NGL update skipped: {summary.skip_reason}")
-        return summary
-
-    try:
-        col_uwi = resolve_valnav_uwi_column(df_valnav)
-    except KeyError as exc:
-        summary.skipped = True
-        summary.skip_reason = str(exc)
-        _log(f"NGL update skipped: {summary.skip_reason}")
-        return summary
-
     month_first, month_last, _ = calendar_month_bounds(month_start)
-    year, month = month_start.year, month_start.month
 
+    monthly = read_ngl_monthly_from_allocation_factors(conn, month_start)
     cur = conn.cursor()
-    pce_uwi_dict = fetch_pce_uwi_to_well_name(cur)
-
-    monthly = read_ngl_monthly_from_valnav(
-        df_valnav,
-        col_uwi=col_uwi,
-        col_ngl=col_ngl,
-        year=year,
-        month=month,
-        pce_uwi_dict=pce_uwi_dict,
-    )
     wm_to_prod = fetch_pce_wm_well_to_production_name(cur)
     if not monthly.empty:
         monthly = monthly.copy()
@@ -551,7 +596,10 @@ def run_ngl_monthly_from_valnav(
     summary.monthly_rows = len(monthly)
     if monthly.empty:
         summary.skipped = True
-        summary.skip_reason = "No ValNav NGL rows matched PCE_WM wells."
+        summary.skip_reason = (
+            "No NGL volumes in Allocation_Factors for this month — "
+            "run scripts/ngl_allocation_load.py first."
+        )
         _log(f"NGL update skipped: {summary.skip_reason}")
         return summary
 
@@ -568,7 +616,7 @@ def run_ngl_monthly_from_valnav(
         _log(f"NGL update skipped: {summary.skip_reason}")
         return summary
 
-    _log("Computing daily NGL ratio columns...")
+    _log("Computing daily NGL ratio columns from Allocation_Factors...")
     computed = compute_daily_ngl_ratio_columns(prod, monthly, log=_log)
     ngl_cols = _ngl_ratio_columns()
     has_ngl = computed[ngl_cols].notna().any(axis=1)
@@ -583,3 +631,19 @@ def run_ngl_monthly_from_valnav(
         log=_log,
     )
     return summary
+
+
+def run_ngl_monthly_from_valnav(
+    conn,
+    df_valnav: pd.DataFrame,
+    month_start: datetime,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+) -> NglMonthlySummary:
+    """Deprecated: NGL volumes are read from Allocation_Factors, not ValNav."""
+    if log:
+        log(
+            "NGL apply uses Allocation_Factors (not ValNav sheet); "
+            "delegating to run_ngl_monthly_from_allocation_factors."
+        )
+    return run_ngl_monthly_from_allocation_factors(conn, month_start, log=log)

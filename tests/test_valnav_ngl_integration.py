@@ -1,15 +1,14 @@
-"""ValNav NGL column resolution and PA UWI matching integration tests."""
+"""PA UWI matching integration tests (NGL volumes now come from Allocation_Factors)."""
 
 import unittest
 
 import pandas as pd
 
-from ngl_monthly_update import read_ngl_monthly_from_valnav
 from sales_allocation_updates import (
     production_well_name_from_wm,
     resolve_valnav_uwi_to_well_name,
 )
-from valnav_columns import resolve_valnav_ngl_columns, strip_valnav_column_names
+from valnav_columns import resolve_valnav_ngl_columns
 
 
 class TestValnavNglIntegration(unittest.TestCase):
@@ -59,38 +58,6 @@ class TestValnavNglIntegration(unittest.TestCase):
             resolve_valnav_uwi_to_well_name("100/16-28-084-25W6/0", pce_uwi_dict),
             "AB Well",
         )
-
-    def test_read_ngl_monthly_from_valnav_end_to_end(self):
-        df_valnav = pd.DataFrame(
-            [
-                {
-                    "McDaniel database": "200/B-049-D/094-A-05/2",
-                    "NGL-C2": 62.0,
-                    "NGL-C3": 1.0,
-                    "NGL-C4": 2.0,
-                    "NGL-C5": 3.0,
-                    "NGLs": 4.0,
-                },
-            ]
-        )
-        strip_valnav_column_names(df_valnav)
-        pce_uwi_dict = {"00/b-049-d/094-a-05/2": "Survey Well"}
-        col_ngl = resolve_valnav_ngl_columns(df_valnav)
-        self.assertIsNotNone(col_ngl)
-        monthly = read_ngl_monthly_from_valnav(
-            df_valnav,
-            col_uwi="McDaniel database",
-            col_ngl=col_ngl,
-            year=2022,
-            month=8,
-            pce_uwi_dict=pce_uwi_dict,
-        )
-        self.assertEqual(len(monthly), 1)
-        row = monthly.iloc[0]
-        self.assertEqual(row["WellName"], "Survey Well")
-        self.assertAlmostEqual(row["NGL-C2"], 62.0)
-        self.assertAlmostEqual(row["NGLs"], 4.0)
-
 
 if __name__ == "__main__":
     unittest.main()

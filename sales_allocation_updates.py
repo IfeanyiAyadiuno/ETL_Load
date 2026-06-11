@@ -53,6 +53,29 @@ def production_well_name_from_wm(composite: Any, well_name: Any) -> Optional[str
     return wn_s
 
 
+def fetch_pce_wm_wells(cursor) -> List[Tuple[str, Optional[str]]]:
+    """All non-exception PCE_WM wells: ([Well Name], [Value Navigator UWI])."""
+    cursor.execute(
+        "SELECT [Well Name], [Value Navigator UWI] "
+        "FROM PCE_WM "
+        "WHERE [Well Name] IS NOT NULL "
+        "AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N') "
+        "ORDER BY [Well Name]"
+    )
+    out: List[Tuple[str, Optional[str]]] = []
+    for well_name, uwi in cursor.fetchall():
+        if not well_name or not str(well_name).strip():
+            continue
+        wn = str(well_name).strip()
+        uwi_s: Optional[str] = None
+        if uwi is not None and not (isinstance(uwi, float) and pd.isna(uwi)):
+            t = str(uwi).strip()
+            if t:
+                uwi_s = t
+        out.append((wn, uwi_s))
+    return out
+
+
 def fetch_pce_wm_well_to_production_name(cursor) -> Dict[str, str]:
     """PCE_WM [Well Name] -> key on PCE_Production.[Well Name] (composite when set)."""
     cursor.execute(

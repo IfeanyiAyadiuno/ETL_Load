@@ -1,0 +1,12 @@
+# Development, testing, and packaging (not required to run the GUI)
+# Install: pip install -r requirements.txt -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest>=8.0.0
+pyinstaller>=6.0.0
+
+# Optional — WhitsonConnection Snowflake helpers in whitson_connect.py only
+# snowflake-sqlalchemy>=1.5.0
+# sqlalchemy>=2.0.0
+# cryptography>=41.0.0
