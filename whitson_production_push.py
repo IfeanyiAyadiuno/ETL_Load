@@ -297,7 +297,7 @@ def push_all_wells(
     def cancelled() -> bool:
         return bool(cancel_cb and cancel_cb())
 
-    _, _, _, default_project = _load_script_credentials()
+    _, _, _, default_project = load_whitson_credentials()
     project_id = project_id if project_id is not None else default_project
     factors = factors or load_whitson_imperial_factors()
 
