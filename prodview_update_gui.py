@@ -373,7 +373,7 @@ _CDA_COLUMNS = [
 
 _PROD_INSERT_SQL = """
                 INSERT INTO PCE_Production (
-    [Date], [Days Seq], [Day Seq UPRT], [Well Name],
+    [Date], [Days Seq], [Day Seq UPRT], [Well Name], [UWI],
                     [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
                     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
                     [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
@@ -397,11 +397,11 @@ _PROD_INSERT_SQL = """
     [Gath. Water Avg (m³/d)],
     [Alloc. Water Avg (m³)],
     [Month]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _PROD_COLUMNS = [
-    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name',
+    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name', 'UWI',
     'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
     'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
     'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
@@ -778,7 +778,7 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         month_sql = gathered_prd_month_sql_from_enersight("wm.[Enersight Well Name]")
         cursor.execute(f"""
             INSERT INTO PCE_Production (
-                [Date], [Well Name], [Days Seq], [Day Seq UPRT],
+                [Date], [Well Name], [UWI], [Days Seq], [Day Seq UPRT],
                 [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
                 [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
                 [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
@@ -792,7 +792,9 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 [Month]
             )
             SELECT
-                c.ProdDate, c.[Well Name], 0, 0,
+                c.ProdDate, c.[Well Name],
+                LTRIM(RTRIM(CAST(wm.[Value Navigator UWI] AS NVARCHAR(4000)))),
+                0, 0,
                 c.GasWH_Production, c.Condensate_WH_Production,
                 c.[Gas - S2 Production], c.[Gas - Sales Production],
                 c.[Condensate - Sales Production], c.Gathered_Gas_Production,
@@ -806,7 +808,9 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
                 {month_sql}
             FROM PCE_CDA c
             OUTER APPLY (
-                SELECT TOP 1 wm.[Enersight Well Name]
+                SELECT TOP 1
+                      wm.[Enersight Well Name]
+                    , wm.[Value Navigator UWI]
                 FROM PCE_WM wm
                 WHERE (
                         wm.[Well Name] = c.[Well Name]
@@ -899,14 +903,17 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         timer.mark("PCE_TC sync + sequence recalc")
 
         from production_update import (
-            sync_production_uwi_from_wm_sql,
             sync_production_wm_metadata_from_wm_sql,
+            sync_wm_uwi_to_downstream_sql,
         )
 
-        sync_production_wm_metadata_from_wm_sql(cursor, overall_start, overall_end)
-        sync_production_uwi_from_wm_sql(cursor, overall_start, overall_end)
+        sync_wm_uwi_to_downstream_sql(cursor, overall_start, overall_end)
         conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month, UWI)")
+        timer.mark("WM UWI sync (Production + Allocation_Factors)")
+
+        sync_production_wm_metadata_from_wm_sql(cursor, overall_start, overall_end)
+        conn.commit()
+        timer.mark("WM metadata sync (pad, enersight, month)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
@@ -971,6 +978,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
     try:
         from production_update import (
             apply_gathered_prd_month_labels,
+            apply_uwi_from_well_master,
             calculate_sequences,
             calculate_cumulatives,
             calculate_monthly_averages,
@@ -981,8 +989,8 @@ def run_quick_update(progress_callback=None, log_callback=None):
             filter_to_first_production,
             apply_pad_name_from_well_master,
             query_wells_with_cda_in_range,
-            sync_production_uwi_from_wm_sql,
             sync_production_wm_metadata_from_wm_sql,
+            sync_wm_uwi_to_downstream_sql,
         )
 
         conn = get_sql_conn()
@@ -1039,6 +1047,7 @@ def run_quick_update(progress_callback=None, log_callback=None):
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
             all_cda = apply_pad_name_from_well_master(all_cda)
+            all_cda = apply_uwi_from_well_master(all_cda)
         if not all_cda.empty:
             all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
@@ -1085,6 +1094,10 @@ def run_quick_update(progress_callback=None, log_callback=None):
             log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
         timer.mark("PCE_TC → PCE_Production sync")
 
+        sync_wm_uwi_to_downstream_sql(cursor)
+        conn.commit()
+        timer.mark("WM UWI sync (Production + Allocation_Factors)")
+
         from production_update import _refresh_ngl_from_allocation_factors
 
         log(lf.step("Refreshing NGL ratios from Allocation_Factors..."))
@@ -1105,9 +1118,8 @@ def run_quick_update(progress_callback=None, log_callback=None):
             update_enersight=False,
             update_month=False,
         )
-        sync_production_uwi_from_wm_sql(cursor)
         conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month, UWI)")
+        timer.mark("WM metadata sync (pad, enersight, month)")
 
         try:
             from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd

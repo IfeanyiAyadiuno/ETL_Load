@@ -24,7 +24,10 @@ from typing import Any, Callable, Dict, Optional
 import log_format as lf
 from db_connection import get_sql_conn
 from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
-from production_update import gathered_prd_month_sql_from_enersight
+from production_update import (
+    gathered_prd_month_sql_from_enersight,
+    production_pad_sql_from_wm,
+)
 
 _LOG = print
 
@@ -66,7 +69,10 @@ SELECT
     , CAST(p.[Gathered Condensate (m³/d)] AS FLOAT) * {cond_factor}
     , CAST(p.[Alloc. Water Rate (m³)] AS FLOAT) * {water_factor}
     , {gathered_month}
-    , ca.[Pad Name]
+    , COALESCE(
+          NULLIF(LTRIM(RTRIM(CAST(p.[Pad Name] AS NVARCHAR(4000)))), N''),
+          {gathered_pad}
+      )
     , ca.[Fault Block]
     , ca.[Enersight Well Name]
 FROM dbo.PCE_Production AS p
@@ -93,6 +99,7 @@ WHERE p.[Well Name] NOT LIKE N'% - TC'
   AND CAST(p.[Date] AS DATE) <= ?
 """.format(
     gathered_month=gathered_prd_month_sql_from_enersight("ca.[Enersight Well Name]"),
+    gathered_pad=production_pad_sql_from_wm("ca.[Pad Name]"),
     gas_factor=E3M3_TO_MCF,
     cond_factor=M3_TO_BBL_COND,
     water_factor=M3_TO_BBL_WATER,

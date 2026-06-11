@@ -250,6 +250,8 @@ When closing a production month:
 
 **What changes:** `PCE_CDA`, `PCE_Production`, type-curve sync to production, `PCE_FRCST_PRD`.
 
+**Well Master propagation on Prodview:** After each quick or full rebuild, `PCE_WM` is the source of truth for production metadata. `[UWI]` is written on every new production row at insert time (from WM) and refreshed again from WM before NGL ratios run, so UWI is not left blank after a table clear. `[Pad Name]` on gathered production is WM pad plus ` PRD` (e.g. `15-12 PRD`) so forecast pads in `PCE_FRCST_PRD` stay distinct. `Allocation_Factors.[UWI]` is also aligned to WM on rebuild. ValNav/Excel UWIs that differ only by a leading digit (e.g. `02/...` vs `202/...`) still match the same well.
+
 **Modes:**
 - **Snowflake → CDA + production rebuild** (default, ~5 min)
 - **Full rebuild — PCE_Production from all PCE_CDA** (heavy, 15+ min)

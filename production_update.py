@@ -16,6 +16,32 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # Prefix for gathered-production [Month] tags on PCE_Production / PCE_FRCST_PRD.
 GATH_PRD_MONTH_PREFIX = "Gath PRD"
 
+# Suffix appended to WM pad names on gathered PCE_Production / PCE_FRCST_PRD rows.
+PRODUCTION_PAD_SUFFIX = " PRD"
+
+
+def production_pad_name_from_wm(pad_name):
+    """Return WM pad with `` PRD`` suffix for gathered production (idempotent)."""
+    if pad_name is None or (isinstance(pad_name, float) and pd.isna(pad_name)):
+        return None
+    s = str(pad_name).strip()
+    if not s:
+        return None
+    if s.endswith(PRODUCTION_PAD_SUFFIX):
+        return s
+    return f"{s}{PRODUCTION_PAD_SUFFIX}"
+
+
+def production_pad_sql_from_wm(column_expr: str) -> str:
+    """SQL expression: blank WM pad -> NULL, else pad + `` PRD`` (no double suffix)."""
+    trimmed = f"NULLIF(LTRIM(RTRIM(CAST({column_expr} AS NVARCHAR(4000)))), N'')"
+    suffix = PRODUCTION_PAD_SUFFIX.replace("'", "''")
+    return (
+        f"CASE WHEN {trimmed} IS NULL THEN NULL "
+        f"WHEN RIGHT({trimmed}, {len(PRODUCTION_PAD_SUFFIX)}) = N'{suffix}' THEN {trimmed} "
+        f"ELSE {trimmed} + N'{suffix}' END"
+    )
+
 
 class _RebuildProgress:
     """Map full-rebuild sub-steps into 0–99% for the Prodview dialog."""
@@ -419,6 +445,53 @@ def fetch_well_mapping():
     return composite_map, fallback_map
 
 
+def fetch_well_master_uwi_lookup():
+    """Trimmed WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Value Navigator UWI]``."""
+    query = """
+    SELECT [Well Name], [Composite Name], [Value Navigator UWI]
+    FROM PCE_WM
+    WHERE [Well Name] IS NOT NULL
+      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
+      AND NULLIF(LTRIM(RTRIM(CAST([Value Navigator UWI] AS NVARCHAR(4000)))), N'') IS NOT NULL
+    """
+    with get_sql_conn() as conn:
+        wm = pd.read_sql(query, conn)
+
+    lookup = {}
+    for _, row in wm.iterrows():
+        uwi = row["Value Navigator UWI"]
+        if pd.isna(uwi) or not str(uwi).strip():
+            continue
+        uwi_val = str(uwi).strip()
+        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
+        if wn:
+            lookup[wn] = uwi_val
+        comp = row["Composite Name"]
+        if comp is not None and str(comp).strip():
+            lookup[str(comp).strip()] = uwi_val
+    return lookup
+
+
+def apply_uwi_from_well_master(df, uwi_lookup=None):
+    """Set ``UWI`` from WM where ``[Well Name]`` matches WM well or composite."""
+    if df is None or df.empty or "Well Name" not in df.columns:
+        return df
+    if "UWI" not in df.columns:
+        out = df.copy()
+        out["UWI"] = None
+        df = out
+    lookup = uwi_lookup if uwi_lookup is not None else fetch_well_master_uwi_lookup()
+    if not lookup:
+        return df
+    out = df.copy()
+    out["UWI"] = out["UWI"].astype(object)
+    keys = out["Well Name"].astype(str).str.strip()
+    mask = keys.isin(lookup)
+    if mask.any():
+        out.loc[mask, "UWI"] = keys[mask].map(lookup).values
+    return out
+
+
 def fetch_well_master_pad_lookup():
     """Trimmed WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Pad Name]``."""
     query = """
@@ -460,7 +533,9 @@ def apply_pad_name_from_well_master(df, pad_lookup=None):
     keys = out["Well Name"].astype(str).str.strip()
     mask = keys.isin(lookup)
     if mask.any():
-        out.loc[mask, "Pad Name"] = keys[mask].map(lookup).values
+        out.loc[mask, "Pad Name"] = (
+            keys[mask].map(lookup).map(production_pad_name_from_wm).values
+        )
     return out
 
 
@@ -511,7 +586,7 @@ def sync_production_wm_metadata_from_wm_sql(
 
     set_parts = []
     if update_pad:
-        set_parts.append("p.[Pad Name] = ca.pad")
+        set_parts.append(f"p.[Pad Name] = {production_pad_sql_from_wm('ca.pad')}")
     if update_enersight:
         set_parts.append(
             f"p.[Enersight Well Name] = COALESCE({enersight_val}, p.[Enersight Well Name])"
@@ -611,6 +686,32 @@ WHERE p.[Well Name] NOT LIKE N'% - TC'
         cursor.execute(sql, params)
     else:
         cursor.execute(sql)
+
+
+def sync_allocation_factors_uwi_from_wm_sql(cursor):
+    """
+    Set ``Allocation_Factors.[UWI]`` from ``PCE_WM.[Value Navigator UWI]``.
+
+    Well-name keyed (no composite join). Runs on full/quick rebuild so WM edits
+    propagate without re-running PA monthly load.
+    """
+    cursor.execute(
+        """
+UPDATE a
+SET a.[UWI] = LTRIM(RTRIM(CAST(w.[Value Navigator UWI] AS NVARCHAR(4000))))
+FROM Allocation_Factors AS a
+INNER JOIN PCE_WM AS w
+    ON a.[Well Name] = w.[Well Name]
+WHERE (w.[Exception] IS NULL OR w.[Exception] = N'' OR w.[Exception] = N'N')
+  AND NULLIF(LTRIM(RTRIM(CAST(w.[Value Navigator UWI] AS NVARCHAR(4000)))), N'') IS NOT NULL
+"""
+    )
+
+
+def sync_wm_uwi_to_downstream_sql(cursor, date_start=None, date_end=None):
+    """Sync WM UWI onto PCE_Production and Allocation_Factors."""
+    sync_production_uwi_from_wm_sql(cursor, date_start, date_end)
+    sync_allocation_factors_uwi_from_wm_sql(cursor)
 
 
 def apply_well_names(df, composite_map, fallback_map):
@@ -778,7 +879,7 @@ def add_on_production_year(df):
     return df
 
 _INSERT_COLS = [
-    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name',
+    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name', 'UWI',
     'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
     'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
     'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
@@ -815,7 +916,7 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
 
     insert_sql = """
     INSERT INTO PCE_Production (
-        [Date], [Days Seq], [Day Seq UPRT], [Well Name],
+        [Date], [Days Seq], [Day Seq UPRT], [Well Name], [UWI],
         [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
         [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
         [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
@@ -839,11 +940,13 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
         [Gath. Water Avg (m³/d)],
         [Alloc. Water Avg (m³)],
         [Month]
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
     # Ensure int columns are cast properly before NaN->None conversion
     df = df.copy()
+    if "UWI" not in df.columns:
+        df = apply_uwi_from_well_master(df)
     enersight_lookup = fetch_well_master_enersight_lookup()
     df = apply_gathered_prd_month_labels(df, enersight_lookup)
     df['Days Seq'] = pd.to_numeric(df['Days Seq'], errors='coerce').fillna(0).astype(int)
@@ -1041,7 +1144,8 @@ def main(cancel_event=None, progress_callback=None):
     # Step 5: Apply well name mappings (composite name with fallback to well name)
     df = apply_well_names(df, composite_map, fallback_map)
     df = apply_pad_name_from_well_master(df)
-    timer.mark("Well name / pad mapping")
+    df = apply_uwi_from_well_master(df)
+    timer.mark("Well name / pad / UWI mapping")
 
     if df.empty:
         print(lf.warn("No data after well name mapping. Exiting."))
@@ -1101,6 +1205,12 @@ def main(cancel_event=None, progress_callback=None):
         print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
     timer.mark("PCE_TC → PCE_Production sync")
 
+    with get_sql_conn() as conn:
+        cur = conn.cursor()
+        sync_wm_uwi_to_downstream_sql(cur)
+        conn.commit()
+    timer.mark("WM UWI sync (Production + Allocation_Factors)")
+
     if not _refresh_ngl_from_allocation_factors(
         log=print,
         cancel_event=cancel_event,
@@ -1124,9 +1234,8 @@ def main(cancel_event=None, progress_callback=None):
             update_enersight=False,
             update_month=False,
         )
-        sync_production_uwi_from_wm_sql(cur)
         conn.commit()
-    timer.mark("WM metadata sync (pad, enersight, month, UWI)")
+    timer.mark("WM metadata sync (pad, enersight, month)")
 
     try:
         from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
