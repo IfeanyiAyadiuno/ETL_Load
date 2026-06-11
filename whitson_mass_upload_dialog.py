@@ -36,7 +36,8 @@ from whitson_imperial_units import (
     WhitsonImperialConfigError,
     load_whitson_imperial_factors,
 )
-from whitson_production_push import get_default_project_id, push_all_wells
+from whitson_credentials import WhitsonCredentialsError, get_default_project_id, load_whitson_credentials
+from whitson_production_push import push_all_wells
 
 
 class WhitsonUploadWorker(QThread):
@@ -130,8 +131,8 @@ class WhitsonMassUploadDialog(QDialog):
             "Uploads all daily production from PCE_Production to Whitson+. "
             "New wells are created automatically; existing wells receive new "
             "data only (append). Well name = production [Well Name]; UWI from "
-            "PCE_WM. Set the Whitson+ project ID below (default from "
-            "scripts/whitson_upload.py). Imperial conversion uses whitson_imperial.ini."
+            "PCE_WM. API credentials: settings.ini [WHITSON] or scripts/whitson_upload.py. "
+            "Imperial conversion uses whitson_imperial.ini."
         )
         whitson_intro.setWordWrap(True)
         whitson_intro.setStyleSheet(muted_body_label_style())
@@ -142,7 +143,10 @@ class WhitsonMassUploadDialog(QDialog):
         project_row.addWidget(QLabel("Project ID:"))
         self.project_id_spin = QSpinBox()
         self.project_id_spin.setRange(1, 99999)
-        self.project_id_spin.setValue(get_default_project_id())
+        try:
+            self.project_id_spin.setValue(get_default_project_id())
+        except WhitsonCredentialsError:
+            self.project_id_spin.setValue(2)
         self.project_id_spin.setToolTip(
             "Whitson+ project to create/find wells and upload production into."
         )
@@ -203,6 +207,17 @@ class WhitsonMassUploadDialog(QDialog):
         return group
 
     def _preflight(self) -> bool:
+        try:
+            load_whitson_credentials()
+        except WhitsonCredentialsError as exc:
+            QMessageBox.critical(
+                self,
+                "Whitson+ credentials",
+                f"{exc}\n\nAdd [WHITSON] to settings.ini next to the application, "
+                "or ship scripts/whitson_upload.py beside the exe.",
+            )
+            return False
+
         try:
             load_whitson_imperial_factors()
         except WhitsonImperialConfigError as exc:

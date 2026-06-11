@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from production_update import (
     PRODUCTION_PAD_SUFFIX,
     apply_pad_name_from_well_master,
+    gathered_frcst_prd_pad_sql,
     production_pad_name_from_wm,
     production_pad_sql_from_wm,
     sync_production_wm_metadata_from_wm_sql,
@@ -44,3 +45,11 @@ def test_sync_production_wm_metadata_pad_sql_uses_prd_suffix():
 
 def test_production_pad_suffix_constant():
     assert PRODUCTION_PAD_SUFFIX == " PRD"
+
+
+def test_gathered_frcst_prd_pad_sql_coalesces_production_and_wm():
+    sql = gathered_frcst_prd_pad_sql()
+    assert "p.[Pad Name]" in sql
+    assert "ca.[Pad Name]" in sql
+    assert " PRD" in sql
+    assert "COALESCE" in sql

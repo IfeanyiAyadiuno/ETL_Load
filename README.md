@@ -83,7 +83,7 @@ pip install -r requirements-dev.txt
 pyinstaller --clean ProductionUpdate.spec
 ```
 
-Output: `dist/ProductionUpdate/ProductionUpdate.exe` plus `_internal/`. Ship the full folder with `settings.ini`, `.env`, and `images/`.
+Output: `dist/ProductionUpdate/ProductionUpdate.exe` plus `_internal/`. Ship the full folder with `settings.ini` (include `[WHITSON]` API credentials), `whitson_imperial.ini`, `.env`, and `images/`.
 
 ## Project layout
 

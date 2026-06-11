@@ -4,9 +4,7 @@ Push PCE_Production daily rates to Whitson+ for all wells (imperial conversion v
 
 from __future__ import annotations
 
-import importlib.util
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -14,6 +12,7 @@ import pandas as pd
 import whitson_connect
 from db_connection import get_sql_conn
 from prodview_date_bounds import prodview_effective_end_date
+from whitson_credentials import get_default_project_id, load_whitson_credentials
 from whitson_imperial_units import (
     WhitsonImperialFactors,
     build_payload_point,
@@ -26,28 +25,9 @@ from whitson_well_attributes import (
     sync_whitson_well_attributes,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parent
-
-
-def _load_script_credentials() -> Tuple[str, str, str, int]:
-    """CLIENT, CLIENT_ID, CLIENT_SECRET, PROJECT_ID from scripts/whitson_upload.py."""
-    script = _REPO_ROOT / "scripts" / "whitson_upload.py"
-    spec = importlib.util.spec_from_file_location("whitson_upload", script)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load Whitson credentials from {script}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.CLIENT, mod.CLIENT_ID, mod.CLIENT_SECRET, mod.PROJECT_ID
-
-
-def get_default_project_id() -> int:
-    """Default Whitson+ project_id from scripts/whitson_upload.py."""
-    _, _, _, project_id = _load_script_credentials()
-    return int(project_id)
-
 
 def make_whitson_connection() -> whitson_connect.WhitsonConnection:
-    client, client_id, client_secret, _ = _load_script_credentials()
+    client, client_id, client_secret, _ = load_whitson_credentials()
     whitson = whitson_connect.WhitsonConnection(client, client_id, client_secret)
     whitson.access_token = whitson.get_access_token_smart()
     return whitson

@@ -571,11 +571,17 @@ class ProductionUpdateGUI(QMainWindow):
         settings_file = get_settings_path()
         if os.path.exists(settings_file):
             config.read(settings_file)
-        else:
-            config['PATHS'] = {}
+        paths_section = config["PATHS"] if config.has_section("PATHS") else {}
 
-        dialog = WhitsonMassUploadDialog(config['PATHS'], self)
-        dialog.exec_()
+        try:
+            dialog = WhitsonMassUploadDialog(paths_section, self)
+            dialog.exec_()
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Whitson+ Mass Upload",
+                f"Could not open Whitson+ Mass Upload:\n\n{exc}",
+            )
 
         self.btn_whitson.setChecked(False)
     

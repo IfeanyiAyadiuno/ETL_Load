@@ -367,6 +367,9 @@ class SettingsDialog(QDialog):
     def save_settings(self):
         """Save settings to file"""
         config = configparser.ConfigParser()
+        settings_file = get_settings_path()
+        if os.path.exists(settings_file):
+            config.read(settings_file)
 
         config["SQL"] = {
             "server": self.server_input.text(),
@@ -382,7 +385,6 @@ class SettingsDialog(QDialog):
             "monthly_forecasts_template": self.monthly_forecasts_input.text(),
         }
 
-        settings_file = get_settings_path()
         with open(settings_file, "w") as f:
             config.write(f)
 

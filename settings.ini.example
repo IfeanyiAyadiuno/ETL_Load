@@ -2,6 +2,12 @@
 server = YOUR_SQL_SERVER_HOST
 database = YOUR_DATABASE_NAME
 
+[WHITSON]
+client = your_whitson_client
+client_id = your_client_id
+client_secret = your_client_secret
+project_id = 2
+
 [PATHS]
 valnav_template = C:/Company/Data/ValNav/Production-Accounting-Template.xlsx
 accumap_template = C:/Company/Data/Accumap/Public-Data-Accumap.xlsx

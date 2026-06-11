@@ -23,9 +23,14 @@ class TestPceFrcstPrdRebuild(unittest.TestCase):
         self.assertIn("[Alloc. Water Rate (m³)]", REBUILD_SOURCE)
 
     def test_gathered_insert_uses_production_pad_with_prd_fallback(self):
-        self.assertIn("p.[Pad Name]", REBUILD_SOURCE)
-        self.assertIn("production_pad_sql_from_wm", REBUILD_SOURCE)
-        self.assertIn("COALESCE", REBUILD_SOURCE)
+        self.assertIn("gathered_frcst_prd_pad_sql", REBUILD_SOURCE)
+        self.assertIn("{gathered_pad}", REBUILD_SOURCE)
+        from production_update import gathered_frcst_prd_pad_sql
+
+        pad_sql = gathered_frcst_prd_pad_sql()
+        self.assertIn("p.[Pad Name]", pad_sql)
+        self.assertIn("ca.[Pad Name]", pad_sql)
+        self.assertIn(" PRD", pad_sql)
 
 
 if __name__ == "__main__":

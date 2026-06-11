@@ -43,6 +43,20 @@ def production_pad_sql_from_wm(column_expr: str) -> str:
     )
 
 
+def gathered_frcst_prd_pad_sql() -> str:
+    """
+    SQL expression for gathered ``PCE_FRCST_PRD.[Pad]``.
+
+    Prefers ``PCE_Production.[Pad Name]``, falls back to WM pad, always applies
+    `` PRD`` suffix (idempotent if already suffixed).
+    """
+    pad_src = """COALESCE(
+          NULLIF(LTRIM(RTRIM(CAST(p.[Pad Name] AS NVARCHAR(4000)))), N''),
+          NULLIF(LTRIM(RTRIM(CAST(ca.[Pad Name] AS NVARCHAR(4000)))), N'')
+      )"""
+    return production_pad_sql_from_wm(pad_src)
+
+
 class _RebuildProgress:
     """Map full-rebuild sub-steps into 0–99% for the Prodview dialog."""
 
