@@ -118,7 +118,7 @@ def read_ngl_monthly_from_allocation_factors(
         , [NGL_C5]
         , [PA_NGLs]
     FROM Allocation_Factors
-    WHERE MonthStartDate = ?
+    WHERE CAST(MonthStartDate AS DATE) = ?
       AND (
             [NGL_C2] IS NOT NULL
          OR [NGL_C3] IS NOT NULL
@@ -598,7 +598,7 @@ def run_ngl_monthly_from_allocation_factors(
         summary.skipped = True
         summary.skip_reason = (
             "No NGL volumes in Allocation_Factors for this month — "
-            "run scripts/ngl_allocation_load.py first."
+            "confirm ValNav sheet has NGL-C2…C5 and NGLs columns and re-run PA."
         )
         _log(f"NGL update skipped: {summary.skip_reason}")
         return summary

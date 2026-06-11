@@ -2,9 +2,10 @@
 Production Accounting (PA) monthly loader.
 
 Reads the ValNav month-end Excel export, refreshes ``Allocation_Factors`` for
-the selected month (preserving existing ``Sales_Gas`` values populated from
-Public Sales), and applies the resulting allocation factors to ``PCE_CDA`` and
-``PCE_Production``. Driven by the PA dialog and runs on a ``QThread`` worker.
+the selected month (ValNav S2/condensate/NGL volumes, preserving ``Sales_Gas``
+from Public Sales), and applies allocation factors and daily NGL ratios to
+``PCE_CDA`` and ``PCE_Production``. Driven by the PA dialog and runs on a
+``QThread`` worker.
 """
 
 import log_format as lf
@@ -20,20 +21,49 @@ from sales_allocation_updates import (
     fetch_pce_wm_wells,
     resolve_valnav_uwi_to_well_name,
 )
+from valnav_columns import (
+    resolve_valnav_column,
+    resolve_valnav_cond_column,
+    resolve_valnav_gas_column,
+    resolve_valnav_ngl_columns,
+    resolve_valnav_uwi_column,
+    strip_valnav_column_names,
+)
 
 _AF_NGL_COLS = ("NGL_C2", "NGL_C3", "NGL_C4", "NGL_C5", "PA_NGLs")
+
+# ValNav excel NGL key -> Allocation_Factors column
+_VALNAV_NGL_TO_AF = (
+    ("NGL-C2", "NGL_C2"),
+    ("NGL-C3", "NGL_C3"),
+    ("NGL-C4", "NGL_C4"),
+    ("NGL-C5", "NGL_C5"),
+    ("NGLs", "PA_NGLs"),
+)
 
 
 def _af_month_sql_date(month_start: datetime):
     """Calendar month key for Allocation_Factors (date, not datetime)."""
     return month_start.date()
-from valnav_columns import (
-    resolve_valnav_column,
-    resolve_valnav_cond_column,
-    resolve_valnav_gas_column,
-    resolve_valnav_uwi_column,
-    strip_valnav_column_names,
-)
+
+
+def _float_or_none_valnav(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
+def _af_ngl_for_well(valnav_data_for_well, ngl_preserved: dict) -> dict:
+    """NGL volumes for AF insert: ValNav sheet wins when present for the well."""
+    if valnav_data_for_well is None:
+        return ngl_preserved
+    out = dict(ngl_preserved)
+    for vn_key, af_col in _VALNAV_NGL_TO_AF:
+        if vn_key in valnav_data_for_well:
+            out[af_col] = valnav_data_for_well[vn_key]
+    return out
 
 
 def resolve_valnav_sheet_name(sheet_names, month_start: datetime) -> str:
@@ -172,12 +202,27 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         col_uwi = resolve_valnav_uwi_column(df_valnav)
         col_gas = resolve_valnav_gas_column(df_valnav)
         col_cond = resolve_valnav_cond_column(df_valnav)
+        col_ngl = resolve_valnav_ngl_columns(df_valnav)
         log(
             lf.detail(
                 f"ValNav sheet {target_valnav_sheet!r}: UWI column {col_uwi!r}, "
                 f"S2 gas {col_gas!r}, condensate {col_cond!r}"
             )
         )
+        if col_ngl:
+            log(
+                lf.detail(
+                    "ValNav NGL columns: "
+                    + ", ".join(f"{k}={v!r}" for k, v in col_ngl.items())
+                )
+            )
+        else:
+            log(
+                lf.warn(
+                    "ValNav sheet missing NGL columns (NGL-C2…C5, NGLs); "
+                    "Allocation_Factors NGL volumes will not be updated from ValNav."
+                )
+            )
 
         # Clean ValNav UWI values
         df_valnav["UWI_clean_valnav"] = df_valnav[col_uwi].astype(str).str.strip()
@@ -193,10 +238,16 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         df_vn = df_vn.drop_duplicates(subset=["UWI_clean_valnav"], keep="last")
         valnav_uwis = set(df_vn["UWI_clean_valnav"])
         _vn_idx = df_vn.set_index("UWI_clean_valnav")
-        valnav_data = {
-            uwi: {"S2_Gas": float(r["_S2_Gas"]), "Sales_Cond": float(r["_Sales_Cond"])}
-            for uwi, r in _vn_idx.iterrows()
-        }
+        valnav_data = {}
+        for uwi, r in _vn_idx.iterrows():
+            entry = {
+                "S2_Gas": float(r["_S2_Gas"]),
+                "Sales_Cond": float(r["_Sales_Cond"]),
+            }
+            if col_ngl:
+                for excel_key, col_name in col_ngl.items():
+                    entry[excel_key] = _float_or_none_valnav(r.get(col_name))
+            valnav_data[uwi] = entry
         
         log(lf.detail(f"Loaded {lf.num(len(valnav_data))} ValNav records"))
         if not valnav_data:
@@ -519,6 +570,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
                 wkey = str(well_name).strip() if well_name else ""
                 sales_gas = preserved_sales_gas.get(wkey, 0.0)
                 ngl_preserved = preserved_ngl.get(wkey, {})
+                ngl_for_af = _af_ngl_for_well(valnav_data_for_well, ngl_preserved)
                 well_uwi = well_data.get("uwi")
 
                 wh_to_s2 = compute_wh_to_s2_alloc_factor(s2_gas, gathered_gas)
@@ -549,11 +601,11 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
                     gathered_gas, gathered_cond,
                     wh_to_s2, wh_to_sales_gas, wh_to_sales_cond,
                     gathered_to_s2_str, gathered_to_sales_str, gathered_to_sales_cond_str,
-                    ngl_preserved.get("NGL_C2"),
-                    ngl_preserved.get("NGL_C3"),
-                    ngl_preserved.get("NGL_C4"),
-                    ngl_preserved.get("NGL_C5"),
-                    ngl_preserved.get("PA_NGLs"),
+                    ngl_for_af.get("NGL_C2"),
+                    ngl_for_af.get("NGL_C3"),
+                    ngl_for_af.get("NGL_C4"),
+                    ngl_for_af.get("NGL_C5"),
+                    ngl_for_af.get("PA_NGLs"),
                     combined_source, loaded_at,
                 ))
             except Exception as e:

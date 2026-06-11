@@ -95,8 +95,8 @@ class MonthlyLoaderDialog(QDialog):
         valnav_hint = QLabel(
             "Worksheet tab must include the selected month abbreviation and year "
             "(e.g. Apr 2026 or April 2026). "
-            "NGL volumes must be loaded into Allocation_Factors first via "
-            "scripts/ngl_allocation_load.py (terminal)."
+            "NGL-C2…C5 and NGLs on that sheet are written to Allocation_Factors, "
+            "then applied to PCE_Production as daily NGL ratios."
         )
         valnav_hint.setWordWrap(True)
         valnav_hint.setStyleSheet("color: #64748b; font-size: 12px;")

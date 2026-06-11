@@ -186,8 +186,7 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | **Well Master** | New wells, name/UWI/pad changes | `PCE_WM` only — **does not** load production by itself |
 | **Prodview quick update** | Routine refresh (often each business day) | Snowflake → `PCE_CDA` (~18-month window) → rebuild `PCE_Production` → `PCE_FRCST_PRD` |
 | **Prodview full rebuild** | Serious data problems or full realignment | All CDA history → full `PCE_Production` rebuild |
-| **NGL bulk load (terminal)** | Once per NGL Excel refresh, or when loading history | `Allocation_Factors` NGL volumes + UWI (`scripts/ngl_allocation_load.py`) |
-| **ValNav (PA)** | Monthly ValNav file is ready | `Allocation_Factors` (all PCE_WM wells), S2/condensate sales; applies NGL ratios from AF |
+| **ValNav (PA)** | Monthly ValNav file is ready | `Allocation_Factors` (S2/cond/NGL from ValNav sheet, all PCE_WM wells), sales apply; daily NGL ratios on Production |
 | **Public Sales** | Accumap file is ready | Gas sales and sales CGR for month range |
 | **Surveys / Type Curves / Forecasts** | When those Excel files change | Respective tables; forecasts and Prodview also refresh `PCE_FRCST_PRD` |
 | **Whitson+** | When reservoir model needs latest production | Reads `PCE_Production`; pushes to Whitson API (no SQL table changes) |
@@ -220,11 +219,10 @@ Skipping step 2 is a common reason new wells show no production.
 When closing a production month:
 
 1. Confirm Prodview has run through the effective end date.  
-2. If NGL Excel changed, run the **terminal bulk load** into `Allocation_Factors` (see §6.3).  
-3. Run **ValNav Monthly Update** for that month (applies S2/cond sales and NGL ratios from AF).  
-4. Run **Public Sales** for the same month range (dialog reminds you to run PA first).  
-5. Import **Monthly Forecasts** or **Type Curves** if those files updated.  
-6. Run **Exports** or **Whitson+** if needed for reporting or modelling.
+2. Run **ValNav Monthly Update** for that month (loads S2/cond/NGL into AF and applies daily NGL ratios).  
+3. Run **Public Sales** for the same month range (dialog reminds you to run PA first).  
+4. Import **Monthly Forecasts** or **Type Curves** if those files updated.  
+5. Run **Exports** or **Whitson+** if needed for reporting or modelling.
 
 ---
 
@@ -270,21 +268,14 @@ When closing a production month:
 
 **When to run:** When the monthly **ValNav** workbook is finalized for a given month.
 
-**Two-step NGL flow:**
+**NGL flow (monthly):**
 
-1. **Bulk load NGL Excel → Allocation_Factors (terminal, as needed)**  
-   Run once in SSMS if columns are missing: `scripts/add_allocation_factors_ngl_columns.sql`  
-   Then from a command prompt in the application folder:
-
-   ```text
-   python scripts/ngl_allocation_load.py --excel "path\to\NGL_export.xlsx"
-   ```
-
-   Excel format: header on **row 3**; columns `PRODUCTION_DATE` (YYYYMM), `UWI`, `NGL-C2` … `NGL-C5`, `PA_NGLs`.  
-   UWI is matched to `PCE_WM.[Well Name]` (same rules as ValNav PA). Use `--dry-run` to preview matches.
+1. Run once in SSMS if columns are missing: `scripts/add_allocation_factors_ngl_columns.sql`
 
 2. **ValNav Monthly Update (GUI)** — select month and run **Run Monthly Loader**  
-   Loads ValNav S2/condensate into `Allocation_Factors` for **every** `PCE_WM` well (zero stubs where ValNav has no row), preserves existing NGL volumes and `Sales_Gas`, then applies daily NGL `_R` columns to `PCE_Production` from `Allocation_Factors`.
+   Reads **NGL-C2, NGL-C3, NGL-C4, NGL-C5, and NGLs** from the ValNav worksheet for that month (same sheet as S2 gas and condensate), writes them to `Allocation_Factors` (`NGL_C2`…`PA_NGLs`), then applies daily NGL `_R` columns to `PCE_Production`.
+
+   Optional: `scripts/ngl_allocation_load.py` remains available for bulk historical loads from a dedicated NGL Excel export (not required for routine month-close).
 
 **What changes:** `Allocation_Factors` (UWI, ValNav columns, preserved NGL volumes), `PCE_CDA` and `PCE_Production` (S2 gas, condensate sales), daily NGL ratio columns on `PCE_Production` for that month via `PCE_NGL_Daily_Staging`.
 
@@ -295,7 +286,7 @@ When closing a production month:
 **Common mistakes:**
 - Skipping Prodview first — PA needs current CDA rows.
 - Assuming PA updates gas **sales** — that is **Public Sales** (Accumap).
-- Running ValNav before bulk NGL load — NGL ratios will be skipped if AF has no NGL volumes for the month.
+- ValNav sheet missing NGL columns — NGL ratios skipped; confirm NGL-C2…C5 and NGLs exist on the month tab.
 
 ---
 
@@ -390,8 +381,7 @@ Use this at month-close (adjust dates to your process):
 
 - [ ] Prodview quick update completed through effective end date (today − 2 days)
 - [ ] New wells in Well Master have been followed by Prodview
-- [ ] NGL Excel bulk-loaded to Allocation_Factors if volumes changed (`scripts/ngl_allocation_load.py`)
-- [ ] ValNav Monthly Update run for closed month
+- [ ] ValNav Monthly Update run for closed month (includes NGL from ValNav sheet)
 - [ ] Public Sales run for same month(s) after PA
 - [ ] Monthly Forecasts imported if workbook updated
 - [ ] Type Curves updated if applicable
@@ -411,7 +401,7 @@ Use this at month-close (adjust dates to your process):
 | Well has no production rows | Confirm well is in `PCE_WM` with GasIDREC; run Prodview |
 | New well still empty after WM | **Run Prodview** — WM alone does not load production |
 | Public Sales warns missing PA | Run ValNav Monthly Update for same months first |
-| NGL ratios all zero for month | Run `scripts/ngl_allocation_load.py` for that month first; then re-run ValNav Monthly Update; confirm UWI matching in NGL Excel |
+| NGL ratios all zero for month | Re-run ValNav Monthly Update; confirm month tab has NGL-C2…C5 and NGLs columns with data |
 | Forecast import date warnings | Fix Date column in Excel to include full year, or confirm import |
 | Whitson 403 on Layer Producer | Create **Layer Producer** custom attribute in Whitson UI |
 | Recent days blank in production | Expected — 2-day Prodview lag; wait or confirm with data team |
