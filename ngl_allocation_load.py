@@ -154,9 +154,12 @@ def resolve_excel_uwi_to_well_name(
 class NglAllocationLoadSummary:
     excel_rows: int = 0
     matched_rows: int = 0
+    rows_with_ngl_values: int = 0
     unmatched_uwis: List[str] = field(default_factory=list)
     rows_updated: int = 0
+    rows_updated_by_uwi: int = 0
     rows_inserted: int = 0
+    rows_no_af_match: int = 0
     dry_run: bool = False
 
 
@@ -166,6 +169,35 @@ def _float_or_none(value: Any) -> Optional[float]:
     if pd.isna(value):
         return None
     return float(value)
+
+
+def _sql_month_start(value: Any) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    if isinstance(value, datetime):
+        return value.date()
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        raise ValueError(f"Cannot convert month start date: {value!r}")
+    return parsed.date()
+
+
+def _trim_text(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).strip()
+
+
+def _row_has_ngl_values(item: dict) -> bool:
+    return any(_float_or_none(item.get(col)) is not None for col in _AF_NGL_COLS)
+
+
+def _sql_rows_affected(cursor) -> int:
+    cursor.execute("SELECT @@ROWCOUNT")
+    row = cursor.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
 
 
 def load_ngl_excel_to_allocation_factors(
@@ -197,12 +229,15 @@ def load_ngl_excel_to_allocation_factors(
                 seen_unmatched.add(uwi)
                 summary.unmatched_uwis.append(uwi)
             continue
-        upsert_rows.append({
-            "MonthStartDate": row["MonthStartDate"],
-            "WellName": well_name,
-            "UWI": uwi,
+        item = {
+            "MonthStartDate": _sql_month_start(row["MonthStartDate"]),
+            "WellName": _trim_text(well_name),
+            "UWI": _trim_text(uwi),
             **{af: row[af] for af in _AF_NGL_COLS},
-        })
+        }
+        upsert_rows.append(item)
+        if _row_has_ngl_values(item):
+            summary.rows_with_ngl_values += 1
 
     summary.matched_rows = len(upsert_rows)
     _log(
@@ -222,8 +257,7 @@ def load_ngl_excel_to_allocation_factors(
 
     source_file = os.path.basename(excel_path)
     loaded_at = datetime.now()
-    update_sql = f"""
-        UPDATE Allocation_Factors SET
+    set_clause = """
               [UWI] = ?
             , [NGL_C2] = ?
             , [NGL_C3] = ?
@@ -232,9 +266,18 @@ def load_ngl_excel_to_allocation_factors(
             , [PA_NGLs] = ?
             , [SourceFile] = ?
             , [LoadedAt] = ?
-        WHERE MonthStartDate = ? AND [Well Name] = ?
     """
-    insert_sql = f"""
+    update_by_well_sql = f"""
+        UPDATE Allocation_Factors SET {set_clause}
+        WHERE CAST(MonthStartDate AS DATE) = ?
+          AND LTRIM(RTRIM([Well Name])) = ?
+    """
+    update_by_uwi_sql = f"""
+        UPDATE Allocation_Factors SET {set_clause}
+        WHERE CAST(MonthStartDate AS DATE) = ?
+          AND LTRIM(RTRIM([UWI])) = ?
+    """
+    insert_sql = """
         INSERT INTO Allocation_Factors (
             MonthStartDate, [Well Name], [UWI],
             [NGL_C2], [NGL_C3], [NGL_C4], [NGL_C5], [PA_NGLs],
@@ -242,8 +285,8 @@ def load_ngl_excel_to_allocation_factors(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
 
-    for item in upsert_rows:
-        params_update = (
+    def _ngl_params(item: dict) -> tuple:
+        return (
             item["UWI"],
             _float_or_none(item["NGL_C2"]),
             _float_or_none(item["NGL_C3"]),
@@ -252,34 +295,61 @@ def load_ngl_excel_to_allocation_factors(
             _float_or_none(item["PA_NGLs"]),
             source_file,
             loaded_at,
-            item["MonthStartDate"],
-            item["WellName"],
         )
-        cur.execute(update_sql, params_update)
-        if cur.rowcount and cur.rowcount > 0:
+
+    for item in upsert_rows:
+        month_start = item["MonthStartDate"]
+        well_name = item["WellName"]
+        uwi = item["UWI"]
+        ngl_params = _ngl_params(item)
+
+        cur.execute(
+            update_by_well_sql,
+            (*ngl_params, month_start, well_name),
+        )
+        affected = _sql_rows_affected(cur)
+        if affected > 0:
             summary.rows_updated += 1
             continue
 
-        cur.execute(
-            insert_sql,
-            (
-                item["MonthStartDate"],
-                item["WellName"],
-                item["UWI"],
-                _float_or_none(item["NGL_C2"]),
-                _float_or_none(item["NGL_C3"]),
-                _float_or_none(item["NGL_C4"]),
-                _float_or_none(item["NGL_C5"]),
-                _float_or_none(item["PA_NGLs"]),
-                source_file,
-                loaded_at,
-            ),
-        )
-        summary.rows_inserted += 1
+        if uwi:
+            cur.execute(
+                update_by_uwi_sql,
+                (*ngl_params, month_start, uwi),
+            )
+            affected = _sql_rows_affected(cur)
+            if affected > 0:
+                summary.rows_updated_by_uwi += 1
+                continue
+
+        try:
+            cur.execute(
+                insert_sql,
+                (
+                    month_start,
+                    well_name,
+                    uwi,
+                    _float_or_none(item["NGL_C2"]),
+                    _float_or_none(item["NGL_C3"]),
+                    _float_or_none(item["NGL_C4"]),
+                    _float_or_none(item["NGL_C5"]),
+                    _float_or_none(item["PA_NGLs"]),
+                    source_file,
+                    loaded_at,
+                ),
+            )
+            summary.rows_inserted += 1
+        except Exception:
+            summary.rows_no_af_match += 1
 
     conn.commit()
     _log(
-        f"Allocation_Factors: {summary.rows_updated:,} updated, "
+        f"Allocation_Factors: {summary.rows_updated:,} updated by well name, "
+        f"{summary.rows_updated_by_uwi:,} updated by UWI, "
         f"{summary.rows_inserted:,} inserted"
     )
+    if summary.rows_no_af_match:
+        _log(
+            f"WARNING: {summary.rows_no_af_match:,} row(s) could not be matched or inserted"
+        )
     return summary

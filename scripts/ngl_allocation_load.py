@@ -64,8 +64,11 @@ def main() -> int:
             {
                 "Excel rows": summary.excel_rows,
                 "Matched rows": summary.matched_rows,
-                "Updated": summary.rows_updated,
+                "Rows with NGL values": summary.rows_with_ngl_values,
+                "Updated (well name)": summary.rows_updated,
+                "Updated (UWI fallback)": summary.rows_updated_by_uwi,
                 "Inserted": summary.rows_inserted,
+                "No AF match": summary.rows_no_af_match,
                 "Unmatched UWIs": len(summary.unmatched_uwis),
                 "Dry run": summary.dry_run,
             },
