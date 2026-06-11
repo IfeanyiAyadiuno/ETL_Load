@@ -28,6 +28,7 @@ class WellMasterDB:
                 [Lateral Length],
                 [Value Navigator UWI],
                 [Orient],
+                [On Production Year],
                 [Composite Name],
                 [Horizontal Distance Right],
                 [Horizontal Distance Left],
@@ -47,7 +48,7 @@ class WellMasterDB:
             wells = []
             for row in rows:
                 # Map SQL columns to dictionary keys
-                exception_val = row[16]
+                exception_val = row[17]
                 if exception_val is None or str(exception_val).strip() == "":
                     exception_val = "N"
                 else:
@@ -65,11 +66,12 @@ class WellMasterDB:
                     'lateral_length': row[8],
                     'value_nav_uwi': row[9],
                     'orient': row[10],
-                    'composite_name': row[11],
-                    'horizontal_right': row[12],
-                    'horizontal_left': row[13],
-                    'vertical_above': row[14],
-                    'vertical_below': row[15],
+                    'on_production_year': row[11],
+                    'composite_name': row[12],
+                    'horizontal_right': row[13],
+                    'horizontal_left': row[14],
+                    'vertical_above': row[15],
+                    'vertical_below': row[16],
                     'exception': exception_val,
                 }
                 wells.append(well)
@@ -391,6 +393,7 @@ WHERE
                     'pad_name': '[Pad Name]',
                     'completions_tech': '[Completions Technology]',
                     'lateral_length': '[Lateral Length]',
+                    'on_production_year': '[On Production Year]',
                     'horizontal_distance_right': '[Horizontal Distance Right]',
                     'horizontal_distance_left': '[Horizontal Distance Left]',
                     'vertical_distance_above': '[Vertical Distance Above]',

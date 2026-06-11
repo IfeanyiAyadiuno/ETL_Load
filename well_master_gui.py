@@ -122,14 +122,14 @@ class WellMasterDialog(QDialog):
         #        ""   Well Name    GasIDREC    PressuresIDREC  Formation  Layer   Fault Block  Pad Name
         #        8         9              10                      11                      12
         #        Completions  Lateral Len  Horiz Dist Right  Horiz Dist Left  Vert Dist Above
-        #        13                    14               15            16               17
-        #        Vert Dist Below  Value Nav UWI  Orient      Composite Name   Exception
+        #        13                    14               15       16            17               18
+        #        Vert Dist Below  Value Nav UWI  Orient  On Prod Year  Composite Name   Exception
         self.col_widths = [
             30, 150, 120, 120,
             110, 90,  90,  110,
             110, 80,  100, 100,
             100, 100, 130, 70,
-            220, 70
+            90, 220, 70
         ]
         self.headers = [
             "",
@@ -148,6 +148,7 @@ class WellMasterDialog(QDialog):
             "Vertical Distance Below",
             "Value Nav UWI",
             "Orient",
+            "On Prod Year",
             "Composite Name",
             "Exception",
         ]
@@ -438,9 +439,9 @@ class WellMasterDialog(QDialog):
             orient = self.table.item(row, 15).text() if self.table.item(row, 15) else ""
 
             composite = WellMasterDB.compose_name(well_name, layer, tech, orient)
-            if composite and self.table.item(row, 16):
+            if composite and self.table.item(row, 17):
                 self.table.blockSignals(True)
-                self.table.item(row, 16).setText(composite)
+                self.table.item(row, 17).setText(composite)
                 self.table.blockSignals(False)
 
                 self.pending_current_edits.add(row)
@@ -481,8 +482,9 @@ class WellMasterDialog(QDialog):
             vert_below = self.table.item(row, 13).text() if self.table.item(row, 13) else ""
             value_nav_uwi = self.table.item(row, 14).text() if self.table.item(row, 14) else ""
             orient = self.table.item(row, 15).text() if self.table.item(row, 15) else ""
-            composite_name = self.table.item(row, 16).text() if self.table.item(row, 16) else ""
-            exception_val = self.table.item(row, 17).text() if self.table.item(row, 17) else ""
+            on_production_year = self.table.item(row, 16).text() if self.table.item(row, 16) else ""
+            composite_name = self.table.item(row, 17).text() if self.table.item(row, 17) else ""
+            exception_val = self.table.item(row, 18).text() if self.table.item(row, 18) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -527,6 +529,18 @@ class WellMasterDialog(QDialog):
             except Exception:
                 return
 
+            on_production_year_val = None
+            if on_production_year.strip():
+                try:
+                    on_production_year_val = int(float(on_production_year))
+                except ValueError:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Input",
+                        f"On Prod Year for {well_name} must be a whole year (e.g. 2024)."
+                    )
+                    return
+
             update_data = {
                 'well_name': well_name,
                 'formation': formation,
@@ -541,6 +555,7 @@ class WellMasterDialog(QDialog):
                 'vertical_distance_below': vert_below_val,
                 'value_nav_uwi': value_nav_uwi,
                 'orient': orient,
+                'on_production_year': on_production_year_val,
                 'composite_name': composite_name,
                 'exception': exception_val,
             }
@@ -687,6 +702,7 @@ class WellMasterDialog(QDialog):
                 str(well.get('vertical_below', '') or ''),
                 well.get('value_nav_uwi', ''),
                 well.get('orient', ''),
+                str(well.get('on_production_year', '') or ''),
                 well.get('composite_name', ''),
                 well.get('exception', 'N'),
             ]
@@ -700,7 +716,7 @@ class WellMasterDialog(QDialog):
                 if col in [1, 2, 3]:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setBackground(QColor("#f0f0f0"))
-                elif col == 16:
+                elif col == 17:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     item.setBackground(QColor("#f0f0f0"))
                 else:
@@ -737,7 +753,8 @@ class WellMasterDialog(QDialog):
             13,  # Vertical Distance Below
             14,  # Value Nav UWI
             15,  # Orient
-            17,  # Exception (Y/N)
+            16,  # On Prod Year
+            18,  # Exception (Y/N)
         ]
 
         for col in editable_columns:
@@ -804,9 +821,9 @@ class WellMasterDialog(QDialog):
                 orient = self.staged_table.item(row, 15).text() if self.staged_table.item(row, 15) else ""
 
                 composite = WellMasterDB.compose_name(well_name, layer, tech, orient)
-                if composite and self.staged_table.item(row, 16):
+                if composite and self.staged_table.item(row, 17):
                     self.staged_table.blockSignals(True)
-                    self.staged_table.item(row, 16).setText(composite)
+                    self.staged_table.item(row, 17).setText(composite)
                     self.staged_table.blockSignals(False)
 
     def on_tab_changed(self, index):
@@ -1541,7 +1558,8 @@ class WellMasterDialog(QDialog):
                 (12, 'vertical_above'),
                 (13, 'vertical_below'),
                 (14, 'value_nav_uwi'),
-                (17, 'exception'),
+                (16, 'on_production_year'),
+                (18, 'exception'),
             ]
 
             for col, field in text_fields:
@@ -1570,7 +1588,7 @@ class WellMasterDialog(QDialog):
             comp_item.setFlags(comp_item.flags() & ~Qt.ItemIsEditable)
             comp_item.setBackground(QColor("#f0f0f0"))
             comp_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
-            self.staged_table.setItem(row, 16, comp_item)
+            self.staged_table.setItem(row, 17, comp_item)
             row_widgets['composite'] = comp_item
 
             self.row_widgets.append(row_widgets)
@@ -1618,8 +1636,9 @@ class WellMasterDialog(QDialog):
             vert_below = self.staged_table.item(row, 13).text() if self.staged_table.item(row, 13) else ""
             value_nav_uwi = self.staged_table.item(row, 14).text() if self.staged_table.item(row, 14) else ""
             orient = self.staged_table.item(row, 15).text() if self.staged_table.item(row, 15) else ""
-            composite_name = self.staged_table.item(row, 16).text() if self.staged_table.item(row, 16) else ""
-            exception_val = self.staged_table.item(row, 17).text() if self.staged_table.item(row, 17) else ""
+            on_production_year = self.staged_table.item(row, 16).text() if self.staged_table.item(row, 16) else ""
+            composite_name = self.staged_table.item(row, 17).text() if self.staged_table.item(row, 17) else ""
+            exception_val = self.staged_table.item(row, 18).text() if self.staged_table.item(row, 18) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -1664,6 +1683,18 @@ class WellMasterDialog(QDialog):
             except Exception:
                 return
 
+            on_production_year_val = None
+            if on_production_year.strip():
+                try:
+                    on_production_year_val = int(float(on_production_year))
+                except ValueError:
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Input",
+                        f"On Prod Year for {well.get('well_name')} must be a whole year (e.g. 2024)."
+                    )
+                    return
+
             update_data = {
                 'well_name': well.get('well_name'),
                 'formation': formation,
@@ -1678,6 +1709,7 @@ class WellMasterDialog(QDialog):
                 'vertical_distance_below': vert_below_val,
                 'value_nav_uwi': value_nav_uwi,
                 'orient': orient,
+                'on_production_year': on_production_year_val,
                 'composite_name': composite_name,
                 'exception': exception_val,
             }
