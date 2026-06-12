@@ -234,6 +234,10 @@ When closing a production month:
 
 **What changes:** `PCE_WM`. Removing a well can also purge its rows from CDA, Production, Allocation_Factors, and Surveys (confirm prompts).
 
+**Additional Fields:** After running `scripts/add_pce_wm_additional_fields.sql` on the database, scroll to the rightmost **Additional Fields** column and click **Fields…** on a checked well to edit coordinates, UTM, elevations, tubing, and dates. Values are stored in `PCE_WM` only (not in the main grid). Surface and bottom hole lat/long are pushed to Whitson+ on the next mass upload.
+
+**Bulk backfill:** To load many wells from Excel (row 2 headers, row 3+ data, UWI in column A), run `python scripts/backfill_wm_additional_fields.py path/to/file.xlsx` after the SQL migration is applied.
+
 **Typical duration:** Seconds to a few minutes depending on action.
 
 [IMAGE: Well Master dialog — well table and Import New Wells]
@@ -355,7 +359,9 @@ When closing a production month:
 
 **When to run:** Production in SQL should be pushed to Whitson+ for modelling.
 
-**What changes:** None in SQL Server — reads `PCE_Production` and `PCE_WM`, posts to Whitson+ API. Well attributes (pad, formation, lateral length, Layer Producer, etc.) sync on each push.
+**What changes:** None in SQL Server — reads `PCE_Production` and `PCE_WM`, posts to Whitson+ API. Well attributes (pad, formation, lateral length, Layer Producer, surface lat/long, bottomhole toe lat/long, etc.) sync on each push.
+
+**Coordinates:** Whitson surface coordinates use `PCE_WM.[Surface Hole Latitude]` / `[Surface Hole Longitude]` when set, otherwise legacy `[Surface Location Latitude (NAD83)]` / `[Surface Location Longitude (NAD83)]`. Bottomhole toe coordinates use `[Bottom Hole Latitude]` / `[Bottom Hole Longitude]` with the same NAD83 bottom columns as fallback. Edit these in Well Master → scroll right → **Additional Fields** → **Fields…** (one checked well at a time).
 
 **One-time setup:** Create a **Text, manual** custom attribute named **Layer Producer** in the Whitson UI before first use.
 

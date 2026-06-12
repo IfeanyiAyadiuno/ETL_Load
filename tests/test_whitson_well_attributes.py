@@ -1,12 +1,15 @@
 """Tests for Whitson WM well attribute payload builders (no live SQL or API)."""
 
 import unittest
+import unittest.mock
 from unittest.mock import MagicMock
 
 from whitson_well_attributes import (
     WellMetadata,
+    _FETCH_WM_METADATA_SQL,
     build_whitson_well_create_payload,
     build_whitson_well_patch_payload,
+    fetch_well_metadata_for_whitson,
     sync_whitson_well_attributes,
 )
 
@@ -49,6 +52,54 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
         self.assertAlmostEqual(create["surf_long"], -120.456)
         self.assertEqual(create["pad_name"], "PAD-9")
 
+    def test_toe_coordinates_on_create_and_patch(self):
+        meta = WellMetadata(
+            surf_lat=55.1,
+            surf_long=-120.1,
+            toe_lat=55.09,
+            toe_long=-120.11,
+        )
+        create = build_whitson_well_create_payload(
+            meta, project_id=1, name="WELL-TOE", uwi_api="UWI-1"
+        )
+        self.assertAlmostEqual(create["toe_lat"], 55.09)
+        self.assertAlmostEqual(create["toe_long"], -120.11)
+
+        patch = build_whitson_well_patch_payload(7, meta)
+        self.assertEqual(patch["id"], 7)
+        self.assertAlmostEqual(patch["toe_lat"], 55.09)
+        self.assertAlmostEqual(patch["toe_long"], -120.11)
+
+    def test_fetch_sql_prefers_new_coordinate_columns(self):
+        self.assertIn(
+            "COALESCE(wm.[Surface Hole Latitude], wm.[Surface Location Latitude (NAD83)])",
+            _FETCH_WM_METADATA_SQL,
+        )
+        self.assertIn(
+            "COALESCE(wm.[Bottom Hole Latitude], wm.[Bottom Location Latitude (NAD83)])",
+            _FETCH_WM_METADATA_SQL,
+        )
+
+    def test_fetch_metadata_maps_toe_from_row_indices(self):
+        conn = unittest.mock.MagicMock()
+        cur = conn.cursor.return_value
+        cur.fetchone.return_value = (
+            "PAD-A",
+            "Montney",
+            "Block 1",
+            2500.0,
+            55.5,
+            -120.5,
+            55.4,
+            -120.6,
+            "100/01-01-001-01W6/0",
+        )
+        meta = fetch_well_metadata_for_whitson(conn, "WELL-1")
+        self.assertAlmostEqual(meta.surf_lat, 55.5)
+        self.assertAlmostEqual(meta.surf_long, -120.5)
+        self.assertAlmostEqual(meta.toe_lat, 55.4)
+        self.assertAlmostEqual(meta.toe_long, -120.6)
+
 
 class TestSyncWhitsonWellAttributes(unittest.TestCase):
     def test_sync_calls_patch_only(self):
@@ -58,6 +109,8 @@ class TestSyncWhitsonWellAttributes(unittest.TestCase):
         meta = WellMetadata(
             pad_name="PAD-A",
             sub_field="Block 1",
+            toe_lat=55.2,
+            toe_long=-120.3,
         )
         ok = sync_whitson_well_attributes(whitson, 100, meta)
         self.assertTrue(ok)
@@ -66,6 +119,8 @@ class TestSyncWhitsonWellAttributes(unittest.TestCase):
         self.assertEqual(patch_arg[0]["id"], 100)
         self.assertEqual(patch_arg[0]["pad_name"], "PAD-A")
         self.assertEqual(patch_arg[0]["sub_field"], "Block 1")
+        self.assertAlmostEqual(patch_arg[0]["toe_lat"], 55.2)
+        self.assertAlmostEqual(patch_arg[0]["toe_long"], -120.3)
         whitson.edit_custom_attribute_bulk.assert_not_called()
 
     def test_sync_skips_patch_when_no_native_fields(self):

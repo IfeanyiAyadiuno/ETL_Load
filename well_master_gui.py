@@ -26,6 +26,7 @@ from styles import (
 )
 from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
+from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialog
 
 
 def _strip_leading_snowflake_asterisk(name):
@@ -129,7 +130,8 @@ class WellMasterDialog(QDialog):
             110, 90,  90,  110,
             110, 80,  100, 100,
             100, 100, 130, 70,
-            90, 220, 70
+            90, 220, 70,
+            88,
         ]
         self.headers = [
             "",
@@ -151,6 +153,7 @@ class WellMasterDialog(QDialog):
             "On Prod Year",
             "Composite Name",
             "Exception",
+            "Additional Fields",
         ]
 
         # Buttons (will be initialized in initUI)
@@ -729,7 +732,42 @@ class WellMasterDialog(QDialog):
 
                 self.table.setItem(row, col, item)
 
+            self._set_additional_fields_button(row, well.get("well_name", ""), is_checked=False)
+
         self.table.itemChanged.connect(self.on_current_item_changed)
+
+    def _set_additional_fields_button(self, row, well_name, is_checked=False):
+        btn = QPushButton("Fields…")
+        btn.setStyleSheet(btn_neutral())
+        btn.setToolTip("Edit additional well metadata (coordinates, elevations, tubing)")
+        btn.setEnabled(is_checked)
+        if not is_checked:
+            btn.setToolTip("Check this well first, then click Fields…")
+        btn.clicked.connect(lambda _checked=False, r=row: self.open_additional_fields(r))
+        wrap = QWidget()
+        lay = QHBoxLayout(wrap)
+        lay.addWidget(btn)
+        lay.setAlignment(Qt.AlignCenter)
+        lay.setContentsMargins(4, 0, 4, 0)
+        self.table.setCellWidget(row, 19, wrap)
+
+    def open_additional_fields(self, row):
+        """Open additional-fields dialog for one table row."""
+        if row >= len(self.filtered_wells):
+            return
+        if not self.is_row_checked(row):
+            QMessageBox.information(
+                self,
+                "Check well first",
+                "Check the well row, then click Fields… to edit additional metadata.",
+            )
+            return
+        well_name = self.filtered_wells[row].get("well_name", "")
+        if not well_name:
+            QMessageBox.warning(self, "No well", "Could not determine well name for this row.")
+            return
+        dlg = WellMasterAdditionalFieldsDialog(well_name, parent=self)
+        dlg.exec_()
 
     def on_checkbox_changed(self, row, state):
         """Handle checkbox state changes"""
@@ -770,6 +808,9 @@ class WellMasterDialog(QDialog):
                         item.setBackground(QColor("#f8f9fa"))
                     if hasattr(self, 'pending_current_edits') and row in self.pending_current_edits:
                         self.pending_current_edits.remove(row)
+
+        wn = well.get("well_name", "")
+        self._set_additional_fields_button(row, wn, is_checked=is_checked)
 
         if is_checked and well in self.pending_wells:
             wn = (well.get('well_name') or '').strip()
@@ -842,17 +883,19 @@ class WellMasterDialog(QDialog):
         from datetime import datetime
         import pandas as pd
 
-        headers = []
-        for col in range(1, self.table.columnCount()):
-            header_item = self.table.horizontalHeaderItem(col)
-            if header_item:
-                headers.append(header_item.text())
+        export_cols = [
+            col
+            for col in range(1, self.table.columnCount())
+            if self.table.horizontalHeaderItem(col)
+            and self.table.horizontalHeaderItem(col).text() != "Additional Fields"
+        ]
+        headers = [self.table.horizontalHeaderItem(col).text() for col in export_cols]
 
         data = []
         for row in range(self.table.rowCount()):
             if not self.table.isRowHidden(row):
                 row_data = []
-                for col in range(1, self.table.columnCount()):
+                for col in export_cols:
                     item = self.table.item(row, col)
                     row_data.append(item.text() if item and item.text() else "")
                 data.append(row_data)

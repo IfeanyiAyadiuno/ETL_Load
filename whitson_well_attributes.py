@@ -1,8 +1,8 @@
 """
 PCE_WM well metadata for Whitson+ create / PATCH sync.
 
-Phase 1: Pad, Formation, Fault Block (sub_field), Lateral Length, surface lat/long,
-and UWI.
+Native fields: pad, formation, fault block, lateral length, surface lat/long,
+bottomhole toe lat/long, and UWI on create.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ _NATIVE_CREATE_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
+    "toe_lat",
+    "toe_long",
     "uwi_api",
 )
 
@@ -33,6 +35,8 @@ _NATIVE_PATCH_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
+    "toe_lat",
+    "toe_long",
 )
 
 _FETCH_WM_METADATA_SQL = """
@@ -41,8 +45,10 @@ SELECT TOP 1
     , NULLIF(LTRIM(RTRIM(CAST(wm.[Formation Producer] AS NVARCHAR(4000)))), N'') AS FormationProducer
     , NULLIF(LTRIM(RTRIM(CAST(wm.[Fault Block] AS NVARCHAR(4000)))), N'') AS FaultBlock
     , wm.[Lateral Length] AS LateralLength
-    , wm.[Surface Location Latitude (NAD83)] AS SurfLat
-    , wm.[Surface Location Longitude (NAD83)] AS SurfLong
+    , COALESCE(wm.[Surface Hole Latitude], wm.[Surface Location Latitude (NAD83)]) AS SurfLat
+    , COALESCE(wm.[Surface Hole Longitude], wm.[Surface Location Longitude (NAD83)]) AS SurfLong
+    , COALESCE(wm.[Bottom Hole Latitude], wm.[Bottom Location Latitude (NAD83)]) AS ToeLat
+    , COALESCE(wm.[Bottom Hole Longitude], wm.[Bottom Location Longitude (NAD83)]) AS ToeLong
     , NULLIF(LTRIM(RTRIM(CAST(wm.[Value Navigator UWI] AS NVARCHAR(4000)))), N'') AS UwiApi
 FROM dbo.PCE_WM AS wm
 WHERE (
@@ -64,6 +70,8 @@ class WellMetadata:
     l_w: Optional[float] = None
     surf_lat: Optional[float] = None
     surf_long: Optional[float] = None
+    toe_lat: Optional[float] = None
+    toe_long: Optional[float] = None
     uwi_api: Optional[str] = None
 
 
@@ -111,7 +119,7 @@ def fetch_well_metadata_for_whitson(
     conn,
     production_well_name: str,
 ) -> WellMetadata:
-    """Load phase-1 WM fields for a PCE_Production well name (composite match)."""
+    """Load WM fields for a PCE_Production well name (composite match)."""
     cur = conn.cursor()
     cur.execute(
         _FETCH_WM_METADATA_SQL,
@@ -129,7 +137,9 @@ def fetch_well_metadata_for_whitson(
         l_w=_coerce_optional_float(row[3]),
         surf_lat=_coerce_optional_float(row[4]),
         surf_long=_coerce_optional_float(row[5]),
-        uwi_api=_coerce_optional_str(row[6]),
+        toe_lat=_coerce_optional_float(row[6]),
+        toe_long=_coerce_optional_float(row[7]),
+        uwi_api=_coerce_optional_str(row[8]),
     )
 
 
@@ -151,6 +161,10 @@ def _native_fields_from_metadata(
         out["surf_lat"] = metadata.surf_lat
     if metadata.surf_long is not None:
         out["surf_long"] = metadata.surf_long
+    if metadata.toe_lat is not None:
+        out["toe_lat"] = metadata.toe_lat
+    if metadata.toe_long is not None:
+        out["toe_long"] = metadata.toe_long
     if include_uwi and metadata.uwi_api:
         out["uwi_api"] = metadata.uwi_api
     return out

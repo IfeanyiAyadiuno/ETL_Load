@@ -1,6 +1,35 @@
 # well_master_db.py — PCE_WM database operations for Well Master
 
+from datetime import date, datetime
+
 import log_format as lf
+
+# Python key -> SQL column for Well Master "Additional Fields" dialog
+ADDITIONAL_FIELD_COLUMNS = (
+    ("bottom_hole_latitude", "Bottom Hole Latitude", "float"),
+    ("bottom_hole_longitude", "Bottom Hole Longitude", "float"),
+    ("bottom_hole_utm_easting_m", "Bottom Hole UTM Easting (m)", "float"),
+    ("bottom_hole_utm_northing_m", "Bottom Hole UTM Northing (m)", "float"),
+    ("bottom_hole_utm_zone", "Bottom Hole UTM Zone", "int"),
+    ("surface_hole_latitude", "Surface Hole Latitude", "float"),
+    ("surface_hole_longitude", "Surface Hole Longitude", "float"),
+    ("surface_hole_utm_easting_m", "Surface Hole UTM Easting (m)", "float"),
+    ("surface_hole_utm_northing_m", "Surface Hole UTM Northing (m)", "float"),
+    ("surface_hole_utm_zone", "Surface Hole UTM Zone", "int"),
+    ("kb_elevation_m", "KB Elevation (m)", "float"),
+    ("ground_elevation_m", "Ground Elevation (m)", "float"),
+    ("max_true_vertical_depth_m", "Max True Vertical Depth (m)", "float"),
+    ("total_depth_m", "Total Depth (m)", "float"),
+    ("spud_date", "Spud Date", "date"),
+    ("rig_release_date", "Rig Release Date", "date"),
+    ("outside_diameter_mm", "Outside Diameter (mm)", "float"),
+    ("tubing_strength_mpa", "Tubing Strength (MPa)", "float"),
+    ("tubing_linear_weight_kg_m", "Tubing Linear Weight (kg/m)", "float"),
+)
+
+_ADDITIONAL_FIELD_SQL_LIST = ", ".join(
+    f"[{sql_name}]" for _key, sql_name, _typ in ADDITIONAL_FIELD_COLUMNS
+)
 
 
 class WellMasterDB:
@@ -441,6 +470,153 @@ WHERE
             if conn:
                 conn.rollback()
             return 0, [str(e)]
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def _coerce_additional_float(value):
+        if value is None:
+            return None
+        s = str(value).strip().replace(",", "")
+        if not s or s.lower() in ("-", "nan", "none", "n/a", "na"):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _coerce_additional_int(value):
+        if value is None:
+            return None
+        s = str(value).strip().replace(",", "")
+        if not s or s.lower() in ("-", "nan", "none", "n/a", "na"):
+            return None
+        try:
+            return int(float(s))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _coerce_additional_date(value):
+        if value is None:
+            return None
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if isinstance(value, datetime):
+            return value.date()
+        s = str(value).strip()
+        if not s or s.lower() in ("-", "nan", "none", "n/a", "na"):
+            return None
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _format_additional_value_for_ui(value, field_type):
+        if value is None:
+            return ""
+        if field_type == "date":
+            if isinstance(value, datetime):
+                return value.date().isoformat()
+            if isinstance(value, date):
+                return value.isoformat()
+            return str(value).strip()
+        if field_type == "int":
+            try:
+                return str(int(value))
+            except (TypeError, ValueError):
+                return str(value).strip()
+        return str(value).strip()
+
+    @staticmethod
+    def get_additional_fields(well_name):
+        """Load additional-field columns for one PCE_WM row keyed by [Well Name]."""
+        from db_connection import get_sql_conn
+
+        wn = WellMasterDB.sanitize_text_field(well_name)
+        if not wn:
+            return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+
+        try:
+            conn = get_sql_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                SELECT {_ADDITIONAL_FIELD_SQL_LIST}
+                FROM PCE_WM
+                WHERE [Well Name] = ?
+                """,
+                wn,
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if not row:
+                return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+
+            out = {}
+            for i, (key, _sql, typ) in enumerate(ADDITIONAL_FIELD_COLUMNS):
+                out[key] = WellMasterDB._format_additional_value_for_ui(row[i], typ)
+            return out
+        except Exception as e:
+            print(lf.error(f"Error loading additional fields: {e}"))
+            return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+
+    @staticmethod
+    def save_additional_fields(well_name, fields_dict):
+        """Persist additional-field columns for one well. Blank values -> NULL."""
+        from db_connection import get_sql_conn
+
+        wn = WellMasterDB.sanitize_text_field(well_name)
+        if not wn:
+            return False, "Missing well name"
+
+        set_parts = []
+        params = []
+        for key, sql_name, typ in ADDITIONAL_FIELD_COLUMNS:
+            if key not in fields_dict:
+                continue
+            raw = fields_dict[key]
+            if typ == "float":
+                val = WellMasterDB._coerce_additional_float(raw)
+            elif typ == "int":
+                val = WellMasterDB._coerce_additional_int(raw)
+            elif typ == "date":
+                val = WellMasterDB._coerce_additional_date(raw)
+            else:
+                val = WellMasterDB.sanitize_text_field(raw)
+            set_parts.append(f"[{sql_name}] = ?")
+            params.append(val)
+
+        if not set_parts:
+            return False, "No fields to save"
+
+        conn = None
+        try:
+            conn = get_sql_conn()
+            cursor = conn.cursor()
+            params.append(wn)
+            cursor.execute(
+                f"""
+                UPDATE PCE_WM
+                SET {', '.join(set_parts)}
+                WHERE [Well Name] = ?
+                """,
+                params,
+            )
+            if cursor.rowcount <= 0:
+                conn.rollback()
+                return False, f"Well not found: {wn}"
+            conn.commit()
+            return True, None
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            return False, str(e)
         finally:
             if conn:
                 conn.close()
