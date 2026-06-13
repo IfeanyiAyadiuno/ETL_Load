@@ -361,7 +361,7 @@ When closing a production month:
 
 **What changes:** None in SQL Server — reads `PCE_Production` and `PCE_WM`, posts to Whitson+ API. Well attributes (pad, formation, lateral length, Layer Producer, surface lat/long, bottomhole toe lat/long, etc.) sync on each push.
 
-**Coordinates:** Whitson surface coordinates use `PCE_WM.[Surface Hole Latitude]` / `[Surface Hole Longitude]` when set, otherwise legacy `[Surface Location Latitude (NAD83)]` / `[Surface Location Longitude (NAD83)]`. Bottomhole toe coordinates use `[Bottom Hole Latitude]` / `[Bottom Hole Longitude]` with the same NAD83 bottom columns as fallback. Edit these in Well Master → scroll right → **Additional Fields** → **Fields…** (one checked well at a time).
+**Coordinates:** Whitson surface coordinates use `PCE_WM.[Surface Hole Latitude]` / `[Surface Hole Longitude]` when set, otherwise legacy `[Surface Location Latitude (NAD83)]` / `[Surface Location Longitude (NAD83)]` (API fields `surf_lat` / `surf_long`). Bottomhole coordinates use `[Bottom Hole Latitude]` / `[Bottom Hole Longitude]` with the same NAD83 bottom columns as fallback (API fields `bothole_lat` / `bothole_long`). Edit these in Well Master → scroll right → **Additional Fields** → **Fields…** (one checked well at a time).
 
 **One-time setup:** Create a **Text, manual** custom attribute named **Layer Producer** in the Whitson UI before first use.
 

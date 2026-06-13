@@ -23,8 +23,8 @@ _NATIVE_CREATE_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
-    "toe_lat",
-    "toe_long",
+    "bothole_lat",
+    "bothole_long",
     "uwi_api",
 )
 
@@ -35,8 +35,8 @@ _NATIVE_PATCH_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
-    "toe_lat",
-    "toe_long",
+    "bothole_lat",
+    "bothole_long",
 )
 
 _FETCH_WM_METADATA_SQL = """
@@ -162,9 +162,9 @@ def _native_fields_from_metadata(
     if metadata.surf_long is not None:
         out["surf_long"] = metadata.surf_long
     if metadata.toe_lat is not None:
-        out["toe_lat"] = metadata.toe_lat
+        out["bothole_lat"] = metadata.toe_lat
     if metadata.toe_long is not None:
-        out["toe_long"] = metadata.toe_long
+        out["bothole_long"] = metadata.toe_long
     if include_uwi and metadata.uwi_api:
         out["uwi_api"] = metadata.uwi_api
     return out

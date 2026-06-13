@@ -6,6 +6,7 @@ Excel layout:
   Row 2 (index 1): column headers (cells may wrap one word per line)
   Row 3+ (index 2+): data
   Column A: UWI (matched to PCE_WM.[Value Navigator UWI])
+  Duplicate UWIs: only the first row per UWI is used.
 
   python scripts/backfill_wm_additional_fields.py path/to/file.xlsx
   python scripts/backfill_wm_additional_fields.py path/to/file.xlsx --dry-run
@@ -100,6 +101,28 @@ def _row_to_fields(row: pd.Series, col_map: dict) -> dict:
     return out
 
 
+def dedupe_first_per_uwi(data: pd.DataFrame, uwi_col: int) -> tuple[pd.DataFrame, int]:
+    """Keep only the first Excel row for each non-empty UWI value."""
+    seen: set[str] = set()
+    keep_indices = []
+    skipped = 0
+    for idx, row in data.iterrows():
+        uwi_raw = row.iloc[uwi_col] if uwi_col < len(row) else None
+        if uwi_raw is None or (isinstance(uwi_raw, float) and pd.isna(uwi_raw)):
+            continue
+        uwi_str = str(uwi_raw).strip()
+        if not uwi_str:
+            continue
+        if uwi_str in seen:
+            skipped += 1
+            continue
+        seen.add(uwi_str)
+        keep_indices.append(idx)
+    if not keep_indices:
+        return data.iloc[0:0].copy(), skipped
+    return data.loc[keep_indices].reset_index(drop=True), skipped
+
+
 def load_excel(path: Path) -> tuple[pd.DataFrame, dict]:
     raw = pd.read_excel(path, header=None, engine="openpyxl")
     if raw.shape[0] <= HEADER_ROW_INDEX:
@@ -130,6 +153,8 @@ def run_backfill(path: Path, *, dry_run: bool = False) -> dict:
     data, col_map = load_excel(path)
     uwi_col = next(k for k, v in col_map.items() if v == "__uwi__")
     field_cols = {k: v for k, v in col_map.items() if v and v != "__uwi__"}
+    rows_read = len(data)
+    data, duplicate_uwi_skipped = dedupe_first_per_uwi(data, uwi_col)
 
     conn = get_sql_conn()
     try:
@@ -174,7 +199,9 @@ def run_backfill(path: Path, *, dry_run: bool = False) -> dict:
             conn.commit()
 
         return {
-            "rows_read": len(data),
+            "rows_read": rows_read,
+            "rows_after_dedupe": len(data),
+            "duplicate_uwi_skipped": duplicate_uwi_skipped,
             "matched": matched,
             "updated": updated,
             "unmatched": unmatched,
@@ -196,6 +223,11 @@ def main() -> int:
 
     summary = run_backfill(args.excel_path, dry_run=args.dry_run)
     print(f"Rows read: {summary['rows_read']}")
+    if summary["duplicate_uwi_skipped"]:
+        print(
+            f"Duplicate UWIs skipped (first row kept): {summary['duplicate_uwi_skipped']} "
+            f"({summary['rows_after_dedupe']} unique UWIs)"
+        )
     print(f"Matched to PCE_WM: {summary['matched']}")
     print(f"{'Would update' if args.dry_run else 'Updated'}: {summary['updated']}")
     if summary["unmatched"]:

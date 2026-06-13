@@ -7,6 +7,7 @@ from well_master_db import ADDITIONAL_FIELD_COLUMNS, WellMasterDB
 
 from scripts.backfill_wm_additional_fields import (
     normalize_excel_header,
+    dedupe_first_per_uwi,
     _EXCEL_HEADER_TO_KEY,
 )
 
@@ -69,6 +70,28 @@ class TestNormalizeExcelHeader(unittest.TestCase):
     def test_maps_to_known_key(self):
         norm = normalize_excel_header("Bottom\nHole\nLatitude")
         self.assertEqual(_EXCEL_HEADER_TO_KEY.get(norm), "bottom_hole_latitude")
+
+
+class TestDedupeFirstPerUwi(unittest.TestCase):
+    def test_keeps_first_row_per_uwi(self):
+        import pandas as pd
+
+        data = pd.DataFrame(
+            [
+                ["UWI-1", 1.0],
+                ["UWI-2", 2.0],
+                ["UWI-1", 9.0],
+                ["", 3.0],
+                ["UWI-2", 8.0],
+            ]
+        )
+        deduped, skipped = dedupe_first_per_uwi(data, uwi_col=0)
+        self.assertEqual(skipped, 2)
+        self.assertEqual(len(deduped), 2)
+        self.assertEqual(deduped.iloc[0, 0], "UWI-1")
+        self.assertEqual(deduped.iloc[0, 1], 1.0)
+        self.assertEqual(deduped.iloc[1, 0], "UWI-2")
+        self.assertEqual(deduped.iloc[1, 1], 2.0)
 
 
 if __name__ == "__main__":

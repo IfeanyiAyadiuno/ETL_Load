@@ -62,13 +62,13 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
         create = build_whitson_well_create_payload(
             meta, project_id=1, name="WELL-TOE", uwi_api="UWI-1"
         )
-        self.assertAlmostEqual(create["toe_lat"], 55.09)
-        self.assertAlmostEqual(create["toe_long"], -120.11)
+        self.assertAlmostEqual(create["bothole_lat"], 55.09)
+        self.assertAlmostEqual(create["bothole_long"], -120.11)
 
         patch = build_whitson_well_patch_payload(7, meta)
         self.assertEqual(patch["id"], 7)
-        self.assertAlmostEqual(patch["toe_lat"], 55.09)
-        self.assertAlmostEqual(patch["toe_long"], -120.11)
+        self.assertAlmostEqual(patch["bothole_lat"], 55.09)
+        self.assertAlmostEqual(patch["bothole_long"], -120.11)
 
     def test_fetch_sql_prefers_new_coordinate_columns(self):
         self.assertIn(
@@ -119,8 +119,8 @@ class TestSyncWhitsonWellAttributes(unittest.TestCase):
         self.assertEqual(patch_arg[0]["id"], 100)
         self.assertEqual(patch_arg[0]["pad_name"], "PAD-A")
         self.assertEqual(patch_arg[0]["sub_field"], "Block 1")
-        self.assertAlmostEqual(patch_arg[0]["toe_lat"], 55.2)
-        self.assertAlmostEqual(patch_arg[0]["toe_long"], -120.3)
+        self.assertAlmostEqual(patch_arg[0]["bothole_lat"], 55.2)
+        self.assertAlmostEqual(patch_arg[0]["bothole_long"], -120.3)
         whitson.edit_custom_attribute_bulk.assert_not_called()
 
     def test_sync_skips_patch_when_no_native_fields(self):
