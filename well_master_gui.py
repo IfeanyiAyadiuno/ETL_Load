@@ -28,6 +28,9 @@ from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
 from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialog
 
+ADDITIONAL_FIELDS_COL = 19
+ADDITIONAL_FIELDS_COL_WIDTH = 130
+
 
 def _strip_leading_snowflake_asterisk(name):
     """Remove leading '*' tokens from Snowflake unit names (e.g. *B-G095 → B-G095)."""
@@ -131,7 +134,7 @@ class WellMasterDialog(QDialog):
             110, 80,  100, 100,
             100, 100, 130, 70,
             90, 220, 70,
-            88,
+            ADDITIONAL_FIELDS_COL_WIDTH,
         ]
         self.headers = [
             "",
@@ -346,6 +349,12 @@ class WellMasterDialog(QDialog):
             self.table.setColumnWidth(i, width)
 
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(
+            ADDITIONAL_FIELDS_COL, QHeaderView.Fixed
+        )
+        self.table.setColumnWidth(ADDITIONAL_FIELDS_COL, ADDITIONAL_FIELDS_COL_WIDTH)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         layout.addWidget(self.table)
 
@@ -377,6 +386,12 @@ class WellMasterDialog(QDialog):
             self.staged_table.setColumnWidth(i, width)
 
         self.staged_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.staged_table.horizontalHeader().setStretchLastSection(False)
+        self.staged_table.horizontalHeader().setSectionResizeMode(
+            ADDITIONAL_FIELDS_COL, QHeaderView.Fixed
+        )
+        self.staged_table.setColumnWidth(ADDITIONAL_FIELDS_COL, ADDITIONAL_FIELDS_COL_WIDTH)
+        self.staged_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         layout.addWidget(self.staged_table)
 
@@ -417,6 +432,14 @@ class WellMasterDialog(QDialog):
                 self.table.setItemDelegateForColumn(col, delegate)
 
         self.table.itemChanged.connect(self.on_current_item_changed)
+
+    def _sync_additional_fields_column_width(self, table):
+        """Keep the last column wide enough for the header and Fields button."""
+        w = max(
+            ADDITIONAL_FIELDS_COL_WIDTH,
+            table.sizeHintForColumn(ADDITIONAL_FIELDS_COL) + 8,
+        )
+        table.setColumnWidth(ADDITIONAL_FIELDS_COL, w)
 
     def is_row_checked(self, row):
         """Check if the checkbox for a given row is checked"""
@@ -734,11 +757,13 @@ class WellMasterDialog(QDialog):
 
             self._set_additional_fields_button(row, well.get("well_name", ""), is_checked=False)
 
+        self._sync_additional_fields_column_width(self.table)
         self.table.itemChanged.connect(self.on_current_item_changed)
 
     def _set_additional_fields_button(self, row, well_name, is_checked=False):
         btn = QPushButton("Fields…")
         btn.setStyleSheet(btn_neutral())
+        btn.setMinimumWidth(76)
         btn.setToolTip("Edit additional well metadata (coordinates, elevations, tubing)")
         btn.setEnabled(is_checked)
         if not is_checked:
@@ -748,8 +773,8 @@ class WellMasterDialog(QDialog):
         lay = QHBoxLayout(wrap)
         lay.addWidget(btn)
         lay.setAlignment(Qt.AlignCenter)
-        lay.setContentsMargins(4, 0, 4, 0)
-        self.table.setCellWidget(row, 19, wrap)
+        lay.setContentsMargins(6, 2, 6, 2)
+        self.table.setCellWidget(row, ADDITIONAL_FIELDS_COL, wrap)
 
     def open_additional_fields(self, row):
         """Open additional-fields dialog for one table row."""
