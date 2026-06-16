@@ -24,6 +24,9 @@ from prodview_date_bounds import (
 )
 from sync_typecurves_to_production import sync_tc_to_production
 
+# pyodbc fast_executemany batch size for large CDA/Production inserts
+SQL_INSERT_BATCH_SIZE = 20000
+
 
 def _emit_log(log_callback, msg):
     (log_callback or print)(msg)
@@ -437,10 +440,32 @@ def _month_boundaries(dt):
     return first.date(), last.date()
 
 
-def _batch_executemany(cursor, sql, rows, batch_size=5000):
-    """Execute INSERT/UPDATE in batches."""
-    for i in range(0, len(rows), batch_size):
-        cursor.executemany(sql, rows[i:i + batch_size])
+def _batch_executemany(
+    cursor,
+    sql,
+    rows,
+    *,
+    batch_size=SQL_INSERT_BATCH_SIZE,
+    log=None,
+    label="Insert",
+    progress=None,
+    progress_lo=0,
+    progress_hi=100,
+):
+    """Execute INSERT/UPDATE in batches with optional log and progress callbacks."""
+    total = len(rows)
+    if total == 0:
+        return
+    for i in range(0, total, batch_size):
+        batch = rows[i : i + batch_size]
+        cursor.executemany(sql, batch)
+        done = min(i + len(batch), total)
+        if log:
+            pct = int(100 * done / total)
+            log(lf.detail(f"{label} progress: {lf.num(done)}/{lf.num(total)} ({pct}%)"))
+        if progress:
+            pct = progress_lo + (progress_hi - progress_lo) * (done / total)
+            progress(int(pct))
 
 
 def query_pce_cda_min_date(conn=None):
@@ -572,15 +597,29 @@ def refresh_pce_cda_from_snowflake(
         progress(30)
 
         log(lf.step(f"Replacing PCE_CDA rows ({start_date} to {end_date})…"))
+        log(lf.detail("Deleting existing PCE_CDA rows in range…"))
         cursor.execute(
             "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
             start_date,
             end_date,
         )
+        deleted = cursor.rowcount
         conn.commit()
+        if deleted is not None and deleted >= 0:
+            log(lf.detail(f"Deleted {lf.num(deleted)} PCE_CDA row(s)"))
 
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
-        _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
+        log(lf.detail(f"Inserting {lf.num(len(rows))} PCE_CDA row(s)…"))
+        _batch_executemany(
+            cursor,
+            _CDA_INSERT_SQL,
+            rows,
+            log=log,
+            label="PCE_CDA insert",
+            progress=progress,
+            progress_lo=30,
+            progress_hi=44,
+        )
         conn.commit()
         n = len(rows)
         log(lf.success(f"Inserted {lf.num(n)} records into PCE_CDA"))
@@ -767,7 +806,17 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
         # Insert CDA
         log(lf.step("Inserting into PCE_CDA..."))
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
-        _batch_executemany(cursor, _CDA_INSERT_SQL, rows)
+        log(lf.detail(f"Inserting {lf.num(len(rows))} PCE_CDA row(s)…"))
+        _batch_executemany(
+            cursor,
+            _CDA_INSERT_SQL,
+            rows,
+            log=log,
+            label="PCE_CDA insert",
+            progress=progress,
+            progress_lo=55,
+            progress_hi=59,
+        )
         conn.commit()
         total_cda = len(rows)
         log(lf.detail(f"Inserted {lf.num(total_cda)} CDA records"))
@@ -1075,7 +1124,17 @@ def run_quick_update(progress_callback=None, log_callback=None):
             all_cda = apply_gathered_prd_month_labels(all_cda)
 
             prod_rows = _df_to_insert_rows(all_cda, _PROD_COLUMNS)
-            _batch_executemany(cursor, _PROD_INSERT_SQL, prod_rows)
+            log(lf.detail(f"Inserting {lf.num(len(prod_rows))} PCE_Production row(s)…"))
+            _batch_executemany(
+                cursor,
+                _PROD_INSERT_SQL,
+                prod_rows,
+                log=log,
+                label="PCE_Production insert",
+                progress=progress,
+                progress_lo=76,
+                progress_hi=88,
+            )
             conn.commit()
             total_wells = len(affected_well_names)
             total_prod = len(prod_rows)

@@ -101,8 +101,9 @@ class WhitsonMassUploadDialog(QDialog):
         self.worker = None
         self.setWindowTitle("📤 Whitson+ Mass Upload")
         self.setModal(True)
-        self.setMinimumWidth(700)
-        self.setMinimumHeight(480)
+        self.setMinimumWidth(760)
+        self.setMinimumHeight(680)
+        self.resize(820, 720)
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
@@ -171,10 +172,13 @@ class WhitsonMassUploadDialog(QDialog):
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.log_output.setStyleSheet(results_area_style())
-        self.log_output.setMinimumHeight(280)
+        self.log_output.setMinimumHeight(220)
         log_layout.addWidget(self.log_output)
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
+
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll, stretch=1)
 
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -189,10 +193,7 @@ class WhitsonMassUploadDialog(QDialog):
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
-        layout.addLayout(button_layout)
-
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        main_layout.addLayout(button_layout)
 
     def create_group(self, title):
         group = QFrame()

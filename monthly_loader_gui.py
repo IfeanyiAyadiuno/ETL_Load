@@ -640,7 +640,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         cursor.fast_executemany = True
-        batch_size = 5000
+        batch_size = 20000
         for i in range(0, len(rows_to_insert), batch_size):
             batch = rows_to_insert[i:i + batch_size]
             cursor.executemany(insert_sql, batch)

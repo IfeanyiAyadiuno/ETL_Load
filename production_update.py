@@ -971,8 +971,8 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     sub[sub.isna()] = None
     rows_to_insert = list(sub.itertuples(index=False, name=None))
 
-    batch_size = 5000
-    commit_every_rows = 50000
+    batch_size = 20000
+    commit_every_rows = 100000
     total_inserted = 0
     duplicate_skipped = 0
 
@@ -1005,8 +1005,14 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
 
             if progress is not None:
                 progress.phase_part("insert", rows_done, total_rows)
-            if rows_done % 50000 == 0 or rows_done == total_rows:
-                print(lf.detail(f"Insert progress: {lf.num(rows_done)}/{lf.num(total_rows)} rows"))
+            if rows_done % batch_size == 0 or rows_done == total_rows:
+                pct = int(100 * rows_done / total_rows) if total_rows else 100
+                print(
+                    lf.detail(
+                        f"PCE_Production insert progress: "
+                        f"{lf.num(rows_done)}/{lf.num(total_rows)} ({pct}%)"
+                    )
+                )
 
     if progress is not None:
         progress.phase_done("insert")
