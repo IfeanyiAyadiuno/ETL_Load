@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QFormLayout,
     QInputDialog,
+    QScrollArea,
+    QWidget,
 )
 
 from survey_import import (
@@ -35,6 +37,7 @@ from styles import (
     btn_neutral,
     btn_primary,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
 
 
@@ -85,7 +88,13 @@ class SurveyMappingDialog(QDialog):
         return self._spec
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
 
         title = QLabel("Directional survey — map columns")
         title.setStyleSheet(dialog_title_style())
@@ -165,6 +174,8 @@ class SurveyMappingDialog(QDialog):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
+        scroll.setWidget(content)
+
         bottom = QHBoxLayout()
         bottom.addStretch()
         self.ok_btn = QPushButton("OK")
@@ -175,7 +186,8 @@ class SurveyMappingDialog(QDialog):
         cancel_btn.setStyleSheet(btn_neutral())
         cancel_btn.clicked.connect(self.reject)
         bottom.addWidget(cancel_btn)
-        layout.addLayout(bottom)
+
+        attach_dialog_scroll_and_actions(root, scroll, bottom)
 
         self._validate_ok_button()
 

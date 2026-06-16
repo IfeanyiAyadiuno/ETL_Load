@@ -41,6 +41,7 @@ from styles import (
     results_area_style,
     file_path_label_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
     list_widget_style,
     muted_body_label_style,
 )
@@ -232,21 +233,22 @@ class MonthlyForecastsImportDialog(QDialog):
         self.results.setStyleSheet(results_area_style())
         run_group.layout().addWidget(self.results)
 
+        inner.addWidget(run_group)
+
+        scroll.setWidget(content)
+
+        button_layout = QHBoxLayout()
         self.run_btn = QPushButton("Run import")
         self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self._run_import)
-        run_group.layout().addWidget(self.run_btn)
+        button_layout.addWidget(self.run_btn)
+        button_layout.addStretch()
+        self.close_btn = QPushButton("Close")
+        self.close_btn.setStyleSheet(btn_neutral(large=True))
+        self.close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.close_btn)
 
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet(btn_neutral(large=True))
-        close_btn.clicked.connect(self.accept)
-        run_group.layout().addWidget(close_btn)
-
-        inner.addWidget(run_group)
-        inner.addStretch()
-
-        scroll.setWidget(content)
-        layout.addWidget(scroll)
+        attach_dialog_scroll_and_actions(layout, scroll, button_layout)
 
         self._update_action_buttons()
 

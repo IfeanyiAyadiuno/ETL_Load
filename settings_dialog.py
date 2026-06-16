@@ -11,10 +11,12 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QFileDialog,
     QMessageBox,
+    QScrollArea,
+    QWidget,
 )
 
 from app_paths import get_settings_path
-from styles import configure_dialog_window_mode, dialog_title_style
+from styles import configure_dialog_window_mode, dialog_title_style, attach_dialog_scroll_and_actions
 
 
 class SettingsDialog(QDialog):
@@ -36,6 +38,13 @@ class SettingsDialog(QDialog):
         title = QLabel("⚙️ System Settings")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(15)
 
         # SQL Server Settings Group
         sql_group = QFrame()
@@ -70,7 +79,7 @@ class SettingsDialog(QDialog):
         db_layout.addWidget(self.db_input)
         sql_layout.addLayout(db_layout)
 
-        layout.addWidget(sql_group)
+        scroll_layout.addWidget(sql_group)
 
         # File Paths Group
         paths_group = QFrame()
@@ -227,7 +236,9 @@ class SettingsDialog(QDialog):
         mf_layout.addWidget(mf_browse)
         paths_layout.addLayout(mf_layout)
 
-        layout.addWidget(paths_group)
+        scroll_layout.addWidget(paths_group)
+
+        scroll.setWidget(scroll_content)
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -270,7 +281,7 @@ class SettingsDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
 
-        layout.addLayout(button_layout)
+        attach_dialog_scroll_and_actions(layout, scroll, button_layout)
 
     def browse_valnav(self):
         """Browse for ValNav template file"""

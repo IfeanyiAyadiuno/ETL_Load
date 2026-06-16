@@ -24,6 +24,7 @@ from styles import (
     btn_neutral,
     card_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
     dialog_title_style,
     muted_body_label_style,
     progress_bar_style,
@@ -178,22 +179,19 @@ class WhitsonMassUploadDialog(QDialog):
         layout.addWidget(log_group)
 
         scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll, stretch=1)
 
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
         self.run_btn = QPushButton("Post Data")
         self.run_btn.setStyleSheet(btn_brand())
         self.run_btn.clicked.connect(self.run_upload)
         button_layout.addWidget(self.run_btn)
-
+        button_layout.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(btn_neutral())
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
-        main_layout.addLayout(button_layout)
+        attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
     def create_group(self, title):
         group = QFrame()

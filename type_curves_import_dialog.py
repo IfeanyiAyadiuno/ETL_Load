@@ -49,6 +49,7 @@ from styles import (
     muted_body_label_style,
     list_widget_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
 
 
@@ -295,16 +296,16 @@ class TypeCurvesImportDialog(QDialog):
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
 
+        scroll.setWidget(scroll_content)
+
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(btn_neutral())
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
-        layout.addLayout(button_layout)
 
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
     def create_group(self, title):
         group = QFrame()

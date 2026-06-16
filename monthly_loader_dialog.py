@@ -28,6 +28,7 @@ from styles import (
     configure_percentage_progress_bar, set_progress_bar_percent_mode,
     file_path_label_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
 
 
@@ -131,29 +132,21 @@ class MonthlyLoaderDialog(QDialog):
         results_group.layout().addWidget(self.results_text)
         layout.addWidget(results_group)
 
-        # Buttons
+        scroll.setWidget(scroll_content)
+
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-
         self.run_btn = QPushButton("▶️ Run Monthly Loader")
         self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self.run_loader)
         button_layout.addWidget(self.run_btn)
-
+        button_layout.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(btn_neutral(large=True))
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        # Add stretch at the bottom
-        layout.addStretch()
-
-        # Set the scroll content
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
     def handle_close(self):
         """

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from styles import DIALOG_BASE, btn_primary, btn_neutral, dialog_title_style, configure_dialog_window_mode
+from styles import DIALOG_BASE, btn_primary, btn_neutral, dialog_title_style, configure_dialog_window_mode, attach_dialog_scroll_and_actions
 from well_master_db import WellMasterDB, ADDITIONAL_FIELD_COLUMNS
 
 _FIELD_LABELS = {
@@ -92,7 +92,6 @@ class WellMasterAdditionalFieldsDialog(QDialog):
             grid.addWidget(edit, row, col_pair + 1)
 
         scroll.setWidget(form_host)
-        layout.addWidget(scroll)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -104,7 +103,7 @@ class WellMasterAdditionalFieldsDialog(QDialog):
         save_btn.clicked.connect(self._save)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(save_btn)
-        layout.addLayout(btn_row)
+        attach_dialog_scroll_and_actions(layout, scroll, btn_row)
 
     def _load_fields(self):
         data = WellMasterDB.get_additional_fields(self.well_name)

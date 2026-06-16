@@ -9,7 +9,7 @@ import warnings
 
 import log_format as lf
 from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
-from prodview_date_bounds import prodview_effective_end_date
+from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -1039,7 +1039,7 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
 
     return total_inserted
 
-def main(cancel_event=None, progress_callback=None):
+def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     """
     Rebuild PCE_Production from PCE_CDA.
 
@@ -1069,7 +1069,8 @@ def main(cancel_event=None, progress_callback=None):
         print(lf.warn("Cancelled before start."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    end_cap = prodview_effective_end_date()
+    end_cap = prodview_effective_end_date(data_lag_days)
+    lag_days = PRODVIEW_DATA_LAG_DAYS if data_lag_days is None else int(data_lag_days)
     from prodview_update_gui import (
         query_pce_cda_max_date,
         query_pce_cda_min_date,
@@ -1079,11 +1080,12 @@ def main(cancel_event=None, progress_callback=None):
     cda_min_before = query_pce_cda_min_date()
     cda_max_before = query_pce_cda_max_date()
     print(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
-    print(lf.detail(f"Automatic end date (today − lag): {end_cap}"))
+    print(lf.detail(f"Automatic end date (today − {lag_days} day(s)): {end_cap}"))
 
     sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(
         log_callback=print,
         progress_callback=progress.snowflake_substep,
+        data_lag_days=data_lag_days,
     )
     progress.phase_done("snowflake")
     cda_max_after = query_pce_cda_max_date()

@@ -782,6 +782,7 @@ def refresh_full_rebuild_cda(
     log_callback=None,
     conn=None,
     progress_callback=None,
+    data_lag_days=None,
 ):
     """
     Replace PCE_CDA from Snowflake per well from first production date (Snowflake)
@@ -791,7 +792,7 @@ def refresh_full_rebuild_cda(
     from prodview_date_bounds import full_rebuild_snowflake_range, quick_update_start_date
 
     log = partial(_emit_log, log_callback)
-    end_date = prodview_effective_end_date()
+    end_date = prodview_effective_end_date(data_lag_days)
     default_start = quick_update_start_date(end_date)
 
     own_conn = conn is None
@@ -1136,14 +1137,14 @@ def run_prodview_update(start_month, end_month, progress_callback=None, log_call
 # ---------------------------------------------------------------------------
 
 
-def run_quick_update(progress_callback=None, log_callback=None):
+def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=None):
     log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
             progress_callback(val)
 
-    start_first, end_last = rolling_window_snowflake_range()
+    start_first, end_last = rolling_window_snowflake_range(data_lag_days)
     if start_first > end_last:
         log(lf.error("Snowflake rolling-window date range is empty"))
         return {"error": "Snowflake rolling-window date range is empty"}

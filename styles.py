@@ -647,6 +647,16 @@ def search_input_style() -> str:
     """
 
 
+def attach_dialog_scroll_and_actions(main_layout, scroll, action_layout) -> None:
+    """
+    Pin primary dialog actions below a scroll area (Exports / Reports pattern).
+
+    The scroll region expands; Run / Close / Save rows stay visible while scrolling.
+    """
+    main_layout.addWidget(scroll, 1)
+    main_layout.addLayout(action_layout)
+
+
 def configure_dialog_window_mode(dialog) -> None:
     """Min/max title-bar buttons (Windows), F11 toggles full screen, Esc exits full screen."""
     from PyQt5.QtCore import Qt, QObject, QEvent

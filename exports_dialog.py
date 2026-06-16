@@ -44,6 +44,7 @@ from styles import (
     set_progress_bar_percent_mode,
     results_area_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
 
 
@@ -153,7 +154,6 @@ class ExportsDialog(QDialog):
         layout.addWidget(self.progress_bar)
 
         scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll, 1)
 
         btn_row = QHBoxLayout()
         self.export_btn = QPushButton("Export to Excel")
@@ -168,7 +168,7 @@ class ExportsDialog(QDialog):
         btn_row.addWidget(self.export_btn)
         btn_row.addStretch()
         btn_row.addWidget(self.close_btn)
-        main_layout.addLayout(btn_row)
+        attach_dialog_scroll_and_actions(main_layout, scroll, btn_row)
 
     def load_month_bounds(self):
         try:

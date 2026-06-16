@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QMessageBox,
     QRadioButton,
+    QSpinBox,
 )
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QTextCursor
@@ -26,8 +27,11 @@ from styles import (
     btn_brand, btn_neutral, progress_bar_style, results_area_style,
     configure_percentage_progress_bar, set_progress_bar_percent_mode,
     info_panel_style,
+    muted_body_label_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
+from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
 
 class ProdviewUpdateDialog(QDialog):
@@ -67,18 +71,11 @@ class ProdviewUpdateDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("❄️ Prodview/Snowflake Daily Production Retrieve")
+        title = QLabel("Prodview / Snowflake Daily Production Retrieve")
         title.setStyleSheet(dialog_title_style())
         layout.addWidget(title)
 
-        self.quick_scope_group = self.create_group("📅 Overview")
-        self.quick_scope_body = QLabel()
-        self.quick_scope_body.setWordWrap(True)
-        self.quick_scope_body.setStyleSheet("color: #334155; font-size: 13px;")
-        self.quick_scope_group.layout().addWidget(self.quick_scope_body)
-        layout.addWidget(self.quick_scope_group)
-
-        sql_group = self.create_group("🗄️ SQL destination (Settings)")
+        sql_group = self.create_group("SQL destination")
         sql_layout = QVBoxLayout()
         self.sql_target_label = QLabel()
         self.sql_target_label.setWordWrap(True)
@@ -90,8 +87,27 @@ class ProdviewUpdateDialog(QDialog):
         sql_group.layout().addLayout(sql_layout)
         layout.addWidget(sql_group)
 
+        options_group = self.create_group("Options")
+        options_layout = QVBoxLayout()
+        lag_row = QHBoxLayout()
+        lag_row.addWidget(QLabel("End date lag:"))
+        self.lag_spin = QSpinBox()
+        self.lag_spin.setRange(0, 90)
+        self.lag_spin.setValue(PRODVIEW_DATA_LAG_DAYS)
+        self.lag_spin.setSuffix(" day(s) before today")
+        self.lag_spin.setMinimumWidth(160)
+        self.lag_spin.valueChanged.connect(self.update_info_text)
+        lag_row.addWidget(self.lag_spin)
+        lag_row.addStretch()
+        options_layout.addLayout(lag_row)
+        self.effective_end_label = QLabel()
+        self.effective_end_label.setStyleSheet(muted_body_label_style())
+        options_layout.addWidget(self.effective_end_label)
+        options_group.layout().addLayout(options_layout)
+        layout.addWidget(options_group)
+
         # Update Mode Selection
-        mode_group = self.create_group("⚙️ Update Mode")
+        mode_group = self.create_group("Update mode")
         mode_layout = QVBoxLayout()
 
         self.mode_full_rebuild = QRadioButton(
@@ -100,24 +116,25 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(self.mode_full_rebuild)
 
         full_rebuild_desc = QLabel(
-            "  • Snowflake → PCE_CDA per well from first production date through today − 2\n"
-            "  • Refreshes CDA sales from Allocation_Factors, then rebuilds all PCE_Production from CDA\n"
-            "  • Longest run — can take 15+ min on large history"
+            "Snowflake full CDA history, allocation refresh, and complete production rebuild. "
+            "Typical runtime up to 40 minutes."
         )
-        full_rebuild_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
+        full_rebuild_desc.setWordWrap(True)
+        full_rebuild_desc.setStyleSheet(muted_body_label_style() + " padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton(
-            "Snowflake → CDA + production rebuild"
+            "Routine update — Snowflake → CDA + production (~18 months)"
         )
         self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "  • Snowflake → PCE_CDA (~18‑month rolling window), then rebuild PCE_Production from CDA\n"
-            "  • ~5 min"
+            "Rolling ~18-month Snowflake window and production rebuild for that span. "
+            "Typical runtime about 25 minutes."
         )
-        quick_update_desc.setStyleSheet("color: #64748b; font-size: 12px; padding-left: 22px; padding-bottom: 4px;")
+        quick_update_desc.setWordWrap(True)
+        quick_update_desc.setStyleSheet(muted_body_label_style() + " padding-left: 22px; padding-bottom: 4px;")
         mode_layout.addWidget(quick_update_desc)
 
         self.mode_full_rebuild.toggled.connect(self.update_info_text)
@@ -126,18 +143,15 @@ class ProdviewUpdateDialog(QDialog):
         mode_group.layout().addLayout(mode_layout)
         layout.addWidget(mode_group)
 
-        # Info Group
-        info_group = self.create_group("ℹ️ This will:")
-        info_layout = QVBoxLayout()
-
-        self.info_text = QLabel("")
-        self.info_text.setStyleSheet(info_panel_style())
-        info_layout.addWidget(self.info_text)
-        info_group.layout().addLayout(info_layout)
-        layout.addWidget(info_group)
+        summary_group = self.create_group("Summary")
+        self.summary_text = QLabel("")
+        self.summary_text.setWordWrap(True)
+        self.summary_text.setStyleSheet(info_panel_style())
+        summary_group.layout().addWidget(self.summary_text)
+        layout.addWidget(summary_group)
 
         # Overall Progress
-        progress_group = self.create_group("Overall Progress")
+        progress_group = self.create_group("Progress")
         progress_layout = QVBoxLayout()
 
         self.progress_bar = QProgressBar()
@@ -154,7 +168,7 @@ class ProdviewUpdateDialog(QDialog):
         layout.addWidget(self.status_label)
 
         # Results Area
-        results_group = self.create_group("📋 Results")
+        results_group = self.create_group("Results")
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setMinimumHeight(180)
@@ -162,27 +176,21 @@ class ProdviewUpdateDialog(QDialog):
         results_group.layout().addWidget(self.results_text)
         layout.addWidget(results_group)
 
-        # Buttons
+        scroll.setWidget(scroll_content)
+
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-
         self.run_btn = QPushButton("▶️ Run Update")
         self.run_btn.setStyleSheet(btn_brand(large=True))
         self.run_btn.clicked.connect(self.run_update)
         button_layout.addWidget(self.run_btn)
-
+        button_layout.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(btn_neutral(large=True))
         self.close_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.close_btn)
 
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-
-        layout.addStretch()
-
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
         self._sql_ok = False
         self.update_info_text()
@@ -256,25 +264,30 @@ class ProdviewUpdateDialog(QDialog):
         
         event.accept()
 
+    def _selected_lag_days(self) -> int:
+        return int(self.lag_spin.value())
+
+    def _effective_end_date(self):
+        return prodview_effective_end_date(self._selected_lag_days())
+
     def update_info_text(self):
-        """Update info text based on selected mode."""
+        """Update summary text based on selected mode and lag."""
+        lag = self._selected_lag_days()
+        end = self._effective_end_date()
+        self.effective_end_label.setText(
+            f"Production data through {end.isoformat()} (today minus {lag} day(s))."
+        )
         if self.mode_full_rebuild.isChecked():
-            self.quick_scope_body.setText(
-                "Full rebuild: Snowflake for full CDA history + AF refresh, "
-                "then rebuild all PCE_Production from all PCE_CDA (through today − 2)."
-            )
-            self.info_text.setText(
-                "  • Snowflake → PCE_CDA from each well's first production date through today − 2\n"
-                "  • Refresh CDA sales columns from Allocation_Factors\n"
-                "  • Delete all gathered PCE_Production and rebuild from all PCE_CDA (+ PCE_TC sync)"
+            self.summary_text.setText(
+                f"Full rebuild through {end.isoformat()}: refresh PCE_CDA from Snowflake, "
+                "apply allocation factors, then rebuild all PCE_Production. "
+                "Allow up to 40 minutes."
             )
         else:
-            self.quick_scope_body.setText(
-                "Snowflake (~18 mo), then full PCE_Production rebuild (+ TC sync). ~5 min."
-            )
-            self.info_text.setText(
-                "  • Load Snowflake into PCE_CDA for the rolling window\n"
-                "  • Rebuild PCE_Production from PCE_CDA (includes PCE_TC sync)"
+            self.summary_text.setText(
+                f"Routine update through {end.isoformat()}: refresh the ~18-month Snowflake "
+                "window in PCE_CDA and rebuild PCE_Production for that span. "
+                "Allow about 25 minutes."
             )
 
     def create_group(self, title):
@@ -312,21 +325,27 @@ class ProdviewUpdateDialog(QDialog):
         from db_connection import sql_target_label
 
         sql_target = sql_target_label()
+        lag = self._selected_lag_days()
+        end = self._effective_end_date()
         update_mode = "full_rebuild" if self.mode_full_rebuild.isChecked() else "quick_update"
         if update_mode == "full_rebuild":
-            mode_label = "Full rebuild: Snowflake full CDA history + AF + all production"
+            mode_label = "Full rebuild (all CDA → production)"
             body = (
                 "Run full rebuild?\n\n"
                 f"SQL target: {sql_target}\n"
-                f"{mode_label}\n\n"
+                f"End date: {end.isoformat()} (today − {lag} day(s))\n"
+                f"{mode_label}\n"
+                "Typical runtime up to 40 minutes.\n\n"
                 "Continue?"
             )
         else:
-            mode_label = "Snowflake → CDA + production (~18‑month window)"
+            mode_label = "Routine update (~18-month window)"
             body = (
-                "Run Snowflake → CDA + production rebuild?\n\n"
+                "Run routine Snowflake → CDA + production update?\n\n"
                 f"SQL target: {sql_target}\n"
-                f"{mode_label}\n\n"
+                f"End date: {end.isoformat()} (today − {lag} day(s))\n"
+                f"{mode_label}\n"
+                "Typical runtime about 25 minutes.\n\n"
                 "Continue?"
             )
         reply = QMessageBox.question(
@@ -341,6 +360,7 @@ class ProdviewUpdateDialog(QDialog):
 
         self.run_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
+        self.lag_spin.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.results_text.clear()
 
@@ -351,14 +371,16 @@ class ProdviewUpdateDialog(QDialog):
             "Started": lf.timestamp(),
             "Mode": mode_name,
             "SQL": sql_target,
+            "End date": self._effective_end_date().isoformat(),
+            "Lag days": str(lag),
         }
         if update_mode == "quick_update":
-            hdr["Scope"] = "~18 mo rolling (auto dates)"
+            hdr["Scope"] = "~18 mo rolling window"
         else:
-            hdr["Scope"] = "All CDA → production"
+            hdr["Scope"] = "Full CDA → production"
         self.log_result(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE", **hdr))
 
-        self.worker = ProdviewUpdateWorker(update_mode)
+        self.worker = ProdviewUpdateWorker(update_mode, data_lag_days=lag)
         self.worker.log_signal.connect(self.log_result)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.status_signal.connect(self._on_worker_status)
@@ -427,6 +449,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)
         self.close_btn.setEnabled(True)
+        self.lag_spin.setEnabled(True)
 
         if summary.get("skipped"):
             self.status_label.setText("Skipped")
@@ -467,6 +490,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)
         self.close_btn.setEnabled(True)
+        self.lag_spin.setEnabled(True)
         self.status_label.setText("Error")
         self.log_result(lf.error(error_msg))
 
@@ -479,9 +503,10 @@ class ProdviewUpdateWorker(QThread):
     finished_signal = pyqtSignal(dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, update_mode="full_rebuild"):
+    def __init__(self, update_mode="full_rebuild", data_lag_days=None):
         super().__init__()
         self.update_mode = update_mode
+        self.data_lag_days = data_lag_days
         self._cancel_event = threading.Event()
 
     def cancel(self):
@@ -521,6 +546,7 @@ class ProdviewUpdateWorker(QThread):
                     summary = run_full_rebuild(
                         cancel_event=self._cancel_event,
                         progress_callback=self.progress_signal.emit,
+                        data_lag_days=self.data_lag_days,
                     )
 
                     if log_capture.buffer.strip():
@@ -554,6 +580,7 @@ class ProdviewUpdateWorker(QThread):
                 summary = run_quick_update(
                     progress_callback,
                     log_callback,
+                    data_lag_days=self.data_lag_days,
                 )
 
             if summary and summary.get("error"):

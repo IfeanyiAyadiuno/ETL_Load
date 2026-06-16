@@ -41,6 +41,7 @@ from styles import (
     results_area_style,
     file_path_label_style,
     configure_dialog_window_mode,
+    attach_dialog_scroll_and_actions,
 )
 
 
@@ -273,20 +274,20 @@ class SurveyImportDialog(QDialog):
         log_group.layout().addLayout(log_layout)
         layout.addWidget(log_group)
 
+        scroll.setWidget(scroll_content)
+
         button_layout = QHBoxLayout()
-        button_layout.addStretch()
         self.run_btn = QPushButton("▶ Run Import")
         self.run_btn.setStyleSheet(btn_brand())
         self.run_btn.clicked.connect(self.run_import)
         button_layout.addWidget(self.run_btn)
+        button_layout.addStretch()
         self.cancel_btn = QPushButton("Close")
         self.cancel_btn.setStyleSheet(btn_neutral())
         self.cancel_btn.clicked.connect(self.handle_close)
         button_layout.addWidget(self.cancel_btn)
-        layout.addLayout(button_layout)
 
-        scroll.setWidget(scroll_content)
-        main_layout.addWidget(scroll)
+        attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
     def create_group(self, title):
         group = QFrame()

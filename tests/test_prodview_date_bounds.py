@@ -9,6 +9,8 @@ import prodview_date_bounds as pdb
 def test_prodview_effective_end_date_respects_lag():
     with patch.object(pdb, "_today", return_value=date(2026, 4, 19)):
         assert pdb.prodview_effective_end_date() == date(2026, 4, 17)
+        assert pdb.prodview_effective_end_date(0) == date(2026, 4, 19)
+        assert pdb.prodview_effective_end_date(5) == date(2026, 4, 14)
 
 
 def test_quick_update_date_range_18_months():
