@@ -115,6 +115,26 @@ _SF_QUERIES = {
     ),
 }
 
+_SF_FIRST_PROD_GASWH_SQL = """
+    SELECT
+        IDRECPARENT AS GasIDREC,
+        MIN(CAST(DTTM AS DATE)) AS FirstProdDate
+    FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
+    WHERE CAST(DTTM AS DATE) <= %s
+      AND VOLENTERGAS > 2
+    GROUP BY IDRECPARENT
+"""
+
+_SF_FIRST_PROD_GATHERED_SQL = """
+    SELECT
+        IDRECCOMP AS PressuresIDREC,
+        MIN(CAST(DTTM AS DATE)) AS FirstProdDate
+    FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
+    WHERE CAST(DTTM AS DATE) <= %s
+      AND VOLPRODGATHGAS > 0
+    GROUP BY IDRECCOMP
+"""
+
 
 def _pull_all_snowflake_data(sf, start_date, end_date, log):
     """Pull all Snowflake datasets in one shot for the full date range."""
@@ -193,6 +213,95 @@ def fetch_cda_first_production_by_well(conn=None) -> pd.Series:
     finally:
         if own_conn and conn is not None:
             conn.close()
+
+
+def _first_production_by_well_from_snowflake_frames(
+    mapping_df: pd.DataFrame,
+    gaswh_first: pd.DataFrame,
+    alloc_first: pd.DataFrame,
+) -> pd.Series:
+    """Map Snowflake per-ID first production dates to PCE_WM well names."""
+    if mapping_df.empty:
+        return pd.Series(dtype="object")
+
+    wm = mapping_df.copy()
+    wm["_gas_key"] = _normalize_join_key(wm["GasIDREC"])
+    wm["_pres_key"] = _normalize_join_key(wm["PressuresIDREC"])
+    gas_to_well = (
+        wm.drop_duplicates("_gas_key", keep="first")
+        .set_index("_gas_key")["Well Name"]
+        .to_dict()
+    )
+    pres_to_well = (
+        wm.drop_duplicates("_pres_key", keep="first")
+        .set_index("_pres_key")["Well Name"]
+        .to_dict()
+    )
+
+    well_dates: dict = {}
+
+    def _apply(df, id_col, lookup):
+        if df is None or df.empty:
+            return
+        col_map = {c.upper(): c for c in df.columns}
+        id_key = col_map.get(id_col.upper())
+        date_key = col_map.get("FIRSTPRODDATE")
+        if not id_key or not date_key:
+            return
+        for _, row in df.iterrows():
+            raw_id = row[id_key]
+            if raw_id is None or pd.isna(raw_id):
+                continue
+            key = _normalize_join_key(pd.Series([raw_id])).iloc[0]
+            well_name = lookup.get(key)
+            if not well_name:
+                continue
+            wn = str(well_name).strip()
+            d = row[date_key]
+            if d is None or pd.isna(d):
+                continue
+            prod_date = d.date() if hasattr(d, "date") else d
+            prev = well_dates.get(wn)
+            if prev is None or prod_date < prev:
+                well_dates[wn] = prod_date
+
+    _apply(gaswh_first, "GasIDREC", gas_to_well)
+    _apply(alloc_first, "PressuresIDREC", pres_to_well)
+    return pd.Series(well_dates)
+
+
+def fetch_first_production_by_well_from_snowflake(
+    mapping_df: pd.DataFrame,
+    end_date,
+    *,
+    log=None,
+) -> pd.Series:
+    """
+    Per-well first production from Snowflake (Gas WH > 2 or gathered gas > 0).
+
+    Used by Full Rebuild when PCE_CDA is empty or must not define the spine.
+    """
+    from snowflake_connector import SnowflakeConnector
+
+    end_s = str(end_date)
+    sf = SnowflakeConnector()
+    try:
+        gaswh_first = sf.query(_SF_FIRST_PROD_GASWH_SQL, (end_s,))
+        alloc_first = sf.query(_SF_FIRST_PROD_GATHERED_SQL, (end_s,))
+    finally:
+        sf.close()
+
+    if log:
+        log(
+            lf.detail(
+                f"Snowflake first production: {lf.num(len(gaswh_first))} gas IDs, "
+                f"{lf.num(len(alloc_first))} gathered IDs"
+            )
+        )
+
+    return _first_production_by_well_from_snowflake_frames(
+        mapping_df, gaswh_first, alloc_first
+    )
 
 
 def _build_spine_per_well_starts(mapping_df, first_prod_by_well, end_date, default_start):
@@ -517,6 +626,7 @@ def refresh_pce_cda_from_snowflake(
     progress_callback=None,
     well_first_production_start=None,
     default_spine_start=None,
+    replace_entire_cda=False,
 ):
     """
     Pull Snowflake for [start_date, end_date] and replace matching PCE_CDA rows.
@@ -524,6 +634,9 @@ def refresh_pce_cda_from_snowflake(
     When *well_first_production_start* is set (Full Rebuild), the spine uses each
     well's first production date through *end_date* instead of every calendar day
     from *start_date* for every well.
+
+    When *replace_entire_cda* is True (Full Rebuild), deletes all PCE_CDA rows
+    before insert instead of only the query date range.
 
     Does not modify PCE_Production. Returns number of CDA rows inserted.
     """
@@ -596,13 +709,18 @@ def refresh_pce_cda_from_snowflake(
         log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
         progress(30)
 
-        log(lf.step(f"Replacing PCE_CDA rows ({start_date} to {end_date})…"))
-        log(lf.detail("Deleting existing PCE_CDA rows in range…"))
-        cursor.execute(
-            "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
-            start_date,
-            end_date,
-        )
+        if replace_entire_cda:
+            log(lf.step("Replacing all PCE_CDA rows (full rebuild)…"))
+            log(lf.detail("Deleting all existing PCE_CDA rows…"))
+            cursor.execute("DELETE FROM PCE_CDA")
+        else:
+            log(lf.step(f"Replacing PCE_CDA rows ({start_date} to {end_date})…"))
+            log(lf.detail("Deleting existing PCE_CDA rows in range…"))
+            cursor.execute(
+                "DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
+                start_date,
+                end_date,
+            )
         deleted = cursor.rowcount
         conn.commit()
         if deleted is not None and deleted >= 0:
@@ -666,8 +784,8 @@ def refresh_full_rebuild_cda(
     progress_callback=None,
 ):
     """
-    Replace PCE_CDA from Snowflake per well from first production date (CDA) through
-    effective end. Used by Full Rebuild before rebuilding all PCE_Production.
+    Replace PCE_CDA from Snowflake per well from first production date (Snowflake)
+    through effective end. Used by Full Rebuild before rebuilding all PCE_Production.
     Returns (snowflake_query_start, end_date, rows_inserted).
     """
     from prodview_date_bounds import full_rebuild_snowflake_range, quick_update_start_date
@@ -680,17 +798,29 @@ def refresh_full_rebuild_cda(
     if own_conn:
         conn = get_sql_conn()
     try:
-        first_prod = fetch_cda_first_production_by_well(conn)
+        cursor = conn.cursor()
+        mapping_df = _fetch_well_mapping(cursor)
+        log(
+            lf.detail(
+                f"Resolving per-well first production from Snowflake "
+                f"({lf.num(len(mapping_df))} wells)…"
+            )
+        )
+        first_prod = fetch_first_production_by_well_from_snowflake(
+            mapping_df, end_date, log=log
+        )
         if first_prod.empty:
             log(
                 lf.detail(
-                    "No per-well first production in PCE_CDA; using rolling window "
+                    "No per-well first production in Snowflake; using rolling window "
                     f"start {default_start} for all wells."
                 )
             )
             query_start = default_start
+            spine_first_prod = None
         else:
             query_start = min(first_prod.values)
+            spine_first_prod = first_prod
             log(
                 lf.detail(
                     f"Per-well first production: {lf.num(len(first_prod))} wells; "
@@ -711,8 +841,9 @@ def refresh_full_rebuild_cda(
             log_callback=log_callback,
             conn=conn,
             progress_callback=progress_callback,
-            well_first_production_start=first_prod if not first_prod.empty else None,
+            well_first_production_start=spine_first_prod,
             default_spine_start=default_start,
+            replace_entire_cda=True,
         )
         return query_start, end_date, n
     finally:
