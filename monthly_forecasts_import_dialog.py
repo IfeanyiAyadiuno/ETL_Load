@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QAbstractItemView,
 )
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QTextCursor
 
 import log_format as lf
@@ -78,6 +78,20 @@ class MonthlyForecastsImportWorker(QThread):
             self.error_signal.emit(str(e))
 
 
+class ForecastMonthListWorker(QThread):
+    """Load distinct forecast months from SQL Server off the UI thread."""
+
+    finished_signal = pyqtSignal(list)
+    error_signal = pyqtSignal(str)
+
+    def run(self):
+        try:
+            months = fetch_distinct_forecast_months()
+            self.finished_signal.emit(months)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
 class ForecastMonthDeleteWorker(QThread):
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
@@ -108,6 +122,7 @@ class MonthlyForecastsImportDialog(QDialog):
         self.settings_section = settings_section
         self.import_worker = None
         self.delete_worker = None
+        self.month_list_worker = None
         self._selected_path = (settings_section.get("monthly_forecasts_template") or "").strip()
         self.setWindowTitle("Monthly Forecasts Import")
         self.setModal(True)
@@ -116,7 +131,7 @@ class MonthlyForecastsImportDialog(QDialog):
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
-        self._refresh_month_list()
+        QTimer.singleShot(0, self._start_month_list_load)
 
     def initUI(self):
         layout = QVBoxLayout(self)
@@ -255,17 +270,24 @@ class MonthlyForecastsImportDialog(QDialog):
         self.results.setTextCursor(c)
 
     def _workers_idle(self) -> bool:
-        return self.import_worker is None and self.delete_worker is None
+        return (
+            self.import_worker is None
+            and self.delete_worker is None
+            and self.month_list_worker is None
+        )
 
     def _update_action_buttons(self):
         idle = self._workers_idle()
+        month_list_ready = self.month_list_worker is None
         has_checked_months = bool(self._checked_months())
-        self.run_btn.setEnabled(idle)
-        self.remove_months_btn.setEnabled(idle and has_checked_months)
-        self.refresh_months_btn.setEnabled(idle)
-        self.select_all_months_btn.setEnabled(idle)
-        self.clear_months_btn.setEnabled(idle)
-        self.month_list.setEnabled(idle)
+        self.run_btn.setEnabled(idle and month_list_ready)
+        self.remove_months_btn.setEnabled(
+            idle and month_list_ready and has_checked_months
+        )
+        self.refresh_months_btn.setEnabled(idle and month_list_ready)
+        self.select_all_months_btn.setEnabled(idle and month_list_ready)
+        self.clear_months_btn.setEnabled(idle and month_list_ready)
+        self.month_list.setEnabled(idle and month_list_ready)
 
     @staticmethod
     def _make_checkable_item(label: str, user_data) -> QListWidgetItem:
@@ -293,22 +315,56 @@ class MonthlyForecastsImportDialog(QDialog):
                     out.append((int(data[0]), int(data[1])))
         return out
 
-    def _refresh_month_list(self):
-        if not self._workers_idle():
-            return
+    def _show_month_list_loading(self):
         self.month_list.blockSignals(True)
         self.month_list.clear()
-        try:
-            months = fetch_distinct_forecast_months()
-            for year, month, label in months:
-                self.month_list.addItem(self._make_checkable_item(label, (year, month)))
-            if not months:
-                self.log_result(lf.detail("No forecast months found in PCE_Monthly_Forecasts."))
-        except Exception as e:
-            QMessageBox.warning(self, "Load months failed", str(e))
-        finally:
-            self.month_list.blockSignals(False)
-            self._update_action_buttons()
+        loading = QListWidgetItem("Loading months from database…")
+        loading.setFlags(Qt.NoItemFlags)
+        self.month_list.addItem(loading)
+        self.month_list.blockSignals(False)
+
+    def _populate_month_list(self, months):
+        self.month_list.blockSignals(True)
+        self.month_list.clear()
+        for year, month, label in months:
+            self.month_list.addItem(
+                self._make_checkable_item(label, (year, month))
+            )
+        if not months:
+            self.log_result(lf.detail("No forecast months found in PCE_Monthly_Forecasts."))
+        self.month_list.blockSignals(False)
+        self._update_action_buttons()
+
+    def _start_month_list_load(self):
+        if self.import_worker is not None or self.delete_worker is not None:
+            return
+        if self.month_list_worker is not None:
+            return
+
+        self._show_month_list_loading()
+        self._update_action_buttons()
+
+        self.month_list_worker = ForecastMonthListWorker()
+        self.month_list_worker.finished_signal.connect(self._on_month_list_loaded)
+        self.month_list_worker.error_signal.connect(self._on_month_list_error)
+        self.month_list_worker.start()
+
+    def _on_month_list_loaded(self, months):
+        self.month_list_worker = None
+        self._populate_month_list(months)
+
+    def _on_month_list_error(self, msg: str):
+        self.month_list_worker = None
+        self.month_list.blockSignals(True)
+        self.month_list.clear()
+        self.month_list.blockSignals(False)
+        self._update_action_buttons()
+        QMessageBox.warning(self, "Load months failed", msg)
+
+    def _refresh_month_list(self):
+        if self.import_worker is not None or self.delete_worker is not None:
+            return
+        self._start_month_list_load()
 
     def _browse(self):
         start = self._selected_path if os.path.isfile(self._selected_path) else ""

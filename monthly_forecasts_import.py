@@ -320,12 +320,6 @@ def fetch_distinct_forecast_months(conn=None) -> List[Tuple[int, int, str]]:
             SELECT
                   YEAR(CAST(mf.[Date] AS DATE)) AS yr
                 , MONTH(CAST(mf.[Date] AS DATE)) AS mo
-                , MAX(
-                      NULLIF(
-                          LTRIM(RTRIM(CAST(mf.[Month] AS NVARCHAR(4000)))),
-                          N''
-                      )
-                  ) AS month_label
             FROM {TARGET_TABLE} AS mf
             WHERE mf.[Date] IS NOT NULL
             GROUP BY
@@ -335,10 +329,11 @@ def fetch_distinct_forecast_months(conn=None) -> List[Tuple[int, int, str]]:
             """
         )
         out: List[Tuple[int, int, str]] = []
-        for yr, mo, month_label in cur.fetchall():
+        for yr, mo in cur.fetchall():
             year = int(yr)
             month = int(mo)
-            label = forecast_month_display_label(year, month, month_label)
+            # Label from [Date] calendar month only (not [Month] column text).
+            label = forecast_month_display_label(year, month, None)
             out.append((year, month, label))
         return out
     finally:

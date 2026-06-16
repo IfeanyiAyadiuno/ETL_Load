@@ -294,6 +294,14 @@ def clear_pce_production():
     """Clear all data from PCE_Production table"""
     with get_sql_conn() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM PCE_Production")
+        existing = cursor.fetchone()[0] or 0
+        print(
+            lf.step(
+                f"Clearing PCE_Production ({lf.num(existing)} row(s); "
+                "this may take several minutes)…"
+            )
+        )
         # Delete all rows
         cursor.execute("DELETE FROM PCE_Production")
         deleted = cursor.rowcount
@@ -388,6 +396,15 @@ def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
         if well_names is not None and len(well_names) == 0:
             df = pd.DataFrame()
         elif well_names is None:
+            count_cur = conn.cursor()
+            count_cur.execute("SELECT COUNT(*) FROM PCE_CDA")
+            cda_rows = count_cur.fetchone()[0] or 0
+            log_fn(
+                lf.step(
+                    f"Loading {lf.num(cda_rows)} PCE_CDA row(s) from SQL Server "
+                    "(full table read; this may take several minutes)…"
+                )
+            )
             df = pd.read_sql(_CDA_SELECT_SQL, conn)
         else:
             frames = []
@@ -1098,13 +1115,19 @@ def main(cancel_event=None, progress_callback=None):
         conn.commit()
     if n_trim:
         print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
+    else:
+        print(lf.detail(f"No future PCE_CDA rows after {end_cap}"))
     timer.mark("Trim future CDA rows")
 
     if aborted():
         print(lf.warn("Cancelled after trimming future CDA."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    print(lf.step("Rebuilding PCE_Production from PCE_CDA…"))
+    progress.emit(65)
+
     window_start, window_end = sf_start, sf_end
+    print(lf.step(f"Trimming future PCE_Production rows after {end_cap}…"))
     with get_sql_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1124,6 +1147,9 @@ def main(cancel_event=None, progress_callback=None):
                 f"Trimmed {lf.num(n_prod_trim)} PCE_Production row(s) after {end_cap}"
             )
         )
+    else:
+        print(lf.detail(f"No future PCE_Production rows after {end_cap}"))
+    timer.mark("Trim future PCE_Production rows")
 
     if aborted():
         print(lf.warn("Cancelled after trimming future production."))
@@ -1138,7 +1164,10 @@ def main(cancel_event=None, progress_callback=None):
         print(lf.warn("Cancelled after clearing PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
+    progress.emit(67)
+
     # Step 3: Fetch well name mappings
+    print(lf.step("Loading well name mappings from PCE_WM…"))
     composite_map, fallback_map = fetch_well_mapping()
     timer.mark("Load well mappings")
     if aborted():
@@ -1162,10 +1191,12 @@ def main(cancel_event=None, progress_callback=None):
         }
 
     # Step 5: Apply well name mappings (composite name with fallback to well name)
+    print(lf.step("Applying well name, pad, and UWI mappings…"))
     df = apply_well_names(df, composite_map, fallback_map)
     df = apply_pad_name_from_well_master(df)
     df = apply_uwi_from_well_master(df)
     timer.mark("Well name / pad / UWI mapping")
+    progress.emit(71)
 
     if df.empty:
         print(lf.warn("No data after well name mapping. Exiting."))
@@ -1177,7 +1208,15 @@ def main(cancel_event=None, progress_callback=None):
         }
 
     # Step 6: Filter to first production date for each well
+    before_first_prod = len(df)
+    print(lf.step("Filtering to each well's first production date…"))
     df = filter_to_first_production(df)
+    print(
+        lf.detail(
+            f"First-production filter: {lf.num(len(df))} row(s) "
+            f"({lf.num(before_first_prod - len(df))} trimmed)"
+        )
+    )
     timer.mark("Filter to first production")
     progress.emit(72)
 
@@ -1195,10 +1234,18 @@ def main(cancel_event=None, progress_callback=None):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 7: Calculate sequences with corrected Day Seq UPRT logic
+    print(
+        lf.step(
+            f"Calculating sequences, cumulatives, and monthly averages "
+            f"({lf.num(len(df))} row(s))…"
+        )
+    )
     df = calculate_sequences(df)
+    progress.emit(73)
 
     # Step 8: Calculate cumulatives
     df = calculate_cumulatives(df)
+    progress.emit(74)
 
     # Step 9: Calculate monthly averages
     df = calculate_monthly_averages(df)
@@ -1213,6 +1260,7 @@ def main(cancel_event=None, progress_callback=None):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 11: Insert into PCE_Production
+    print(lf.step(f"Inserting {lf.num(len(df))} row(s) into PCE_Production…"))
     rows_inserted = insert_pce_production(df, progress=progress)
     timer.mark("Insert PCE_Production")
 
@@ -1225,6 +1273,7 @@ def main(cancel_event=None, progress_callback=None):
         print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
     timer.mark("PCE_TC → PCE_Production sync")
 
+    print(lf.step("Syncing WM UWI to Production and Allocation_Factors…"))
     with get_sql_conn() as conn:
         cur = conn.cursor()
         sync_wm_uwi_to_downstream_sql(cur)
@@ -1238,6 +1287,7 @@ def main(cancel_event=None, progress_callback=None):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
     timer.mark("NGL ratio refresh from Allocation_Factors")
 
+    print(lf.step("Syncing WM metadata (pad, enersight, month) to Production…"))
     with get_sql_conn() as conn:
         cur = conn.cursor()
         sync_production_wm_metadata_from_wm_sql(

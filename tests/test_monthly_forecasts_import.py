@@ -81,3 +81,31 @@ def test_append_import_no_full_table_delete():
 
     source = inspect.getsource(append_monthly_forecasts_from_excel)
     assert 'cur.execute(f"DELETE FROM {TARGET_TABLE}")' not in source
+
+
+def test_fetch_distinct_forecast_months_labels_from_date_not_month_column():
+    """List labels use [Date] calendar month, not repeated [Month] column text."""
+    from unittest.mock import MagicMock, patch
+
+    from monthly_forecasts_import import fetch_distinct_forecast_months
+
+    mock_rows = [(2026, mo) for mo in range(1, 7)]
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = mock_rows
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+
+    with patch("monthly_forecasts_import.get_sql_conn", return_value=mock_conn):
+        months = fetch_distinct_forecast_months()
+
+    assert len(months) == 6
+    labels = [label for _y, _m, label in months]
+    assert labels == [
+        "Jan 2026",
+        "Feb 2026",
+        "Mar 2026",
+        "Apr 2026",
+        "May 2026",
+        "Jun 2026",
+    ]
+    assert labels.count("2026 May") == 0
