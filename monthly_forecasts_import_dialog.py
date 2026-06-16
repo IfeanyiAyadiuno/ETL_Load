@@ -180,9 +180,10 @@ class MonthlyForecastsImportDialog(QDialog):
 
         remove_group = self.create_group("Remove forecast months")
         remove_hint = QLabel(
-            "Check one or more forecast months stored in PCE_Monthly_Forecasts, then remove "
-            "them. This deletes forecast rows for those calendar months and rebuilds "
-            "PCE_FRCST_PRD (gathered daily rows are preserved via rebuild)."
+            "Check one or more forecast months (the Month column in "
+            "PCE_Monthly_Forecasts), then remove them. This deletes all rows with "
+            "matching Month values and rebuilds PCE_FRCST_PRD (gathered daily rows "
+            "are preserved via rebuild)."
         )
         remove_hint.setWordWrap(True)
         remove_hint.setStyleSheet(muted_body_label_style())
@@ -311,8 +312,8 @@ class MonthlyForecastsImportDialog(QDialog):
             it = self.month_list.item(i)
             if it.checkState() == Qt.Checked:
                 data = it.data(Qt.UserRole)
-                if isinstance(data, tuple) and len(data) == 2:
-                    out.append((int(data[0]), int(data[1])))
+                if isinstance(data, str) and data.strip():
+                    out.append(data.strip())
         return out
 
     def _show_month_list_loading(self):
@@ -326,10 +327,8 @@ class MonthlyForecastsImportDialog(QDialog):
     def _populate_month_list(self, months):
         self.month_list.blockSignals(True)
         self.month_list.clear()
-        for year, month, label in months:
-            self.month_list.addItem(
-                self._make_checkable_item(label, (year, month))
-            )
+        for label in months:
+            self.month_list.addItem(self._make_checkable_item(label, label))
         if not months:
             self.log_result(lf.detail("No forecast months found in PCE_Monthly_Forecasts."))
         self.month_list.blockSignals(False)

@@ -10,7 +10,7 @@ are replaced (deleted then re-inserted). Afterwards ``rebuild_pce_frcst_prd`` re
 ``prodview_effective_end_date()``).
 
 Selected forecast months can be removed via ``delete_forecast_months`` (GUI), which
-deletes from ``PCE_Monthly_Forecasts`` and rebuilds ``PCE_FRCST_PRD``.
+deletes rows matching the ``[Month]`` column value(s) and rebuilds ``PCE_FRCST_PRD``.
 """
 
 from __future__ import annotations
@@ -304,11 +304,11 @@ def preview_monthly_forecast_import(path: str) -> Tuple[pd.DataFrame, List[str]]
     return df, warnings
 
 
-def fetch_distinct_forecast_months(conn=None) -> List[Tuple[int, int, str]]:
+def fetch_distinct_forecast_months(conn=None) -> List[str]:
     """
-    Distinct calendar months present in PCE_Monthly_Forecasts.
+    Distinct non-blank ``[Month]`` values in PCE_Monthly_Forecasts.
 
-    Returns (year, month, display_label) tuples, newest first.
+    Returns display/delete keys (trimmed ``[Month]`` text), newest label first.
     """
     own_conn = conn is None
     if own_conn:
@@ -317,24 +317,23 @@ def fetch_distinct_forecast_months(conn=None) -> List[Tuple[int, int, str]]:
         cur = conn.cursor()
         cur.execute(
             f"""
-            SELECT
-                  YEAR(CAST(mf.[Date] AS DATE)) AS yr
-                , MONTH(CAST(mf.[Date] AS DATE)) AS mo
+            SELECT DISTINCT
+                LTRIM(RTRIM(CAST(mf.[Month] AS NVARCHAR(4000)))) AS month_label
             FROM {TARGET_TABLE} AS mf
-            WHERE mf.[Date] IS NOT NULL
-            GROUP BY
-                  YEAR(CAST(mf.[Date] AS DATE))
-                , MONTH(CAST(mf.[Date] AS DATE))
-            ORDER BY yr DESC, mo DESC
+            WHERE NULLIF(
+                LTRIM(RTRIM(CAST(mf.[Month] AS NVARCHAR(4000)))),
+                N''
+            ) IS NOT NULL
+            ORDER BY month_label DESC
             """
         )
-        out: List[Tuple[int, int, str]] = []
-        for yr, mo in cur.fetchall():
-            year = int(yr)
-            month = int(mo)
-            # Label from [Date] calendar month only (not [Month] column text).
-            label = forecast_month_display_label(year, month, None)
-            out.append((year, month, label))
+        out: List[str] = []
+        for (month_label,) in cur.fetchall():
+            if month_label is None:
+                continue
+            label = str(month_label).strip()
+            if label:
+                out.append(label)
         return out
     finally:
         if own_conn and conn is not None:
@@ -365,13 +364,14 @@ def _delete_forecast_keys_by_temp_table(cur, keys: List[Tuple[date, str]]) -> in
 
 
 def delete_forecast_months(
-    months: Sequence[Tuple[int, int]],
+    months: Sequence[str],
     log_callback: Optional[Callable[[str], None]] = None,
     progress_callback: Optional[Callable[[int], None]] = None,
     conn=None,
 ) -> Dict[str, Any]:
     """
-    Delete forecast rows for selected calendar months, then rebuild PCE_FRCST_PRD.
+    Delete forecast rows whose ``[Month]`` column matches selected values,
+    then rebuild PCE_FRCST_PRD.
     """
     def log(msg: str):
         if log_callback:
@@ -381,7 +381,9 @@ def delete_forecast_months(
         if progress_callback:
             progress_callback(min(100, max(0, pct)))
 
-    unique_months = sorted({(int(y), int(m)) for y, m in months})
+    unique_months = sorted(
+        {str(m).strip() for m in months if m is not None and str(m).strip()}
+    )
     if not unique_months:
         raise ValueError("No forecast months selected.")
 
@@ -394,20 +396,19 @@ def delete_forecast_months(
         log(
             lf.step(
                 f"Removing forecast data for {lf.num(len(unique_months))} "
-                f"calendar month(s) from {TARGET_TABLE}…"
+                f"[Month] value(s) from {TARGET_TABLE}…"
             )
         )
         prog(10)
 
         deleted_total = 0
-        for i, (year, month) in enumerate(unique_months):
+        for i, month_label in enumerate(unique_months):
             cur.execute(
                 f"""
                 DELETE FROM {TARGET_TABLE}
-                WHERE YEAR(CAST([Date] AS DATE)) = ?
-                  AND MONTH(CAST([Date] AS DATE)) = ?
+                WHERE LTRIM(RTRIM(CAST([Month] AS NVARCHAR(4000)))) = ?
                 """,
-                (year, month),
+                (month_label,),
             )
             deleted_total += max(getattr(cur, "rowcount", 0) or 0, 0)
             if unique_months:

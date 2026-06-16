@@ -83,13 +83,13 @@ def test_append_import_no_full_table_delete():
     assert 'cur.execute(f"DELETE FROM {TARGET_TABLE}")' not in source
 
 
-def test_fetch_distinct_forecast_months_labels_from_date_not_month_column():
-    """List labels use [Date] calendar month, not repeated [Month] column text."""
+def test_fetch_distinct_forecast_months_uses_month_column_only():
+    """Distinct list keys come from [Month] column, not [Date] calendar grouping."""
     from unittest.mock import MagicMock, patch
 
     from monthly_forecasts_import import fetch_distinct_forecast_months
 
-    mock_rows = [(2026, mo) for mo in range(1, 7)]
+    mock_rows = [("2026 May",), ("2026 Apr",), ("2025 Dec",)]
     mock_cursor = MagicMock()
     mock_cursor.fetchall.return_value = mock_rows
     mock_conn = MagicMock()
@@ -98,14 +98,33 @@ def test_fetch_distinct_forecast_months_labels_from_date_not_month_column():
     with patch("monthly_forecasts_import.get_sql_conn", return_value=mock_conn):
         months = fetch_distinct_forecast_months()
 
-    assert len(months) == 6
-    labels = [label for _y, _m, label in months]
-    assert labels == [
-        "Jan 2026",
-        "Feb 2026",
-        "Mar 2026",
-        "Apr 2026",
-        "May 2026",
-        "Jun 2026",
-    ]
-    assert labels.count("2026 May") == 0
+    assert months == ["2026 May", "2026 Apr", "2025 Dec"]
+    sql = mock_cursor.execute.call_args[0][0]
+    assert "[Month]" in sql
+    assert "YEAR(CAST(mf.[Date]" not in sql
+
+
+def test_delete_forecast_months_matches_month_column():
+    from unittest.mock import MagicMock, patch
+
+    from monthly_forecasts_import import delete_forecast_months
+
+    mock_cursor = MagicMock()
+    mock_cursor.rowcount = 42
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+
+    with patch("monthly_forecasts_import.get_sql_conn", return_value=mock_conn):
+        with patch("monthly_forecasts_import.rebuild_pce_frcst_prd", create=True):
+            with patch(
+                "pce_frcst_prd_rebuild.rebuild_pce_frcst_prd",
+                return_value=None,
+            ):
+                result = delete_forecast_months(["2026 May"])
+
+    assert result["deleted_forecast_rows"] == 42
+    assert result["months_removed"] == 1
+    delete_sql = mock_cursor.execute.call_args_list[0][0][0]
+    assert "[Month]" in delete_sql
+    assert mock_cursor.execute.call_args_list[0][0][1] == ("2026 May",)
+    assert "YEAR(CAST([Date]" not in delete_sql
