@@ -229,56 +229,49 @@ class WellMasterDB:
         """
         Recompute ``[Composite Name]`` from Well Name, Layer Producer,
         Completions Technology, and Orient; persist when out of sync.
+        Uses a single set-based UPDATE instead of per-row round trips.
         """
-        from db_connection import get_sql_conn
+        from db_connection import sql_connection
 
-        conn = None
+        sql = """
+        UPDATE wm
+        SET [Composite Name] = calc.new_composite
+        FROM PCE_WM AS wm
+        INNER JOIN (
+            SELECT
+                [Well Name],
+                CASE
+                    WHEN LTRIM(RTRIM(ISNULL([Well Name], ''))) <> ''
+                     AND LTRIM(RTRIM(ISNULL([Layer Producer], ''))) <> ''
+                     AND LTRIM(RTRIM(ISNULL([Completions Technology], ''))) <> ''
+                     AND LTRIM(RTRIM(ISNULL([Orient], ''))) <> ''
+                    THEN
+                        LTRIM(RTRIM([Well Name])) + ' - ' +
+                        LTRIM(RTRIM([Layer Producer])) + ' - ' +
+                        LTRIM(RTRIM([Completions Technology])) + ' - ' +
+                        LTRIM(RTRIM([Orient]))
+                    ELSE NULL
+                END AS new_composite,
+                NULLIF(LTRIM(RTRIM(ISNULL([Composite Name], ''))), '') AS old_composite
+            FROM PCE_WM
+            WHERE [Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N'
+        ) AS calc ON calc.[Well Name] = wm.[Well Name]
+        WHERE
+            (calc.new_composite IS NULL AND calc.old_composite IS NOT NULL)
+            OR (calc.new_composite IS NOT NULL AND calc.old_composite IS NULL)
+            OR (calc.new_composite <> calc.old_composite)
+        """
+
         try:
-            conn = get_sql_conn()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT
-                    [Well Name],
-                    [Layer Producer],
-                    [Completions Technology],
-                    [Orient],
-                    [Composite Name]
-                FROM PCE_WM
-                WHERE [Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N'
-                """
-            )
-            rows = cursor.fetchall()
-
-            updated = 0
-            for well_name, layer, tech, orient, stored in rows:
-                computed = WellMasterDB.compose_name(well_name, layer, tech, orient)
-                stored_norm = WellMasterDB._normalize_composite_value(stored)
-                if stored_norm == computed:
-                    continue
-                cursor.execute(
-                    """
-                    UPDATE PCE_WM
-                    SET [Composite Name] = ?
-                    WHERE [Well Name] = ?
-                    """,
-                    (computed, well_name),
-                )
-                updated += cursor.rowcount or 0
-
-            conn.commit()
-            return updated
+            with sql_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql)
+                updated = cursor.rowcount or 0
+                conn.commit()
+                return updated
         except Exception as e:
-            if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
             print(lf.error(f"Error syncing composite names: {e}"))
             return 0
-        finally:
-            if conn:
-                conn.close()
 
     @staticmethod
     def backfill_shared_nad83_location_columns(cursor):

@@ -2,8 +2,8 @@
 Well Master dialog — view, edit, and import wells in ``PCE_WM``.
 
 Provides the editable Well Master grid, completion staging, and the Snowflake
-preview / import workflow that adds new wells to ``PCE_WM``. Workers in this
-module run on background ``QThread``s so the UI stays responsive during inserts.
+preview / import workflow. Database load/save/import run on background workers
+so the dialog stays responsive; composite-name sync runs only on Refresh.
 """
 
 from PyQt5.QtWidgets import (
@@ -37,10 +37,16 @@ class WellMasterLoadWorker(QThread):
     error_signal = pyqtSignal(str)
     status_signal = pyqtSignal(str)
 
+    def __init__(self, sync_composites=False, parent=None):
+        super().__init__(parent)
+        self.sync_composites = sync_composites
+
     def run(self):
         try:
-            self.status_signal.emit("Syncing composite names from well parts...")
-            composite_updates = WellMasterDB.sync_composite_names_from_parts()
+            composite_updates = 0
+            if self.sync_composites:
+                self.status_signal.emit("Syncing composite names from well parts...")
+                composite_updates = WellMasterDB.sync_composite_names_from_parts()
             self.status_signal.emit("Loading wells from database...")
             payload = {
                 "all_wells": WellMasterDB.get_all_wells(),
@@ -373,54 +379,7 @@ class WellMasterDialog(QDialog):
         self.tabs = None
 
         self.initUI()
-        QTimer.singleShot(0, self._start_load_data)
-
-    def _start_load_data(self):
-        if self._load_worker is not None and self._load_worker.isRunning():
-            return
-        self.status_label.setText("Loading wells...")
-        self._load_worker = WellMasterLoadWorker()
-        self._load_worker.status_signal.connect(self.status_label.setText)
-        self._load_worker.finished_signal.connect(self._on_load_finished)
-        self._load_worker.error_signal.connect(self._on_load_error)
-        self._load_worker.start()
-
-    def _on_load_error(self, message):
-        self.status_label.setText("Load failed")
-        QMessageBox.critical(self, "Load Failed", message)
-
-    def _on_load_finished(self, payload):
-        self._apply_load_payload(payload)
-
-    def _apply_load_payload(self, payload):
-        composite_updates = payload.get("composite_updates", 0)
-        self.table.setRowCount(0)
-        self.all_wells = payload.get("all_wells", [])
-        self.dropdown_options = payload.get("dropdown_options", {})
-
-        self.pending_wells = []
-        self.complete_wells = []
-        for well in self.all_wells:
-            if WellMasterDB.is_pending(well):
-                self.pending_wells.append(well)
-            else:
-                self.complete_wells.append(well)
-
-        self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
-        self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
-        self.display_wells(self._current_tab_well_source())
-        self.make_current_table_editable()
-
-        sync_note = (
-            f", {composite_updates} composite name(s) updated"
-            if composite_updates
-            else ""
-        )
-        self.status_label.setText(
-            f"Loaded {len(self.all_wells)} wells "
-            f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
-            f"{sync_note}"
-        )
+        QTimer.singleShot(0, lambda: self._start_load_data(sync_composites=False))
 
     def initUI(self):
         """Initialize the user interface"""
@@ -538,7 +497,7 @@ class WellMasterDialog(QDialog):
             "Reload wells from the database and recompute Composite Name "
             "from Well Name, Layer, Completions Technology, and Orient"
         )
-        self.refresh_btn.clicked.connect(self.load_data)
+        self.refresh_btn.clicked.connect(lambda: self.load_data(sync_composites=True))
 
         self.export_btn = QPushButton("📤  Export")
         self.export_btn.setStyleSheet(btn_toolbar(_SUCCESS))
@@ -856,16 +815,16 @@ class WellMasterDialog(QDialog):
             lambda result: self._on_save_finished(result, len(updates))
         )
         self._save_worker.error_signal.connect(self._on_save_error)
-        self.save_btn.setEnabled(False)
+        self._set_save_busy(True)
         self._save_worker.start()
 
     def _on_save_error(self, message):
-        self.save_btn.setEnabled(True)
+        self._set_save_busy(False)
         self.status_label.setText("Save failed")
         QMessageBox.critical(self, "Save Failed", message)
 
     def _on_save_finished(self, result, requested):
-        self.save_btn.setEnabled(True)
+        self._set_save_busy(False)
         updated = result.get("updated", 0)
         errors = result.get("errors", [])
         if errors:
@@ -884,7 +843,7 @@ class WellMasterDialog(QDialog):
                 f"Successfully updated {updated} well(s)."
             )
         self.pending_current_edits.clear()
-        self.load_data()
+        self._start_load_data(sync_composites=False)
         self.status_label.setText(f"Saved {updated} well(s)")
 
     def button_style(self, color, large=False):
@@ -912,13 +871,78 @@ class WellMasterDialog(QDialog):
         else:
             self.display_wells(self._current_tab_well_source())
 
-    def load_data(self):
-        """Reload well data from database on a background worker."""
-        self._start_load_data()
+    def _set_load_busy(self, busy):
+        """Disable toolbar actions while a background load is running."""
+        for btn in (
+            self.save_btn,
+            self.refresh_btn,
+            self.export_btn,
+            self.import_btn,
+            self.remove_btn,
+        ):
+            if btn is not None:
+                btn.setEnabled(not busy)
+
+    def _start_load_data(self, sync_composites=False):
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+        self._set_load_busy(True)
+        self.status_label.setText(
+            "Syncing composite names from well parts..."
+            if sync_composites
+            else "Loading wells from database..."
+        )
+        self._load_worker = WellMasterLoadWorker(sync_composites=sync_composites)
+        self._load_worker.status_signal.connect(self.status_label.setText)
+        self._load_worker.finished_signal.connect(self._on_load_finished)
+        self._load_worker.error_signal.connect(self._on_load_error)
+        self._load_worker.start()
+
+    def _on_load_error(self, message):
+        self._set_load_busy(False)
+        self.status_label.setText("Load failed")
+        QMessageBox.critical(self, "Load Failed", message)
+
+    def _on_load_finished(self, payload):
+        self._set_load_busy(False)
+        self._apply_load_payload(payload)
+
+    def _apply_load_payload(self, payload):
+        composite_updates = payload.get("composite_updates", 0)
+        self.table.setRowCount(0)
+        self.all_wells = payload.get("all_wells", [])
+        self.dropdown_options = payload.get("dropdown_options", {})
+
+        self.pending_wells = []
+        self.complete_wells = []
+        for well in self.all_wells:
+            if WellMasterDB.is_pending(well):
+                self.pending_wells.append(well)
+            else:
+                self.complete_wells.append(well)
+
+        self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
+        self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
+        self.display_wells(self._current_tab_well_source())
+        self.make_current_table_editable()
+
+        sync_note = (
+            f", {composite_updates} composite name(s) updated"
+            if composite_updates
+            else ""
+        )
+        self.status_label.setText(
+            f"Loaded {len(self.all_wells)} wells "
+            f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
+            f"{sync_note}"
+        )
+
+    def load_data(self, sync_composites=False):
+        """Reload wells from the database on a background worker."""
+        self._start_load_data(sync_composites=sync_composites)
 
     def display_wells(self, wells):
         """Display wells in the table"""
-        self.table.setRowCount(len(wells))
         self.filtered_wells = wells
 
         try:
@@ -926,62 +950,71 @@ class WellMasterDialog(QDialog):
         except Exception:
             pass
 
-        for row, well in enumerate(wells):
-            chk = QCheckBox()
-            chk.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
-            chk_widget = QWidget()
-            chk_layout = QHBoxLayout(chk_widget)
-            chk_layout.addWidget(chk)
-            chk_layout.setAlignment(Qt.AlignCenter)
-            chk_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 0, chk_widget)
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        try:
+            self.table.setRowCount(len(wells))
 
-            data = [
-                well.get('well_name', ''),
-                well.get('gas_idrec', ''),
-                well.get('pressures_idrec', ''),
-                well.get('formation', ''),
-                well.get('layer', ''),
-                well.get('fault_block', ''),
-                well.get('pad_name', ''),
-                well.get('completions_tech', ''),
-                str(well.get('lateral_length', '') or ''),
-                str(well.get('horizontal_right', '') or ''),
-                str(well.get('horizontal_left', '') or ''),
-                str(well.get('vertical_above', '') or ''),
-                str(well.get('vertical_below', '') or ''),
-                well.get('value_nav_uwi', ''),
-                well.get('orient', ''),
-                str(well.get('on_production_year', '') or ''),
-                well.get('composite_name', ''),
-                well.get('exception', 'N'),
-            ]
+            for row, well in enumerate(wells):
+                chk = QCheckBox()
+                chk.stateChanged.connect(lambda state, r=row: self.on_checkbox_changed(r, state))
+                chk_widget = QWidget()
+                chk_layout = QHBoxLayout(chk_widget)
+                chk_layout.addWidget(chk)
+                chk_layout.setAlignment(Qt.AlignCenter)
+                chk_layout.setContentsMargins(0, 0, 0, 0)
+                self.table.setCellWidget(row, 0, chk_widget)
 
-            is_pending = WellMasterDB.is_pending(well)
+                data = [
+                    well.get('well_name', ''),
+                    well.get('gas_idrec', ''),
+                    well.get('pressures_idrec', ''),
+                    well.get('formation', ''),
+                    well.get('layer', ''),
+                    well.get('fault_block', ''),
+                    well.get('pad_name', ''),
+                    well.get('completions_tech', ''),
+                    str(well.get('lateral_length', '') or ''),
+                    str(well.get('horizontal_right', '') or ''),
+                    str(well.get('horizontal_left', '') or ''),
+                    str(well.get('vertical_above', '') or ''),
+                    str(well.get('vertical_below', '') or ''),
+                    well.get('value_nav_uwi', ''),
+                    well.get('orient', ''),
+                    str(well.get('on_production_year', '') or ''),
+                    well.get('composite_name', ''),
+                    well.get('exception', 'N'),
+                ]
 
-            for col, value in enumerate(data, start=1):
-                item = QTableWidgetItem(str(value) if value else "")
-                item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
+                is_pending = WellMasterDB.is_pending(well)
 
-                if col in [1, 2, 3]:
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    item.setBackground(QColor("#f0f0f0"))
-                elif col == 17:
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    item.setBackground(QColor("#f0f0f0"))
-                else:
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    if not is_pending:
-                        item.setBackground(QColor("#f8f9fa"))
+                for col, value in enumerate(data, start=1):
+                    item = QTableWidgetItem(str(value) if value else "")
+                    item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
 
-                if is_pending:
-                    item.setBackground(QColor("#fef3c7"))
+                    if col in [1, 2, 3]:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                        item.setBackground(QColor("#f0f0f0"))
+                    elif col == 17:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                        item.setBackground(QColor("#f0f0f0"))
+                    else:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                        if not is_pending:
+                            item.setBackground(QColor("#f8f9fa"))
 
-                self.table.setItem(row, col, item)
+                    if is_pending:
+                        item.setBackground(QColor("#fef3c7"))
 
-            self._set_additional_fields_button(row, well.get("well_name", ""), is_checked=False)
+                    self.table.setItem(row, col, item)
 
-        self._sync_additional_fields_column_width(self.table)
+                self._set_additional_fields_button(row, well.get("well_name", ""), is_checked=False)
+
+            self._sync_additional_fields_column_width(self.table)
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self.table.blockSignals(False)
+
         self.table.itemChanged.connect(self.on_current_item_changed)
 
     def _set_additional_fields_button(self, row, well_name, is_checked=False):
@@ -1879,11 +1912,29 @@ class WellMasterDialog(QDialog):
 
             updates.append(update_data)
 
+        if self._save_worker is not None and self._save_worker.isRunning():
+            QMessageBox.information(self, "Busy", "A save is already in progress.")
+            return
+
         self.status_label.setText(f"Saving {len(updates)} well(s)...")
-        QApplication.processEvents()
+        self._save_worker = WellMasterSaveWorker(updates)
+        self._save_worker.finished_signal.connect(
+            lambda result: self._on_staged_update_finished(result, selected_rows, len(updates))
+        )
+        self._save_worker.error_signal.connect(self._on_save_error)
+        self._set_save_busy(True)
+        self._save_worker.start()
 
-        updated, errors = WellMasterDB.save_well_updates(updates)
+    def _set_save_busy(self, busy):
+        if self.save_btn is not None:
+            self.save_btn.setEnabled(not busy)
+        if self.update_btn is not None:
+            self.update_btn.setEnabled(not busy)
 
+    def _on_staged_update_finished(self, result, selected_rows, requested):
+        self._set_save_busy(False)
+        updated = result.get("updated", 0)
+        errors = result.get("errors", [])
         if errors:
             error_msg = "\n".join(errors[:5])
             if len(errors) > 5:
@@ -1902,7 +1953,7 @@ class WellMasterDialog(QDialog):
 
         self.staged_wells = [w for i, w in enumerate(self.staged_wells) if i not in selected_rows]
         self.update_staged_table()
-        self.load_data()
+        self._start_load_data(sync_composites=False)
         self.status_label.setText(f"Updated {updated} well(s)")
 
     def remove_from_staging(self):
