@@ -24,7 +24,7 @@ from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
-    btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    btn_brand, btn_neutral, btn_danger, progress_bar_style, results_area_style,
     configure_percentage_progress_bar, set_progress_bar_percent_mode,
     info_panel_style,
     muted_body_label_style,
@@ -194,7 +194,7 @@ class ProdviewUpdateDialog(QDialog):
 
         self._sql_ok = False
         self.update_info_text()
-        self.refresh_sql_status()
+        QTimer.singleShot(0, self.refresh_sql_status)
 
     def refresh_sql_status(self):
         """Reload Settings SQL target and verify connectivity."""
@@ -359,7 +359,8 @@ class ProdviewUpdateDialog(QDialog):
             return
 
         self.run_btn.setEnabled(False)
-        self.close_btn.setEnabled(False)
+        self.close_btn.setText("Cancel")
+        self.close_btn.setStyleSheet(btn_danger(large=True))
         self.lag_spin.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.results_text.clear()
@@ -439,6 +440,11 @@ class ProdviewUpdateDialog(QDialog):
         if self.progress_bar.maximum() > 0:
             self.progress_bar.setValue(min(100, max(0, int(value))))
 
+    def _reset_close_button(self):
+        self.close_btn.setText("Close")
+        self.close_btn.setStyleSheet(btn_neutral(large=True))
+        self.close_btn.setEnabled(True)
+
     def update_finished(self, summary):
         """Handle update completion"""
         self._stop_full_rebuild_heartbeat()
@@ -448,7 +454,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)
-        self.close_btn.setEnabled(True)
+        self._reset_close_button()
         self.lag_spin.setEnabled(True)
 
         if summary.get("skipped"):
@@ -489,7 +495,7 @@ class ProdviewUpdateDialog(QDialog):
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         self.run_btn.setEnabled(self._sql_ok)
-        self.close_btn.setEnabled(True)
+        self._reset_close_button()
         self.lag_spin.setEnabled(True)
         self.status_label.setText("Error")
         self.log_result(lf.error(error_msg))
@@ -519,52 +525,22 @@ class ProdviewUpdateWorker(QThread):
             if self.update_mode == "full_rebuild":
                 self.status_signal.emit("Running full rebuild...")
 
-                import sys
-                import io
                 from production_update import main as run_full_rebuild
 
-                class LogCapture:
-                    def __init__(self, log_callback):
-                        self.log_callback = log_callback
-                        self.buffer = ""
+                summary = run_full_rebuild(
+                    cancel_event=self._cancel_event,
+                    progress_callback=self.progress_signal.emit,
+                    data_lag_days=self.data_lag_days,
+                    log_callback=self.log_signal.emit,
+                )
 
-                    def write(self, text):
-                        self.buffer += text
-                        while '\n' in self.buffer:
-                            line, self.buffer = self.buffer.split('\n', 1)
-                            if line.strip():
-                                self.log_callback(line)
-
-                    def flush(self):
-                        pass
-
-                old_stdout = sys.stdout
-                log_capture = LogCapture(self.log_signal.emit)
-                sys.stdout = log_capture
-
-                try:
-                    summary = run_full_rebuild(
-                        cancel_event=self._cancel_event,
-                        progress_callback=self.progress_signal.emit,
-                        data_lag_days=self.data_lag_days,
-                    )
-
-                    if log_capture.buffer.strip():
-                        self.log_signal.emit(log_capture.buffer.strip())
-
-                    sys.stdout = old_stdout
-
-                    if summary is None:
-                        summary = {
-                            "mode": "full_rebuild",
-                            "skipped": True,
-                            "reason": "No result returned",
-                            "duration_seconds": 0.0,
-                        }
-
-                except Exception as e:
-                    sys.stdout = old_stdout
-                    raise e
+                if summary is None:
+                    summary = {
+                        "mode": "full_rebuild",
+                        "skipped": True,
+                        "reason": "No result returned",
+                        "duration_seconds": 0.0,
+                    }
 
             else:
                 from prodview_update_gui import run_quick_update
@@ -581,6 +557,7 @@ class ProdviewUpdateWorker(QThread):
                     progress_callback,
                     log_callback,
                     data_lag_days=self.data_lag_days,
+                    cancel_event=self._cancel_event,
                 )
 
             if summary and summary.get("error"):

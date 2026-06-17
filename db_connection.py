@@ -2,6 +2,7 @@
 import sys
 import os
 import configparser
+from contextlib import contextmanager
 
 import pyodbc
 from dotenv import load_dotenv
@@ -190,3 +191,13 @@ def get_sql_conn():
             f"  4. ODBC Driver 17 is installed"
         )
         raise ConnectionError(error_msg) from e
+
+
+@contextmanager
+def sql_connection():
+    """Open a SQL connection and always close it, including on exceptions."""
+    conn = get_sql_conn()
+    try:
+        yield conn
+    finally:
+        conn.close()

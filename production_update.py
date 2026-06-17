@@ -8,6 +8,12 @@ from datetime import datetime
 import warnings
 
 import log_format as lf
+from pce_production_schema import (
+    PCE_PRODUCTION_INSERT_COLUMNS,
+    SQL_INSERT_BATCH_SIZE,
+    build_production_insert_sql,
+    executemany_with_row_fallback,
+)
 from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
 from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
@@ -128,31 +134,93 @@ def gathered_prd_month_sql_from_enersight(enersight_sql: str) -> str:
     END"""
 
 
-def fetch_well_master_enersight_lookup():
-    """WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Enersight Well Name]``."""
+def _load_wm_dataframe(conn=None):
+    """Single PCE_WM read for well-name / metadata lookups."""
     query = """
-    SELECT [Well Name], [Composite Name], [Enersight Well Name]
+    SELECT [Well Name], [Composite Name], [Value Navigator UWI],
+           [Pad Name], [Enersight Well Name]
     FROM PCE_WM
     WHERE [Well Name] IS NOT NULL
       AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
     """
-    with get_sql_conn() as conn:
-        wm = pd.read_sql(query, conn)
+    if conn is None:
+        with get_sql_conn() as own_conn:
+            return pd.read_sql(query, own_conn)
+    return pd.read_sql(query, conn)
 
-    lookup = {}
+
+def fetch_well_master_lookups(conn=None):
+    """
+    Return composite/fallback rename maps plus UWI, pad, and Enersight lookups
+    from one PCE_WM query.
+    """
+    wm = _load_wm_dataframe(conn)
+    wm = wm.copy()
+    wm["Well Name"] = wm["Well Name"].astype(str).str.strip()
+
+    valid_composite = (
+        wm["Composite Name"].notna()
+        & wm["Composite Name"].astype(str).str.strip().ne("")
+    )
+    composite_stripped = wm["Composite Name"].astype(str).str.strip()
+    composite_map = dict(
+        zip(
+            wm.loc[valid_composite, "Well Name"],
+            composite_stripped[valid_composite],
+        )
+    )
+    fallback_map = dict(zip(wm["Well Name"], wm["Well Name"]))
+
+    uwi_lookup = {}
+    pad_lookup = {}
+    enersight_lookup = {}
     for _, row in wm.iterrows():
+        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
+        comp = row["Composite Name"]
+        comp_s = str(comp).strip() if comp is not None and str(comp).strip() else None
+
+        uwi = row["Value Navigator UWI"]
+        if uwi is not None and not pd.isna(uwi) and str(uwi).strip():
+            uwi_val = str(uwi).strip()
+            if wn:
+                uwi_lookup[wn] = uwi_val
+            if comp_s:
+                uwi_lookup[comp_s] = uwi_val
+
+        pad = row["Pad Name"]
+        if pd.isna(pad) or (isinstance(pad, str) and not str(pad).strip()):
+            pad_val = None
+        else:
+            pad_val = str(pad).strip()
+        if wn:
+            pad_lookup[wn] = pad_val
+        if comp_s:
+            pad_lookup[comp_s] = pad_val
+
         en = row["Enersight Well Name"]
         if pd.isna(en) or (isinstance(en, str) and not str(en).strip()):
             en_val = None
         else:
             en_val = str(en).strip()
-        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
         if wn:
-            lookup[wn] = en_val
-        comp = row["Composite Name"]
-        if comp is not None and str(comp).strip():
-            lookup[str(comp).strip()] = en_val
-    return lookup
+            enersight_lookup[wn] = en_val
+        if comp_s:
+            enersight_lookup[comp_s] = en_val
+
+    return {
+        "composite_map": composite_map,
+        "fallback_map": fallback_map,
+        "uwi_lookup": uwi_lookup,
+        "pad_lookup": pad_lookup,
+        "enersight_lookup": enersight_lookup,
+    }
+
+
+def fetch_well_master_enersight_lookup(conn=None):
+    """WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Enersight Well Name]``."""
+    if conn is not None:
+        return fetch_well_master_lookups(conn)["enersight_lookup"]
+    return fetch_well_master_lookups()["enersight_lookup"]
 
 
 def apply_gathered_prd_month_labels(df, enersight_lookup=None):
@@ -442,65 +510,18 @@ def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
             conn.close()
 
 
-def fetch_well_mapping():
+def fetch_well_mapping(conn=None):
     """Fetch well name mappings from PCE_WM (Composite Name and Well Name)"""
-    query = """
-    SELECT 
-        [Well Name] as SourceWell,
-        [Composite Name],
-        [Well Name] as FallbackWell
-    FROM PCE_WM
-    WHERE [Well Name] IS NOT NULL
-      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
-    """
-    
-    with get_sql_conn() as conn:
-        df = pd.read_sql(query, conn)
-    
-    df['SourceWell'] = df['SourceWell'].astype(str).str.strip()
-    df['FallbackWell'] = df['FallbackWell'].astype(str).str.strip()
-
-    valid_composite = (
-        df['Composite Name'].notna()
-        & df['Composite Name'].astype(str).str.strip().ne('')
-    )
-    composite_stripped = df['Composite Name'].astype(str).str.strip()
-    composite_map = dict(zip(
-        df.loc[valid_composite, 'SourceWell'],
-        composite_stripped[valid_composite],
-    ))
-    fallback_map = dict(zip(df['SourceWell'], df['FallbackWell']))
-    
+    lookups = fetch_well_master_lookups(conn)
+    composite_map = lookups["composite_map"]
+    fallback_map = lookups["fallback_map"]
     print(lf.detail(f"Loaded {lf.num(len(fallback_map))} well name mappings"))
-    
     return composite_map, fallback_map
 
 
-def fetch_well_master_uwi_lookup():
+def fetch_well_master_uwi_lookup(conn=None):
     """Trimmed WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Value Navigator UWI]``."""
-    query = """
-    SELECT [Well Name], [Composite Name], [Value Navigator UWI]
-    FROM PCE_WM
-    WHERE [Well Name] IS NOT NULL
-      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
-      AND NULLIF(LTRIM(RTRIM(CAST([Value Navigator UWI] AS NVARCHAR(4000)))), N'') IS NOT NULL
-    """
-    with get_sql_conn() as conn:
-        wm = pd.read_sql(query, conn)
-
-    lookup = {}
-    for _, row in wm.iterrows():
-        uwi = row["Value Navigator UWI"]
-        if pd.isna(uwi) or not str(uwi).strip():
-            continue
-        uwi_val = str(uwi).strip()
-        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
-        if wn:
-            lookup[wn] = uwi_val
-        comp = row["Composite Name"]
-        if comp is not None and str(comp).strip():
-            lookup[str(comp).strip()] = uwi_val
-    return lookup
+    return fetch_well_master_lookups(conn)["uwi_lookup"]
 
 
 def apply_uwi_from_well_master(df, uwi_lookup=None):
@@ -523,31 +544,9 @@ def apply_uwi_from_well_master(df, uwi_lookup=None):
     return out
 
 
-def fetch_well_master_pad_lookup():
+def fetch_well_master_pad_lookup(conn=None):
     """Trimmed WM ``[Well Name]`` / ``[Composite Name]`` -> ``[Pad Name]``."""
-    query = """
-    SELECT [Well Name], [Composite Name], [Pad Name]
-    FROM PCE_WM
-    WHERE [Well Name] IS NOT NULL
-      AND ([Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N')
-    """
-    with get_sql_conn() as conn:
-        wm = pd.read_sql(query, conn)
-
-    lookup = {}
-    for _, row in wm.iterrows():
-        wn = str(row["Well Name"]).strip() if pd.notna(row["Well Name"]) else ""
-        pad = row["Pad Name"]
-        if pd.isna(pad) or (isinstance(pad, str) and not str(pad).strip()):
-            pad_val = None
-        else:
-            pad_val = str(pad).strip()
-        if wn:
-            lookup[wn] = pad_val
-        comp = row["Composite Name"]
-        if comp is not None and str(comp).strip():
-            lookup[str(comp).strip()] = pad_val
-    return lookup
+    return fetch_well_master_lookups(conn)["pad_lookup"]
 
 
 def apply_pad_name_from_well_master(df, pad_lookup=None):
@@ -909,32 +908,7 @@ def add_on_production_year(df):
     df['On Production Year'] = first_dates.dt.year
     return df
 
-_INSERT_COLS = [
-    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name', 'UWI',
-    'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
-    'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
-    'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
-    'Gathered Condensate (m³/d)', 'Gath. Water Rate (m³/d)',
-    'Sales CGR (m³/e³m³)',
-    'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
-    'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
-    'Choke Size', 'Gas WH Cumulative Production (10³m³)',
-    'Gas S2 Cumulative Production (10³m³)',
-    'Gas Sales Cumulative Production (10³m³)',
-    'Condensate Sales Cumulative Production (m³)',
-    'Condensate WH Cumulative Production (m³)',
-    'Gas Gathered Cumulative (e³m³)',
-    'Condensate Gathered Cumulative (m³)',
-    'Gath. Water Cumulative (m³)',
-    'Formation Producer', 'Layer Producer', 'Fault Block',
-    'Pad Name', 'Lateral Length', 'Orientation',
-    'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
-    'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
-    'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
-    'Gath. Water Avg (m³/d)',
-    'Alloc. Water Avg (m³)',
-    'Month',
-]
+_INSERT_COLS = list(PCE_PRODUCTION_INSERT_COLUMNS)
 
 def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     """
@@ -945,34 +919,7 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
         print(lf.detail("No rows to insert"))
         return 0
 
-    insert_sql = """
-    INSERT INTO PCE_Production (
-        [Date], [Days Seq], [Day Seq UPRT], [Well Name], [UWI],
-        [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-        [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-        [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-        [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
-        [Sales CGR (m³/e³m³)],
-        [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-        [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-        [Choke Size], [Gas WH Cumulative Production (10³m³)],
-        [Gas S2 Cumulative Production (10³m³)],
-        [Gas Sales Cumulative Production (10³m³)],
-        [Condensate Sales Cumulative Production (m³)],
-        [Condensate WH Cumulative Production (m³)],
-        [Gas Gathered Cumulative (e³m³)],
-        [Condensate Gathered Cumulative (m³)],
-        [Gath. Water Cumulative (m³)],
-        [Formation Producer], [Layer Producer], [Fault Block],
-        [Pad Name], [Lateral Length], [Orientation],
-        [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
-        [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-        [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
-        [Gath. Water Avg (m³/d)],
-        [Alloc. Water Avg (m³)],
-        [Month]
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
+    insert_sql = build_production_insert_sql()
 
     # Ensure int columns are cast properly before NaN->None conversion
     df = df.copy()
@@ -1039,7 +986,7 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
 
     return total_inserted
 
-def main(cancel_event=None, progress_callback=None, data_lag_days=None):
+def main(cancel_event=None, progress_callback=None, data_lag_days=None, log_callback=None):
     """
     Rebuild PCE_Production from PCE_CDA.
 
@@ -1051,6 +998,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     best-effort cooperative cancel.
     """
     t0 = time.time()
+    log = log_callback or print
 
     def aborted():
         return cancel_event is not None and cancel_event.is_set()
@@ -1060,13 +1008,13 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
 
     base_meta = {"mode": "full_rebuild", "duration_seconds": _duration()}
 
-    timer = lf.StepTimer(log_fn=print)
+    timer = lf.StepTimer(log_fn=log)
     progress = _RebuildProgress(progress_callback)
     progress.emit(0)
 
-    print(lf.header("PCE_Production population", Started=lf.timestamp()))
+    log(lf.header("PCE_Production population", Started=lf.timestamp()))
     if aborted():
-        print(lf.warn("Cancelled before start."))
+        log(lf.warn("Cancelled before start."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     end_cap = prodview_effective_end_date(data_lag_days)
@@ -1079,8 +1027,8 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
 
     cda_min_before = query_pce_cda_min_date()
     cda_max_before = query_pce_cda_max_date()
-    print(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
-    print(lf.detail(f"Automatic end date (today − {lag_days} day(s)): {end_cap}"))
+    log(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
+    log(lf.detail(f"Automatic end date (today − {lag_days} day(s)): {end_cap}"))
 
     sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(
         log_callback=print,
@@ -1089,11 +1037,11 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     )
     progress.phase_done("snowflake")
     cda_max_after = query_pce_cda_max_date()
-    print(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+    log(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
     timer.mark("Snowflake → PCE_CDA full lifespan refresh")
 
     if aborted():
-        print(lf.warn("Cancelled after Snowflake CDA refresh."))
+        log(lf.warn("Cancelled after Snowflake CDA refresh."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 1: Ensure CDA sales / S2 columns match Allocation_Factors before copying to Production
@@ -1107,7 +1055,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     timer.mark("PCE_CDA sales refresh from Allocation_Factors")
 
     if aborted():
-        print(lf.warn("Cancelled after PCE_CDA sales refresh."))
+        log(lf.warn("Cancelled after PCE_CDA sales refresh."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     with get_sql_conn() as conn:
@@ -1116,20 +1064,20 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
         n_trim = cur.rowcount or 0
         conn.commit()
     if n_trim:
-        print(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
+        log(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
     else:
-        print(lf.detail(f"No future PCE_CDA rows after {end_cap}"))
+        log(lf.detail(f"No future PCE_CDA rows after {end_cap}"))
     timer.mark("Trim future CDA rows")
 
     if aborted():
-        print(lf.warn("Cancelled after trimming future CDA."))
+        log(lf.warn("Cancelled after trimming future CDA."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    print(lf.step("Rebuilding PCE_Production from PCE_CDA…"))
+    log(lf.step("Rebuilding PCE_Production from PCE_CDA…"))
     progress.emit(65)
 
     window_start, window_end = sf_start, sf_end
-    print(lf.step(f"Trimming future PCE_Production rows after {end_cap}…"))
+    log(lf.step(f"Trimming future PCE_Production rows after {end_cap}…"))
     with get_sql_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -1144,17 +1092,17 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
         n_prod_trim = cur.rowcount or 0
         conn.commit()
     if n_prod_trim:
-        print(
+        log(
             lf.detail(
                 f"Trimmed {lf.num(n_prod_trim)} PCE_Production row(s) after {end_cap}"
             )
         )
     else:
-        print(lf.detail(f"No future PCE_Production rows after {end_cap}"))
+        log(lf.detail(f"No future PCE_Production rows after {end_cap}"))
     timer.mark("Trim future PCE_Production rows")
 
     if aborted():
-        print(lf.warn("Cancelled after trimming future production."))
+        log(lf.warn("Cancelled after trimming future production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     progress.emit(66)
@@ -1163,17 +1111,17 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     clear_pce_production()
     timer.mark("Clear PCE_Production")
     if aborted():
-        print(lf.warn("Cancelled after clearing PCE_Production."))
+        log(lf.warn("Cancelled after clearing PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     progress.emit(67)
 
     # Step 3: Fetch well name mappings
-    print(lf.step("Loading well name mappings from PCE_WM…"))
+    log(lf.step("Loading well name mappings from PCE_WM…"))
     composite_map, fallback_map = fetch_well_mapping()
     timer.mark("Load well mappings")
     if aborted():
-        print(lf.warn("Cancelled after loading well mappings."))
+        log(lf.warn("Cancelled after loading well mappings."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     progress.emit(68)
@@ -1184,7 +1132,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     progress.emit(70)
 
     if df.empty:
-        print(lf.warn("No data to process. Exiting."))
+        log(lf.warn("No data to process. Exiting."))
         return {
             **base_meta,
             "skipped": True,
@@ -1193,7 +1141,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
         }
 
     # Step 5: Apply well name mappings (composite name with fallback to well name)
-    print(lf.step("Applying well name, pad, and UWI mappings…"))
+    log(lf.step("Applying well name, pad, and UWI mappings…"))
     df = apply_well_names(df, composite_map, fallback_map)
     df = apply_pad_name_from_well_master(df)
     df = apply_uwi_from_well_master(df)
@@ -1201,7 +1149,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     progress.emit(71)
 
     if df.empty:
-        print(lf.warn("No data after well name mapping. Exiting."))
+        log(lf.warn("No data after well name mapping. Exiting."))
         return {
             **base_meta,
             "skipped": True,
@@ -1211,9 +1159,9 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
 
     # Step 6: Filter to first production date for each well
     before_first_prod = len(df)
-    print(lf.step("Filtering to each well's first production date…"))
+    log(lf.step("Filtering to each well's first production date…"))
     df = filter_to_first_production(df)
-    print(
+    log(
         lf.detail(
             f"First-production filter: {lf.num(len(df))} row(s) "
             f"({lf.num(before_first_prod - len(df))} trimmed)"
@@ -1223,7 +1171,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     progress.emit(72)
 
     if df.empty:
-        print(lf.warn("No data after filtering. Exiting."))
+        log(lf.warn("No data after filtering. Exiting."))
         return {
             **base_meta,
             "skipped": True,
@@ -1232,11 +1180,11 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
         }
 
     if aborted():
-        print(lf.warn("Cancelled before sequence calculations."))
+        log(lf.warn("Cancelled before sequence calculations."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 7: Calculate sequences with corrected Day Seq UPRT logic
-    print(
+    log(
         lf.step(
             f"Calculating sequences, cumulatives, and monthly averages "
             f"({lf.num(len(df))} row(s))…"
@@ -1258,64 +1206,23 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
     progress.phase_done("prep")
 
     if aborted():
-        print(lf.warn("Cancelled before inserting into PCE_Production."))
+        log(lf.warn("Cancelled before inserting into PCE_Production."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
     # Step 11: Insert into PCE_Production
-    print(lf.step(f"Inserting {lf.num(len(df))} row(s) into PCE_Production…"))
+    log(lf.step(f"Inserting {lf.num(len(df))} row(s) into PCE_Production…"))
     rows_inserted = insert_pce_production(df, progress=progress)
     timer.mark("Insert PCE_Production")
 
-    from sync_typecurves_to_production import sync_tc_to_production
+    from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-    print(lf.step("Materializing PCE_TC into PCE_Production..."))
-    try:
-        sync_tc_to_production(log_callback=print)
-    except Exception as e:
-        print(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
-    timer.mark("PCE_TC → PCE_Production sync")
-
-    print(lf.step("Syncing WM UWI to Production and Allocation_Factors…"))
-    with get_sql_conn() as conn:
-        cur = conn.cursor()
-        sync_wm_uwi_to_downstream_sql(cur)
-        conn.commit()
-    timer.mark("WM UWI sync (Production + Allocation_Factors)")
-
-    if not _refresh_ngl_from_allocation_factors(
-        log=print,
+    if not run_post_production_rebuild_steps(
+        log,
+        date_window=(window_start, window_end),
         cancel_event=cancel_event,
     ):
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-    timer.mark("NGL ratio refresh from Allocation_Factors")
-
-    print(lf.step("Syncing WM metadata (pad, enersight, month) to Production…"))
-    with get_sql_conn() as conn:
-        cur = conn.cursor()
-        sync_production_wm_metadata_from_wm_sql(
-            cur,
-            update_pad=False,
-            update_enersight=True,
-            update_month=True,
-        )
-        sync_production_wm_metadata_from_wm_sql(
-            cur,
-            window_start,
-            window_end,
-            update_pad=True,
-            update_enersight=False,
-            update_month=False,
-        )
-        conn.commit()
-    timer.mark("WM metadata sync (pad, enersight, month)")
-
-    try:
-        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-        rebuild_pce_frcst_prd(log=print)
-    except Exception as e:
-        print(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
-    timer.mark("PCE_FRCST_PRD rebuild")
+    timer.mark("Post-production rebuild steps")
     progress.phase_done("finalize")
 
     wells_processed = len(df["Well Name"].unique())
@@ -1323,7 +1230,7 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None):
 
     # Step 12: Final summary
     cda_max_final = query_pce_cda_max_date()
-    print(lf.summary("Complete", {
+    log(lf.summary("Complete", {
         "Completed": lf.timestamp(),
         "Automatic end date": end_cap,
         "PCE_CDA max date": cda_max_final or "—",

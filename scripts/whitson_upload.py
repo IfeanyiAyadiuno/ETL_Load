@@ -5,6 +5,8 @@ Upload production from PCE_Production to Whitson+.
   python scripts/whitson_upload.py --well-name "2-01-85-26W6M - T3 - PnP - S"
   python scripts/whitson_upload.py --all-wells
   python scripts/whitson_upload.py --all-wells --start 2024-01-01 --end 2024-12-31
+
+Credentials: settings.ini [WHITSON] or WHITSON_* environment variables (see whitson_credentials.py).
 """
 
 import argparse
@@ -12,15 +14,10 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-# Whitson+ credentials
-CLIENT = "pacificcanbriam"
-CLIENT_ID = "Nburbd6T4XuAWa5322kyoMOexyTytUJg"
-CLIENT_SECRET = "zOjE85oNk1sXPnf2iNMXaf_vj5vrr1-sCf6MGBRi57faXpYKRFHT60gAtY0E9DoY"
-PROJECT_ID = 2
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+from whitson_credentials import load_whitson_credentials  # noqa: E402
 from whitson_imperial_units import load_whitson_imperial_factors  # noqa: E402
 from whitson_production_push import (  # noqa: E402
     list_production_wells,
@@ -41,7 +38,12 @@ def main() -> int:
     parser.add_argument("--all-wells", action="store_true", help="Push all wells in range")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
     parser.add_argument("--end", help="End date YYYY-MM-DD")
-    parser.add_argument("--project-id", type=int, default=PROJECT_ID)
+    parser.add_argument(
+        "--project-id",
+        type=int,
+        default=None,
+        help="Whitson+ project id (default: from settings.ini / env)",
+    )
     parser.add_argument("--replace", action="store_true")
     parser.add_argument(
         "--no-prodview-cap",
@@ -54,6 +56,9 @@ def main() -> int:
         parser.error("Provide --well-name or --all-wells")
     if args.all_wells and args.well_name:
         parser.error("Use only one of --well-name or --all-wells")
+
+    _client, _client_id, _client_secret, default_project_id = load_whitson_credentials()
+    project_id = args.project_id if args.project_id is not None else default_project_id
 
     append_only = not args.replace
     apply_cap = not args.no_prodview_cap
@@ -70,7 +75,7 @@ def main() -> int:
             append_only=append_only,
             apply_prodview_cap=apply_cap,
             factors=factors,
-            project_id=args.project_id,
+            project_id=project_id,
             log_cb=print,
         )
         return 0 if summary["failed"] == 0 else 1
@@ -98,7 +103,7 @@ def main() -> int:
             start=start,
             end=end,
             factors=factors,
-            project_id=args.project_id,
+            project_id=project_id,
             append_only=append_only,
             log_cb=print,
         )

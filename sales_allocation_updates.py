@@ -309,10 +309,8 @@ def resolve_accumap_uwi_to_survey_well_name(
     return None
 
 
-def read_accumap_sales_by_uwi(accumap_path: str, month_start: datetime) -> Dict[str, float]:
-    """
-    Read Accumap 'Sales Gas - to PRW' sheet; return UWI string (as in file) -> PRD Monthly Mktbl GAS e3m3.
-    """
+def load_accumap_sales_workbook(accumap_path: str) -> pd.DataFrame:
+    """Load and normalize the Accumap sales sheet once (reuse across months)."""
     accumap_xl = pd.ExcelFile(accumap_path)
     sheets = accumap_xl.sheet_names
     target_sheet = "Sales Gas - to PRW"
@@ -324,9 +322,23 @@ def read_accumap_sales_by_uwi(accumap_path: str, month_start: datetime) -> Dict[
         lambda x: x[:-1] if isinstance(x, str) and x.endswith("0") and len(x) > 1 else x
     )
     df_accumap["Date_parsed"] = pd.to_datetime(df_accumap["Date"], errors="coerce")
-    df_f = df_accumap[
-        (df_accumap["Date_parsed"].dt.year == month_start.year)
-        & (df_accumap["Date_parsed"].dt.month == month_start.month)
+    return df_accumap
+
+
+def read_accumap_sales_by_uwi(
+    accumap_path: str,
+    month_start: datetime,
+    *,
+    accumap_df: Optional[pd.DataFrame] = None,
+) -> Dict[str, float]:
+    """
+    Read Accumap 'Sales Gas - to PRW' sheet; return UWI string (as in file) -> PRD Monthly Mktbl GAS e3m3.
+    """
+    if accumap_df is None:
+        accumap_df = load_accumap_sales_workbook(accumap_path)
+    df_f = accumap_df[
+        (accumap_df["Date_parsed"].dt.year == month_start.year)
+        & (accumap_df["Date_parsed"].dt.month == month_start.month)
     ].copy()
     df_f = df_f.dropna(subset=["UWI_clean_accumap"]).copy()
     df_f["UWI_clean_accumap"] = df_f["UWI_clean_accumap"].astype(str).str.strip()
@@ -371,6 +383,8 @@ def merge_accumap_into_allocation_factors(
     month_start: MonthStart,
     accumap_path: str,
     log: Optional[Callable[[str], None]] = None,
+    *,
+    accumap_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Union[int, str, None]]:
     """
     Update Sales_Gas, WH_to_Sales_AllocFactor, Gathered_to_Sales for existing rows
@@ -391,7 +405,7 @@ def merge_accumap_into_allocation_factors(
 
     cursor = conn.cursor()
     pce_uwi_dict = fetch_pce_uwi_to_well_name(cursor)
-    accumap_by_uwi = read_accumap_sales_by_uwi(accumap_path, ms_dt)
+    accumap_by_uwi = read_accumap_sales_by_uwi(accumap_path, ms_dt, accumap_df=accumap_df)
     well_sales, unmatched_uwi_list, _matched_detail = map_accumap_uwi_to_well_sales(
         accumap_by_uwi, pce_uwi_dict
     )
@@ -423,7 +437,7 @@ def merge_accumap_into_allocation_factors(
             Gathered_to_Sales = ?
         WHERE MonthStartDate = ? AND [Well Name] = ?
     """
-    updated = 0
+    update_rows = []
     for well_name, prodview_wh_gas, gathered_gas in rows:
         if not well_name:
             continue
@@ -432,11 +446,14 @@ def merge_accumap_into_allocation_factors(
         gg = float(gathered_gas) if gathered_gas is not None else 0.0
         wh_to_sales = 1.0 if pw == 0 else sales_gas / pw
         gathered_to_sales = "1" if gg == 0 else str(sales_gas / gg)
-        cursor.execute(
-            update_sql,
-            (sales_gas, wh_to_sales, gathered_to_sales, month_start, well_name),
+        update_rows.append(
+            (sales_gas, wh_to_sales, gathered_to_sales, month_start, well_name)
         )
-        updated += 1
+
+    if update_rows:
+        cursor.fast_executemany = True
+        cursor.executemany(update_sql, update_rows)
+    updated = len(update_rows)
 
     conn.commit()
     _log(lf.detail(f"Updated Accumap fields on {lf.num(updated)} Allocation_Factors rows"))

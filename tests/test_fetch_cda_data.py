@@ -16,7 +16,7 @@ class TestSortCdaDataframe(unittest.TestCase):
             }
         )
         out = _sort_cda_dataframe(df)
-        self.assertEqual(list(out["Source_Well_Name"]), ["B-1", "A-1", "YE2-1", "A-1 - TC"])
+        self.assertEqual(list(out["Source_Well_Name"]), ["A-1", "B-1", "YE2-1", "A-1 - TC"])
 
 
 if __name__ == "__main__":

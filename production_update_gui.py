@@ -20,7 +20,6 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
-from db_connection import get_sql_conn
 from monthly_loader_dialog import MonthlyLoaderDialog
 from sales_ratios_dialog import SalesRatiosDialog
 from prodview_update_dialog import ProdviewUpdateDialog

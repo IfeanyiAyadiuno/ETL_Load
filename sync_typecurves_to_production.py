@@ -15,38 +15,17 @@ import pandas as pd
 
 import log_format as lf
 from db_connection import get_sql_conn
+from pce_production_schema import (
+    PCE_PRODUCTION_TC_EXTRA_COLUMNS,
+    build_production_insert_sql,
+)
 from production_update import gathered_prd_month_label, fetch_well_master_enersight_lookup
 from type_curves_import import _is_ye_tc_stored_well_name, _tc_pad_name_from_excel
 
-_INSERT_SQL = """
-INSERT INTO PCE_Production (
-    [Date], [Days Seq], [Day Seq UPRT], [Well Name],
-    [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-    [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
-    [Sales CGR (m³/e³m³)],
-    [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-    [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-    [Choke Size], [Gas WH Cumulative Production (10³m³)],
-    [Gas S2 Cumulative Production (10³m³)],
-    [Gas Sales Cumulative Production (10³m³)],
-    [Condensate Sales Cumulative Production (m³)],
-    [Condensate WH Cumulative Production (m³)],
-    [Gas Gathered Cumulative (e³m³)],
-    [Condensate Gathered Cumulative (m³)],
-    [Gath. Water Cumulative (m³)],
-    [Formation Producer], [Layer Producer], [Fault Block],
-    [Pad Name], [Lateral Length], [Orientation],
-    [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
-    [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
-    [Gath. Water Avg (m³/d)],
-    [Alloc. Water Avg (m³)],
-    [Month],
-    [Remarks]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
+_INSERT_SQL = build_production_insert_sql(
+    include_uwi=False,
+    extra_columns=PCE_PRODUCTION_TC_EXTRA_COLUMNS,
+)
 
 _TC_SELECT = """
 SELECT

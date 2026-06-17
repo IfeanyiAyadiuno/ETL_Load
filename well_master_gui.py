@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit,
     QAbstractItemView,
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtWidgets import QProgressBar, QScrollArea
 from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import QApplication
@@ -30,6 +30,201 @@ from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialo
 
 ADDITIONAL_FIELDS_COL = 19
 ADDITIONAL_FIELDS_COL_WIDTH = 130
+
+
+class WellMasterLoadWorker(QThread):
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)
+
+    def run(self):
+        try:
+            self.status_signal.emit("Syncing composite names from well parts...")
+            composite_updates = WellMasterDB.sync_composite_names_from_parts()
+            self.status_signal.emit("Loading wells from database...")
+            payload = {
+                "all_wells": WellMasterDB.get_all_wells(),
+                "dropdown_options": WellMasterDB.get_dropdown_options(),
+                "composite_updates": composite_updates,
+            }
+            self.finished_signal.emit(payload)
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
+
+
+class WellMasterSaveWorker(QThread):
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, updates, parent=None):
+        super().__init__(parent)
+        self.updates = updates
+
+    def run(self):
+        try:
+            updated, errors = WellMasterDB.save_well_updates(self.updates)
+            self.finished_signal.emit({"updated": updated, "errors": errors})
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
+
+
+class WellMasterSnowflakeImportWorker(QThread):
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)
+
+    def __init__(self, existing_wells, parent=None):
+        super().__init__(parent)
+        self.existing_wells = existing_wells
+
+    def run(self):
+        try:
+            import re
+            from snowflake_connector import SnowflakeConnector
+
+            def normalize_well_name(name):
+                if not name or not isinstance(name, str):
+                    return ""
+                normalized = _strip_leading_snowflake_asterisk(name)
+                if not normalized:
+                    return ""
+                normalized = re.sub(r'-0(\d+)', r'-\1', normalized)
+                normalized = re.sub(r'\b0+(\d+)', r'\1', normalized)
+                normalized = re.sub(r'[-_]+', '-', normalized)
+                normalized = re.sub(r'\s+', ' ', normalized).strip()
+                return normalized.upper()
+
+            self.status_signal.emit("Querying Snowflake for new wells...")
+            query = """
+            SELECT DISTINCT
+                u.NAME         AS Unit_Name,
+                c.IDREC        AS PressuresIDREC,
+                me.IDRECPARENT AS GasIDREC,
+                mo.name        AS MeterName
+            FROM ((unitsmetric.pvunit AS u
+                INNER JOIN unitsmetric.pvunitcomp AS c
+                    ON c.IDRECPARENT = u.IDREC)
+                INNER JOIN unitsmetric.pvunitmeterorifice AS mo
+                    ON mo.IDRECPARENT = u.IDREC)
+                INNER JOIN unitsmetric.pvunitmeterorificeentry AS me
+                    ON me.IDRECPARENT = mo.IDREC
+            WHERE (mo.NAME LIKE '%Daily%' OR mo.Name LIKE '%Tester%')
+              AND (me.DELETED = 0 OR me.DELETED IS NULL)
+              AND mo.name IS NOT NULL
+            ORDER BY u.NAME, c.IDREC;
+            """
+            sf = SnowflakeConnector()
+            df = sf.query(query)
+            sf.close()
+
+            if df.empty:
+                self.finished_signal.emit({"new_daily_wells": [], "new_tester_wells": []})
+                return
+
+            df.columns = [c.upper() for c in df.columns]
+            existing_names = set()
+            existing_gas = set()
+            existing_pres = set()
+            for well in self.existing_wells:
+                norm = normalize_well_name(well.get('well_name', ''))
+                if norm:
+                    existing_names.add(norm)
+                if well.get('gas_idrec'):
+                    existing_gas.add(str(well['gas_idrec']))
+                if well.get('pressures_idrec'):
+                    existing_pres.add(str(well['pressures_idrec']))
+
+            daily_rows = []
+            tester_only_rows = []
+            for unit_name, group in df.groupby('UNIT_NAME'):
+                has_daily = group['METERNAME'].str.contains('daily', case=False, na=False).any()
+                if has_daily:
+                    daily_group = group[
+                        group['METERNAME'].str.contains('daily', case=False, na=False)
+                    ]
+                    daily_rows.append(daily_group.iloc[0])
+                else:
+                    tester_only_rows.append(group.iloc[0])
+
+            new_daily_wells = []
+            for row in daily_rows:
+                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
+                gas_id = str(row['GASIDREC']).strip()
+                pres_id = str(row['PRESSURESIDREC']).strip()
+                if not well_name or not gas_id or not pres_id:
+                    continue
+                norm = normalize_well_name(well_name)
+                if norm in existing_names or gas_id in existing_gas or pres_id in existing_pres:
+                    continue
+                new_daily_wells.append({
+                    'well_name': well_name,
+                    'gas_idrec': gas_id,
+                    'pressures_idrec': pres_id,
+                })
+
+            new_tester_wells = []
+            for row in tester_only_rows:
+                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
+                pres_id = str(row['PRESSURESIDREC']).strip()
+                if not well_name or not pres_id:
+                    continue
+                norm = normalize_well_name(well_name)
+                if norm in existing_names or pres_id in existing_pres:
+                    continue
+                new_tester_wells.append({
+                    'well_name': well_name,
+                    'pressures_idrec': pres_id,
+                })
+
+            self.finished_signal.emit({
+                "new_daily_wells": new_daily_wells,
+                "new_tester_wells": new_tester_wells,
+            })
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
+
+
+class WellMasterInsertWorker(QThread):
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, new_wells, parent=None):
+        super().__init__(parent)
+        self.new_wells = new_wells
+
+    def run(self):
+        try:
+            from db_connection import sql_connection
+
+            inserted = 0
+            errors = []
+            with sql_connection() as conn:
+                cursor = conn.cursor()
+                for well in self.new_wells:
+                    wn = WellMasterDB.sanitize_text_field(
+                        _strip_leading_snowflake_asterisk(well.get("well_name", ""))
+                    )
+                    gas_idrec = WellMasterDB.sanitize_text_field(well.get("gas_idrec"))
+                    pressures_idrec = WellMasterDB.sanitize_text_field(well.get("pressures_idrec"))
+                    if not wn or not gas_idrec or not pressures_idrec:
+                        errors.append(f"{well.get('well_name', '')}: missing Well Name or IDREC")
+                        continue
+                    try:
+                        cursor.execute("""
+                            INSERT INTO PCE_WM (
+                                [Well Name],
+                                [GasIDREC],
+                                [PressuresIDREC]
+                            ) VALUES (?, ?, ?)
+                        """, wn, gas_idrec, pressures_idrec)
+                        inserted += 1
+                    except Exception as exc:
+                        errors.append(f"{wn}: {exc}")
+                WellMasterDB.backfill_shared_nad83_location_columns(cursor)
+                conn.commit()
+            self.finished_signal.emit({"inserted": inserted, "errors": errors})
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
 
 
 def _strip_leading_snowflake_asterisk(name):
@@ -121,6 +316,10 @@ class WellMasterDialog(QDialog):
         self.current_tab = 0
         self.row_widgets = []          # References to staged table widgets
         self.pending_current_edits = set()
+        self._load_worker = None
+        self._save_worker = None
+        self._import_worker = None
+        self._insert_worker = None
         # Column widths (used in both tabs)
         # Index: 0    1            2           3               4          5       6            7
         #        ""   Well Name    GasIDREC    PressuresIDREC  Formation  Layer   Fault Block  Pad Name
@@ -174,7 +373,54 @@ class WellMasterDialog(QDialog):
         self.tabs = None
 
         self.initUI()
-        self.load_data()
+        QTimer.singleShot(0, self._start_load_data)
+
+    def _start_load_data(self):
+        if self._load_worker is not None and self._load_worker.isRunning():
+            return
+        self.status_label.setText("Loading wells...")
+        self._load_worker = WellMasterLoadWorker()
+        self._load_worker.status_signal.connect(self.status_label.setText)
+        self._load_worker.finished_signal.connect(self._on_load_finished)
+        self._load_worker.error_signal.connect(self._on_load_error)
+        self._load_worker.start()
+
+    def _on_load_error(self, message):
+        self.status_label.setText("Load failed")
+        QMessageBox.critical(self, "Load Failed", message)
+
+    def _on_load_finished(self, payload):
+        self._apply_load_payload(payload)
+
+    def _apply_load_payload(self, payload):
+        composite_updates = payload.get("composite_updates", 0)
+        self.table.setRowCount(0)
+        self.all_wells = payload.get("all_wells", [])
+        self.dropdown_options = payload.get("dropdown_options", {})
+
+        self.pending_wells = []
+        self.complete_wells = []
+        for well in self.all_wells:
+            if WellMasterDB.is_pending(well):
+                self.pending_wells.append(well)
+            else:
+                self.complete_wells.append(well)
+
+        self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
+        self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
+        self.display_wells(self._current_tab_well_source())
+        self.make_current_table_editable()
+
+        sync_note = (
+            f", {composite_updates} composite name(s) updated"
+            if composite_updates
+            else ""
+        )
+        self.status_label.setText(
+            f"Loaded {len(self.all_wells)} wells "
+            f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
+            f"{sync_note}"
+        )
 
     def initUI(self):
         """Initialize the user interface"""
@@ -602,10 +848,26 @@ class WellMasterDialog(QDialog):
             return
 
         self.status_label.setText(f"Saving {len(updates)} well(s)...")
-        QApplication.processEvents()
+        if self._save_worker is not None and self._save_worker.isRunning():
+            QMessageBox.information(self, "Busy", "A save is already in progress.")
+            return
+        self._save_worker = WellMasterSaveWorker(updates)
+        self._save_worker.finished_signal.connect(
+            lambda result: self._on_save_finished(result, len(updates))
+        )
+        self._save_worker.error_signal.connect(self._on_save_error)
+        self.save_btn.setEnabled(False)
+        self._save_worker.start()
 
-        updated, errors = WellMasterDB.save_well_updates(updates)
+    def _on_save_error(self, message):
+        self.save_btn.setEnabled(True)
+        self.status_label.setText("Save failed")
+        QMessageBox.critical(self, "Save Failed", message)
 
+    def _on_save_finished(self, result, requested):
+        self.save_btn.setEnabled(True)
+        updated = result.get("updated", 0)
+        errors = result.get("errors", [])
         if errors:
             error_msg = "\n".join(errors[:5])
             if len(errors) > 5:
@@ -621,7 +883,6 @@ class WellMasterDialog(QDialog):
                 "Save Complete",
                 f"Successfully updated {updated} well(s)."
             )
-
         self.pending_current_edits.clear()
         self.load_data()
         self.status_label.setText(f"Saved {updated} well(s)")
@@ -652,45 +913,8 @@ class WellMasterDialog(QDialog):
             self.display_wells(self._current_tab_well_source())
 
     def load_data(self):
-        """Load well data from database"""
-        self.status_label.setText("Syncing composite names from well parts...")
-        QApplication.processEvents()
-
-        composite_updates = WellMasterDB.sync_composite_names_from_parts()
-
-        self.status_label.setText("Loading wells from database...")
-        QApplication.processEvents()
-
-        self.table.setRowCount(0)
-
-        self.all_wells = WellMasterDB.get_all_wells()
-        self.dropdown_options = WellMasterDB.get_dropdown_options()
-
-        self.pending_wells = []
-        self.complete_wells = []
-
-        for well in self.all_wells:
-            if WellMasterDB.is_pending(well):
-                self.pending_wells.append(well)
-            else:
-                self.complete_wells.append(well)
-
-        self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
-        self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
-
-        self.display_wells(self._current_tab_well_source())
-        self.make_current_table_editable()
-
-        sync_note = (
-            f", {composite_updates} composite name(s) updated"
-            if composite_updates
-            else ""
-        )
-        self.status_label.setText(
-            f"Loaded {len(self.all_wells)} wells "
-            f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
-            f"{sync_note}"
-        )
+        """Reload well data from database on a background worker."""
+        self._start_load_data()
 
     def display_wells(self, wells):
         """Display wells in the table"""
@@ -988,141 +1212,36 @@ class WellMasterDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
-        self.status_label.setText("Querying Snowflake for new wells...")
-        QApplication.processEvents()
+        if self._import_worker is not None and self._import_worker.isRunning():
+            QMessageBox.information(self, "Busy", "Snowflake import query already running.")
+            return
 
-        try:
-            from snowflake_connector import SnowflakeConnector
-            import re
+        self.import_btn.setEnabled(False)
+        self._import_worker = WellMasterSnowflakeImportWorker(self.all_wells)
+        self._import_worker.status_signal.connect(self.status_label.setText)
+        self._import_worker.finished_signal.connect(self._on_snowflake_import_finished)
+        self._import_worker.error_signal.connect(self._on_snowflake_import_error)
+        self._import_worker.start()
 
-            def normalize_well_name(name):
-                if not name or not isinstance(name, str):
-                    return ""
-                normalized = _strip_leading_snowflake_asterisk(name)
-                if not normalized:
-                    return ""
-                normalized = re.sub(r'-0(\d+)', r'-\1', normalized)
-                normalized = re.sub(r'\b0+(\d+)', r'\1', normalized)
-                normalized = re.sub(r'[-_]+', '-', normalized)
-                normalized = re.sub(r'\s+', ' ', normalized).strip()
-                normalized = normalized.upper()
-                return normalized
+    def _on_snowflake_import_error(self, message):
+        self.import_btn.setEnabled(True)
+        QMessageBox.critical(self, "Import Failed", f"Error importing wells:\n{message}")
+        self.status_label.setText("Import failed")
 
-            # --- NEW QUERY: pulls both Daily and Tester rows ---
-            query = """
-            SELECT DISTINCT
-                u.NAME         AS Unit_Name,
-                c.IDREC        AS PressuresIDREC,
-                me.IDRECPARENT AS GasIDREC,
-                mo.name        AS MeterName
-            FROM ((unitsmetric.pvunit AS u
-                INNER JOIN unitsmetric.pvunitcomp AS c
-                    ON c.IDRECPARENT = u.IDREC)
-                INNER JOIN unitsmetric.pvunitmeterorifice AS mo
-                    ON mo.IDRECPARENT = u.IDREC)
-                INNER JOIN unitsmetric.pvunitmeterorificeentry AS me
-                    ON me.IDRECPARENT = mo.IDREC
-            WHERE (mo.NAME LIKE '%Daily%' OR mo.Name LIKE '%Tester%')
-              AND (me.DELETED = 0 OR me.DELETED IS NULL)
-              AND mo.name IS NOT NULL
-            ORDER BY u.NAME, c.IDREC;
-            """
+    def _on_snowflake_import_finished(self, result):
+        self.import_btn.setEnabled(True)
+        new_daily_wells = result.get("new_daily_wells", [])
+        new_tester_wells = result.get("new_tester_wells", [])
 
-            sf = SnowflakeConnector()
-            df = sf.query(query)
-            sf.close()
+        if not new_daily_wells and not new_tester_wells:
+            QMessageBox.information(self, "No New Wells", "No new wells to import.")
+            self.status_label.setText("Import complete - no new wells")
+            return
 
-            if df.empty:
-                QMessageBox.information(self, "No New Wells", "No wells found in Snowflake.")
-                self.status_label.setText("Import complete - no new wells")
-                return
-
-            # Normalise column names (Snowflake returns uppercase)
-            df.columns = [c.upper() for c in df.columns]
-
-            # --- BUILD LOOKUP SETS from existing PCE_WM wells ---
-            existing_names = set()
-            existing_gas   = set()
-            existing_pres  = set()
-
-            for well in self.all_wells:
-                norm = normalize_well_name(well.get('well_name', ''))
-                if norm:
-                    existing_names.add(norm)
-                if well.get('gas_idrec'):
-                    existing_gas.add(str(well['gas_idrec']))
-                if well.get('pressures_idrec'):
-                    existing_pres.add(str(well['pressures_idrec']))
-
-            # --- RESOLVE DAILY vs TESTER-ONLY ---
-            daily_rows      = []
-            tester_only_rows = []
-
-            for unit_name, group in df.groupby('UNIT_NAME'):
-                has_daily = group['METERNAME'].str.contains('daily', case=False, na=False).any()
-
-                if has_daily:
-                    # Keep the first Daily row; discard any Tester rows
-                    daily_group = group[
-                        group['METERNAME'].str.contains('daily', case=False, na=False)
-                    ]
-                    daily_rows.append(daily_group.iloc[0])
-                else:
-                    # All rows are Tester — new well, needs GasIDREC from user
-                    tester_only_rows.append(group.iloc[0])
-
-            # --- DEDUP DAILY WELLS against existing PCE_WM ---
-            new_daily_wells = []
-            for row in daily_rows:
-                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
-                gas_id    = str(row['GASIDREC']).strip()
-                pres_id   = str(row['PRESSURESIDREC']).strip()
-
-                if not well_name or not gas_id or not pres_id:
-                    continue
-
-                norm = normalize_well_name(well_name)
-                if norm in existing_names or gas_id in existing_gas or pres_id in existing_pres:
-                    continue
-
-                new_daily_wells.append({
-                    'well_name':       well_name,
-                    'gas_idrec':       gas_id,
-                    'pressures_idrec': pres_id,
-                })
-
-            # --- DEDUP TESTER-ONLY WELLS by name + PressuresIDREC ---
-            new_tester_wells = []
-            for row in tester_only_rows:
-                well_name = _strip_leading_snowflake_asterisk(str(row['UNIT_NAME']).strip())
-                pres_id   = str(row['PRESSURESIDREC']).strip()
-
-                if not well_name or not pres_id:
-                    continue
-
-                norm = normalize_well_name(well_name)
-                if norm in existing_names or pres_id in existing_pres:
-                    continue
-
-                new_tester_wells.append({
-                    'well_name':       well_name,
-                    'pressures_idrec': pres_id,
-                })
-
-            if not new_daily_wells and not new_tester_wells:
-                QMessageBox.information(self, "No New Wells", "No new wells to import.")
-                self.status_label.setText("Import complete - no new wells")
-                return
-
-            # Tester-only wells need the user to supply GasIDREC before preview
-            if new_tester_wells:
-                self.show_gas_id_prompt(new_tester_wells, new_daily_wells)
-            else:
-                self.show_import_preview(new_daily_wells)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Import Failed", f"Error importing wells:\n{str(e)}")
-            self.status_label.setText("Import failed")
+        if new_tester_wells:
+            self.show_gas_id_prompt(new_tester_wells, new_daily_wells)
+        else:
+            self.show_import_preview(new_daily_wells)
 
     def do_import_wells(self, dialog, new_wells, confirm_cb):
         """Actually import the wells"""
@@ -1132,68 +1251,44 @@ class WellMasterDialog(QDialog):
 
         dialog.accept()
 
+        if self._insert_worker is not None and self._insert_worker.isRunning():
+            QMessageBox.information(self, "Busy", "Well insert already in progress.")
+            return
+
         self.status_label.setText(f"Adding {len(new_wells)} new wells...")
-        QApplication.processEvents()
+        self._insert_worker = WellMasterInsertWorker(new_wells)
+        self._insert_worker.finished_signal.connect(self._on_insert_finished)
+        self._insert_worker.error_signal.connect(self._on_insert_error)
+        self._insert_worker.start()
 
-        try:
-            from db_connection import get_sql_conn
-            conn = get_sql_conn()
-            cursor = conn.cursor()
+    def _on_insert_error(self, message):
+        QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{message}")
+        self.status_label.setText("Import failed")
 
-            inserted = 0
-            errors = []
+    def _on_insert_finished(self, result):
+        inserted = result.get("inserted", 0)
+        errors = result.get("errors", [])
+        if errors:
+            error_msg = "\n".join(errors[:5])
+            if len(errors) > 5:
+                error_msg += f"\n... and {len(errors) - 5} more errors"
+            QMessageBox.warning(
+                self,
+                "Import Completed with Errors",
+                f"Inserted: {inserted}\nFailed: {len(errors)}\n\nErrors:\n{error_msg}"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Import Complete",
+                f"Successfully added {inserted} new wells to PCE_WM.\n\n"
+                "When you are ready, run Prodview / Snowflake (for example the default "
+                "Snowflake → CDA + production rebuild) to refresh PCE_CDA and "
+                "PCE_Production so the new wells appear in daily production."
+            )
 
-            for well in new_wells:
-                wn = WellMasterDB.sanitize_text_field(
-                    _strip_leading_snowflake_asterisk(well.get("well_name", ""))
-                )
-                gas_idrec = WellMasterDB.sanitize_text_field(well.get("gas_idrec"))
-                pressures_idrec = WellMasterDB.sanitize_text_field(well.get("pressures_idrec"))
-                if not wn or not gas_idrec or not pressures_idrec:
-                    errors.append(f"{well.get('well_name', '')}: missing Well Name or IDREC")
-                    continue
-                try:
-                    cursor.execute("""
-                        INSERT INTO PCE_WM (
-                            [Well Name],
-                            [GasIDREC],
-                            [PressuresIDREC]
-                        ) VALUES (?, ?, ?)
-                    """, wn, gas_idrec, pressures_idrec)
-                    inserted += 1
-                except Exception as e:
-                    errors.append(f"{wn}: {str(e)}")
-
-            WellMasterDB.backfill_shared_nad83_location_columns(cursor)
-
-            conn.commit()
-            conn.close()
-
-            if errors:
-                error_msg = "\n".join(errors[:5])
-                if len(errors) > 5:
-                    error_msg += f"\n... and {len(errors) - 5} more errors"
-                QMessageBox.warning(
-                    self,
-                    "Import Completed with Errors",
-                    f"Inserted: {inserted}\nFailed: {len(errors)}\n\nErrors:\n{error_msg}"
-                )
-            else:
-                QMessageBox.information(
-                    self,
-                    "Import Complete",
-                    f"Successfully added {inserted} new wells to PCE_WM.\n\n"
-                    "When you are ready, run Prodview / Snowflake (for example the default "
-                    "Snowflake → CDA + production rebuild) to refresh PCE_CDA and "
-                    "PCE_Production so the new wells appear in daily production."
-                )
-
-            self.load_data()
-            self.status_label.setText(f"Imported {inserted} new wells")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Import Failed", f"Error inserting wells:\n{str(e)}")
-            self.status_label.setText("Import failed")
+        self.load_data()
+        self.status_label.setText(f"Imported {inserted} new wells")
 
     def stage_selected_wells(self):
         """Stage all checked pending wells into the Add New Wells tab."""

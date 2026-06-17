@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta
 import os
 import traceback
-from db_connection import get_sql_conn
+from db_connection import get_sql_conn, sql_connection
 from sales_allocation_updates import (
     fetch_pce_uwi_to_well_name,
     fetch_pce_wm_wells,
@@ -176,6 +176,7 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
     report_filename = None
     missing_report = None
     
+    conn = None
     try:
         # Read ValNav data
         progress(10)
@@ -428,7 +429,6 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
             1 for d in valnav_matched_wells.values() if d.get("valnav_data") is not None
         )
         if valnav_with_data == 0:
-            conn.close()
             msg = (
                 f"No ValNav rows matched PCE_WM for {month_start.strftime('%b %Y')}. "
                 "Nothing was changed in the database."
@@ -666,7 +666,6 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         )
         progress(98)
 
-        conn.close()
         progress(100)
         
         # -----------------------------------------------------------------
@@ -707,10 +706,13 @@ def run_monthly_loader(month_str, valnav_path, progress_callback=None, log_callb
         log(lf.summary("COMPLETE", complete_metrics))
         
         return summary
-        
+
     except Exception as e:
         error_msg = str(e)
         log(lf.error(error_msg))
         log(traceback.format_exc())
         return {"error": error_msg}
+    finally:
+        if conn is not None:
+            conn.close()
     
