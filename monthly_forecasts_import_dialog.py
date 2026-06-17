@@ -291,6 +291,19 @@ class MonthlyForecastsImportDialog(QDialog):
         self.select_all_months_btn.setEnabled(idle and month_list_ready)
         self.clear_months_btn.setEnabled(idle and month_list_ready)
         self.month_list.setEnabled(idle and month_list_ready)
+        self.close_btn.setEnabled(idle and month_list_ready)
+        self.progress.setVisible(not idle or not month_list_ready)
+
+    def closeEvent(self, event):
+        if not self._workers_idle() or self.month_list_worker is not None:
+            event.ignore()
+            QMessageBox.information(
+                self,
+                "Busy",
+                "An import or delete is still running. Wait for it to finish.",
+            )
+            return
+        super().closeEvent(event)
 
     @staticmethod
     def _make_checkable_item(label: str, user_data) -> QListWidgetItem:

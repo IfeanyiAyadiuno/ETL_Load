@@ -34,6 +34,8 @@ Thumbs.db
 .env
 *.env.local
 secrets.*
+settings.ini
+access_token.txt
 
 # Local scratch / log files
 output.txt

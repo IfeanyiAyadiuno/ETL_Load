@@ -865,16 +865,14 @@ def append_typecurves_from_excel(
         conn.commit()
 
     progress(95)
-    try:
-        sync_tc_to_production(log_callback=log)
-    except Exception as e:
-        log(lf.warn(f"PCE_Production sync after TC import: {e}"))
-    try:
-        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+    from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-        rebuild_pce_frcst_prd(log=log)
-    except Exception as e:
-        log(lf.warn(f"PCE_FRCST_PRD rebuild after TC import: {e}"))
+    run_post_production_rebuild_steps(
+        log,
+        include_ngl=False,
+        include_uwi_sync=False,
+        include_wm_metadata=False,
+    )
     progress(100)
     result["ok"] = True
     result["rows_inserted"] = total_inserted
@@ -914,12 +912,15 @@ def delete_typecurves_from_tc(
         _delete_production_for_tc_well_names(cur, names)
         conn.commit()
     log(lf.detail(f"Deleted {lf.num(total)} PCE_TC row(s) for {lf.num(len(names))} well key(s)"))
-    try:
-        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+    from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-        rebuild_pce_frcst_prd(log=log)
-    except Exception as e:
-        log(lf.warn(f"PCE_FRCST_PRD rebuild after TC delete: {e}"))
+    run_post_production_rebuild_steps(
+        log,
+        include_ngl=False,
+        include_uwi_sync=False,
+        include_wm_metadata=False,
+        include_frcst_rebuild=True,
+    )
     return total
 
 
@@ -1054,18 +1055,14 @@ def ye2_append_rows_to_pce_tc(
         cur.executemany(INSERT_SQL, rows_out)
         conn.commit()
 
-    from sync_typecurves_to_production import sync_tc_to_production
+    from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-    try:
-        sync_tc_to_production(log_callback=log)
-    except Exception as e:
-        log(lf.warn(f"PCE_Production sync after YE2 load: {e}"))
-    try:
-        from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-        rebuild_pce_frcst_prd(log=log)
-    except Exception as e:
-        log(lf.warn(f"PCE_FRCST_PRD rebuild after YE2 load: {e}"))
+    run_post_production_rebuild_steps(
+        log,
+        include_ngl=False,
+        include_uwi_sync=False,
+        include_wm_metadata=False,
+    )
 
     log(lf.success(f"YE2 PCE_TC insert: {lf.num(len(rows_out))} row(s)."))
     return {"ok": True, "rows_inserted": len(rows_out)}

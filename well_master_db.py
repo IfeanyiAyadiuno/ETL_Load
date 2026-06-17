@@ -38,13 +38,13 @@ class WellMasterDB:
     @staticmethod
     def get_all_wells():
         """Load all wells from PCE_WM"""
-        from db_connection import get_sql_conn
+        from db_connection import sql_connection
 
         try:
-            conn = get_sql_conn()
-            cursor = conn.cursor()
+            with sql_connection() as conn:
+                cursor = conn.cursor()
 
-            query = """
+                query = """
             SELECT 
                 [Well Name],
                 [GasIDREC],
@@ -69,9 +69,8 @@ class WellMasterDB:
             ORDER BY [Well Name]
             """
 
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            conn.close()
+                cursor.execute(query)
+                rows = cursor.fetchall()
 
             # Convert to list of dicts
             wells = []
@@ -114,7 +113,7 @@ class WellMasterDB:
     @staticmethod
     def get_dropdown_options():
         """Get unique values for dropdown fields"""
-        from db_connection import get_sql_conn
+        from db_connection import sql_connection
 
         options = {}
         fields = [
@@ -126,21 +125,20 @@ class WellMasterDB:
         ]
 
         try:
-            conn = get_sql_conn()
-            cursor = conn.cursor()
+            with sql_connection() as conn:
+                cursor = conn.cursor()
 
-            for field in fields:
-                query = f"""
+                for field in fields:
+                    query = f"""
                 SELECT DISTINCT [{field}] 
                 FROM PCE_WM 
                 WHERE [{field}] IS NOT NULL AND [{field}] != ''
                 ORDER BY [{field}]
                 """
-                cursor.execute(query)
-                rows = cursor.fetchall()
-                options[field] = [row[0] for row in rows]
+                    cursor.execute(query)
+                    rows = cursor.fetchall()
+                    options[field] = [row[0] for row in rows]
 
-            conn.close()
             return options
 
         except Exception as e:
@@ -536,25 +534,24 @@ WHERE
     @staticmethod
     def get_additional_fields(well_name):
         """Load additional-field columns for one PCE_WM row keyed by [Well Name]."""
-        from db_connection import get_sql_conn
+        from db_connection import sql_connection
 
         wn = WellMasterDB.sanitize_text_field(well_name)
         if not wn:
             return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
 
         try:
-            conn = get_sql_conn()
-            cursor = conn.cursor()
-            cursor.execute(
-                f"""
+            with sql_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""
                 SELECT {_ADDITIONAL_FIELD_SQL_LIST}
                 FROM PCE_WM
                 WHERE [Well Name] = ?
                 """,
-                wn,
-            )
-            row = cursor.fetchone()
-            conn.close()
+                    wn,
+                )
+                row = cursor.fetchone()
             if not row:
                 return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
 

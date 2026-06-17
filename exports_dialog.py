@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QRadioButton,
     QButtonGroup,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QTextCursor
 
 from db_connection import get_sql_conn
@@ -48,6 +48,22 @@ from styles import (
 )
 
 
+class MonthBoundsWorker(QThread):
+    finished_signal = pyqtSignal(object)
+    error_signal = pyqtSignal(str)
+
+    def run(self):
+        try:
+            conn = get_sql_conn()
+            try:
+                bounds = query_production_month_bounds(conn)
+            finally:
+                conn.close()
+            self.finished_signal.emit(bounds)
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
+
+
 class ExportsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,11 +72,12 @@ class ExportsDialog(QDialog):
         self.setMinimumWidth(620)
         self.setMinimumHeight(520)
         self.worker = None
+        self._bounds_worker = None
         self._month_bounds = None
         self.setStyleSheet(DIALOG_BASE)
         configure_dialog_window_mode(self)
         self.initUI()
-        self.load_month_bounds()
+        QTimer.singleShot(0, self.load_month_bounds)
 
     def create_group(self, title):
         group = QFrame()
@@ -171,21 +188,20 @@ class ExportsDialog(QDialog):
         attach_dialog_scroll_and_actions(main_layout, scroll, btn_row)
 
     def load_month_bounds(self):
-        try:
-            conn = get_sql_conn()
-            try:
-                min_month, max_month = query_production_month_bounds(conn)
-            finally:
-                conn.close()
-        except ProductionDataEmptyError as e:
-            self.bounds_status.setText(str(e))
-            self.log_result(str(e))
+        if self._bounds_worker is not None and self._bounds_worker.isRunning():
             return
-        except Exception as e:
-            self.bounds_status.setText(f"Could not load production dates: {e}")
-            self.log_result(f"Error: {e}")
-            return
+        self.bounds_status.setText("Loading production month range…")
+        self._bounds_worker = MonthBoundsWorker()
+        self._bounds_worker.finished_signal.connect(self._apply_month_bounds)
+        self._bounds_worker.error_signal.connect(self._on_month_bounds_error)
+        self._bounds_worker.start()
 
+    def _on_month_bounds_error(self, message):
+        self.bounds_status.setText(f"Could not load production dates: {message}")
+        self.log_result(f"Error: {message}")
+
+    def _apply_month_bounds(self, bounds):
+        min_month, max_month = bounds
         self._month_bounds = (min_month, max_month)
         labels = month_labels_between(min_month, max_month)
         self.from_combo.clear()

@@ -15,17 +15,20 @@ from datetime import datetime, timedelta
 
 import log_format as lf
 from db_connection import get_sql_conn
+from pce_production_schema import (
+    PCE_PRODUCTION_INSERT_COLUMNS,
+    SQL_INSERT_BATCH_SIZE,
+    batch_executemany,
+    build_production_insert_sql,
+    df_to_insert_rows,
+)
 from prodview_date_bounds import (
     full_rebuild_snowflake_range,
     prodview_effective_end_date,
-    quick_update_date_range,
     rolling_window_snowflake_range,
-    snowflake_cda_gap_range,
 )
-from sync_typecurves_to_production import sync_tc_to_production
-
 # pyodbc fast_executemany batch size for large CDA/Production inserts
-SQL_INSERT_BATCH_SIZE = 20000
+# (re-exported from pce_production_schema for backward compatibility)
 
 
 def _emit_log(log_callback, msg):
@@ -453,11 +456,12 @@ def _apply_gaswh_replacement(df):
 
 
 def _df_to_insert_rows(df, columns):
-    """Vectorized NaN->None via astype(object) + itertuples."""
-    sub = df[columns].astype(object)
-    sub[sub.isna()] = None
-    return list(sub.itertuples(index=False, name=None))
+    return df_to_insert_rows(df, columns)
 
+
+_PROD_INSERT_SQL = build_production_insert_sql()
+
+_PROD_COLUMNS = list(PCE_PRODUCTION_INSERT_COLUMNS)
 
 _CDA_INSERT_SQL = """
             INSERT INTO PCE_CDA (
@@ -483,61 +487,6 @@ _CDA_COLUMNS = [
     'Lateral Length', 'Orient',
 ]
 
-_PROD_INSERT_SQL = """
-                INSERT INTO PCE_Production (
-    [Date], [Days Seq], [Day Seq UPRT], [Well Name], [UWI],
-                    [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-                    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-                    [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-                    [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
-                    [Sales CGR (m³/e³m³)],
-                    [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-                    [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-    [Choke Size], [Gas WH Cumulative Production (10³m³)],
-    [Gas S2 Cumulative Production (10³m³)],
-    [Gas Sales Cumulative Production (10³m³)],
-    [Condensate Sales Cumulative Production (m³)],
-    [Condensate WH Cumulative Production (m³)],
-    [Gas Gathered Cumulative (e³m³)],
-    [Condensate Gathered Cumulative (m³)],
-    [Gath. Water Cumulative (m³)],
-                    [Formation Producer], [Layer Producer], [Fault Block],
-    [Pad Name], [Lateral Length], [Orientation],
-    [On Production Year], [Alloc. Water Rate (m³)], [NGL (m³)],
-    [Gas WH Avg (10³m³)], [Gas S2 Avg (10³m³)],
-    [Gas Gathered Avg (e³m³/d)], [Condensate Gathered Avg (m³/d)],
-    [Gath. Water Avg (m³/d)],
-    [Alloc. Water Avg (m³)],
-    [Month]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_PROD_COLUMNS = [
-    'Date', 'Days Seq', 'Day Seq UPRT', 'Well Name', 'UWI',
-    'Gas WH Production (10³m³)', 'Condensate WH (m³/d)',
-    'Gas S2 Production (10³m³)', 'Gas Sales Production (10³m³)',
-    'Condensate Sales (m³/d)', 'Gathered Gas (e³m³/d)',
-    'Gathered Condensate (m³/d)', 'Gath. Water Rate (m³/d)',
-    'Sales CGR (m³/e³m³)',
-    'CGR (m³/e³m³)', 'WGR (m³/e³m³)', 'ECF',
-    'Hours On', 'Tubing Pressure (kPa)', 'Casing Pressure (kPa)',
-    'Choke Size', 'Gas WH Cumulative Production (10³m³)',
-    'Gas S2 Cumulative Production (10³m³)',
-    'Gas Sales Cumulative Production (10³m³)',
-    'Condensate Sales Cumulative Production (m³)',
-    'Condensate WH Cumulative Production (m³)',
-    'Gas Gathered Cumulative (e³m³)',
-    'Condensate Gathered Cumulative (m³)',
-    'Gath. Water Cumulative (m³)',
-    'Formation Producer', 'Layer Producer', 'Fault Block',
-    'Pad Name', 'Lateral Length', 'Orientation',
-    'On Production Year', 'Alloc. Water Rate (m³)', 'NGL (m³)',
-    'Gas WH Avg (10³m³)', 'Gas S2 Avg (10³m³)',
-    'Gas Gathered Avg (e³m³/d)', 'Condensate Gathered Avg (m³/d)',
-    'Gath. Water Avg (m³/d)',
-    'Alloc. Water Avg (m³)',
-    'Month',
-]
 
 def _month_boundaries(dt):
     """Return (first_day, last_day) as date objects for the month of *dt*."""
@@ -549,32 +498,8 @@ def _month_boundaries(dt):
     return first.date(), last.date()
 
 
-def _batch_executemany(
-    cursor,
-    sql,
-    rows,
-    *,
-    batch_size=SQL_INSERT_BATCH_SIZE,
-    log=None,
-    label="Insert",
-    progress=None,
-    progress_lo=0,
-    progress_hi=100,
-):
-    """Execute INSERT/UPDATE in batches with optional log and progress callbacks."""
-    total = len(rows)
-    if total == 0:
-        return
-    for i in range(0, total, batch_size):
-        batch = rows[i : i + batch_size]
-        cursor.executemany(sql, batch)
-        done = min(i + len(batch), total)
-        if log:
-            pct = int(100 * done / total)
-            log(lf.detail(f"{label} progress: {lf.num(done)}/{lf.num(total)} ({pct}%)"))
-        if progress:
-            pct = progress_lo + (progress_hi - progress_lo) * (done / total)
-            progress(int(pct))
+def _batch_executemany(cursor, sql, rows, **kwargs):
+    return batch_executemany(cursor, sql, rows, **kwargs)
 
 
 def query_pce_cda_min_date(conn=None):
@@ -753,13 +678,14 @@ def refresh_rolling_window_cda(
     log_callback=None,
     conn=None,
     progress_callback=None,
+    data_lag_days=None,
 ):
     """
     Replace PCE_CDA rows for the Prodview rolling Snowflake window (~18 months).
 
     Used by Quick Update. Returns (start_date, end_date, rows_inserted).
     """
-    start_date, end_date = rolling_window_snowflake_range()
+    start_date, end_date = rolling_window_snowflake_range(data_lag_days)
     log = partial(_emit_log, log_callback)
     log(
         lf.step(
@@ -853,296 +779,32 @@ def refresh_full_rebuild_cda(
 
 
 # ---------------------------------------------------------------------------
-# run_prodview_update  (Full Rebuild of CDA for selected range)
-# ---------------------------------------------------------------------------
-
-def run_prodview_update(start_month, end_month, progress_callback=None, log_callback=None):
-    log = partial(_emit_log, log_callback)
-
-    def progress(val):
-        if progress_callback:
-            progress_callback(val)
-
-    log(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
-                   Range=f"{start_month} to {end_month}"))
-    total_start = time.time()
-    timer = lf.StepTimer(log_fn=log)
-    
-    try:
-        from production_update import gathered_prd_month_sql_from_enersight
-
-        start_date = datetime.strptime(start_month, "%b %Y")
-        end_date = datetime.strptime(end_month, "%b %Y")
-        if start_date > end_date:
-            log(lf.error("Start month must be before end month"))
-            return {"error": "Start month must be before end month"}
-
-        conn = get_sql_conn()
-        cursor = conn.cursor()
-        cursor.fast_executemany = True
-        log(lf.success("Database connected"))
-        
-        mapping_df = _fetch_well_mapping(cursor)
-        log(lf.detail(f"Loaded {lf.num(len(mapping_df))} wells"))
-
-        overall_start, _ = _month_boundaries(start_date)
-        _, overall_end = _month_boundaries(end_date)
-        cap = prodview_effective_end_date()
-        if overall_end > cap:
-            log(lf.detail(f"Capping Snowflake/CDA window end {overall_end} → {cap} (automatic end)"))
-            overall_end = cap
-        if overall_start > overall_end:
-            log(lf.error("Start month is after capped end date"))
-            return {"error": "Invalid date range after capping to automatic end date"}
-
-        # Single Snowflake pull
-        log(lf.step(f"Pulling Snowflake data ({overall_start} to {overall_end})..."))
-        from snowflake_connector import SnowflakeConnector
-
-        sf = SnowflakeConnector()
-        try:
-            sf_data = _pull_all_snowflake_data(sf, overall_start, overall_end, log)
-        finally:
-            sf.close()
-
-        # Single-pass: one spine, one merge, one DELETE, one INSERT
-        log(lf.step("Building full-range spine and merging data..."))
-        full_range = pd.date_range(start=overall_start, end=overall_end, freq='D').date
-        spine_df = _build_spine(mapping_df, full_range)
-        log(lf.detail(f"Spine: {lf.num(len(spine_df))} rows"))
-        progress(20)
-
-        result_df = _merge_sf_data(spine_df, sf_data)
-        _log_gathered_water_merge_stats(result_df, log)
-        result_df['Condensate_WH_Production'] = result_df['GasWH_Production'] * result_df['CGR_Ratio']
-        result_df, _repl = _apply_gaswh_replacement(result_df)
-        log(lf.detail(f"Merged: {lf.num(len(result_df))} rows"))
-        progress(40)
-        timer.mark("Snowflake pull + CDA merge")
-
-        # Delete existing data for full range
-        cursor.execute("DELETE FROM PCE_CDA WHERE ProdDate BETWEEN ? AND ?",
-                        overall_start, overall_end)
-        cursor.execute(
-            """
-            DELETE FROM PCE_Production
-            WHERE [Date] BETWEEN ? AND ?
-              AND [Well Name] NOT LIKE '% - TC'
-              AND [Well Name] NOT LIKE 'YE2%'
-            """,
-            overall_start,
-            overall_end,
-        )
-        conn.commit()
-
-        # Insert CDA
-        log(lf.step("Inserting into PCE_CDA..."))
-        rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
-        log(lf.detail(f"Inserting {lf.num(len(rows))} PCE_CDA row(s)…"))
-        _batch_executemany(
-            cursor,
-            _CDA_INSERT_SQL,
-            rows,
-            log=log,
-            label="PCE_CDA insert",
-            progress=progress,
-            progress_lo=55,
-            progress_hi=59,
-        )
-        conn.commit()
-        total_cda = len(rows)
-        log(lf.detail(f"Inserted {lf.num(total_cda)} CDA records"))
-        progress(60)
-        timer.mark("PCE_CDA insert")
-
-        # Insert Production from CDA via server-side SELECT
-        month_sql = gathered_prd_month_sql_from_enersight("wm.[Enersight Well Name]")
-        cursor.execute(f"""
-            INSERT INTO PCE_Production (
-                [Date], [Well Name], [UWI], [Days Seq], [Day Seq UPRT],
-                [Gas WH Production (10³m³)], [Condensate WH (m³/d)],
-                [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-                [Condensate Sales (m³/d)], [Gathered Gas (e³m³/d)],
-                [Gathered Condensate (m³/d)], [Gath. Water Rate (m³/d)],
-                [Sales CGR (m³/e³m³)],
-                [CGR (m³/e³m³)], [WGR (m³/e³m³)], [ECF],
-                [Hours On], [Tubing Pressure (kPa)], [Casing Pressure (kPa)],
-                [Choke Size], [Alloc. Water Rate (m³)], [NGL (m³)],
-                [Formation Producer], [Layer Producer], [Fault Block],
-                [Pad Name], [Lateral Length], [Orientation],
-                [Month]
-            )
-            SELECT
-                c.ProdDate, c.[Well Name],
-                LTRIM(RTRIM(CAST(wm.[Value Navigator UWI] AS NVARCHAR(4000)))),
-                0, 0,
-                c.GasWH_Production, c.Condensate_WH_Production,
-                c.[Gas - S2 Production], c.[Gas - Sales Production],
-                c.[Condensate - Sales Production], c.Gathered_Gas_Production,
-                c.Gathered_Condensate_Production, c.Gathered_Water_Production,
-                c.[Sales CGR Ratio],
-                c.CGR_Ratio, c.WGR_Ratio, c.ECF_Ratio,
-                c.OnProdHours, c.TubingPressure, c.CasingPressure,
-                c.ChokeSize, c.AllocatedWater_Rate, c.NGL_Production,
-                c.[Formation Producer], c.[Layer Producer], c.[Fault Block],
-                c.[Pad Name], c.[Lateral Length], c.Orient,
-                {month_sql}
-            FROM PCE_CDA c
-            OUTER APPLY (
-                SELECT TOP 1
-                      wm.[Enersight Well Name]
-                    , wm.[Value Navigator UWI]
-                FROM PCE_WM wm
-                WHERE (
-                        wm.[Well Name] = c.[Well Name]
-                     OR (
-                            NULLIF(RTRIM(CAST(wm.[Composite Name] AS NVARCHAR(4000))), N'') IS NOT NULL
-                        AND wm.[Composite Name] = c.[Well Name]
-                        )
-                    )
-                  AND (wm.[Exception] IS NULL OR wm.[Exception] = N'' OR wm.[Exception] = N'N')
-            ) wm
-            WHERE c.ProdDate BETWEEN ? AND ?
-        """, overall_start, overall_end)
-        total_prod = cursor.rowcount
-        conn.commit()
-        progress(65)
-
-        log(lf.step("Applying calendar-month averages to production..."))
-        # AVG() OVER PARTITION BY YEAR/MONTH (not trailing 30 days). Mirrors Python Period('M').
-        # SKIP NULL semantics for source values (pandas path uses fillna(0)—see calculate_monthly_averages).
-        cursor.execute(
-            """
-            ;WITH avg_src AS (
-                SELECT p.[Well Name], p.[Date],
-                    AVG(CAST(p.[Gas WH Production (10³m³)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gw_avg,
-                    AVG(CAST(p.[Gas S2 Production (10³m³)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gs2_avg,
-                    AVG(CAST(p.[Gathered Gas (e³m³/d)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gg_avg,
-                    AVG(CAST(p.[Gathered Condensate (m³/d)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gc_avg,
-                    AVG(CAST(p.[Gath. Water Rate (m³/d)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS gtw_avg,
-                    AVG(CAST(p.[Alloc. Water Rate (m³)] AS FLOAT))
-                        OVER (PARTITION BY p.[Well Name], YEAR(p.[Date]), MONTH(p.[Date])) AS aw_avg
-                FROM dbo.PCE_Production p
-                WHERE p.[Date] BETWEEN ? AND ?
-                  AND p.[Well Name] NOT LIKE N'% - TC'
-                  AND p.[Well Name] NOT LIKE N'YE2%'
-            )
-            UPDATE tgt SET
-                tgt.[Gas WH Avg (10³m³)] = s.gw_avg,
-                tgt.[Gas S2 Avg (10³m³)] = s.gs2_avg,
-                tgt.[Gas Gathered Avg (e³m³/d)] = s.gg_avg,
-                tgt.[Condensate Gathered Avg (m³/d)] = s.gc_avg,
-                tgt.[Gath. Water Avg (m³/d)] = s.gtw_avg,
-                tgt.[Alloc. Water Avg (m³)] = s.aw_avg
-            FROM dbo.PCE_Production tgt
-            INNER JOIN avg_src s ON tgt.[Well Name] = s.[Well Name] AND tgt.[Date] = s.[Date]
-            WHERE tgt.[Date] BETWEEN ? AND ?
-              AND tgt.[Well Name] NOT LIKE N'% - TC'
-              AND tgt.[Well Name] NOT LIKE N'YE2%'
-            """,
-            overall_start,
-            overall_end,
-            overall_start,
-            overall_end,
-        )
-        conn.commit()
-        timer.mark("PCE_Production insert + monthly avgs")
-
-        log(lf.step("Materializing PCE_TC into PCE_Production..."))
-        try:
-            sync_tc_to_production(log_callback=log, conn=conn)
-        except Exception as e:
-            log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
-        progress(70)
-
-        # SQL-based sequence recalculation (replaces Python per-well loop)
-        log(lf.step("Recalculating sequences via SQL..."))
-        cursor.execute("""
-            WITH seq AS (
-                SELECT [Well Name], [Date],
-                       ROW_NUMBER() OVER (PARTITION BY [Well Name] ORDER BY [Date]) AS ds,
-                       SUM(CASE WHEN [Gas WH Production (10³m³)] > 0 THEN 1 ELSE 0 END)
-                           OVER (PARTITION BY [Well Name] ORDER BY [Date]
-                                 ROWS UNBOUNDED PRECEDING) AS uprt_raw
-                FROM PCE_Production
-                WHERE [Date] BETWEEN ? AND ?
-            )
-            UPDATE p SET
-                p.[Days Seq] = s.ds,
-                p.[Day Seq UPRT] = CASE WHEN s.uprt_raw < 1 THEN 1 ELSE s.uprt_raw END
-            FROM PCE_Production p
-            INNER JOIN seq s ON p.[Well Name] = s.[Well Name] AND p.[Date] = s.[Date]
-        """, overall_start, overall_end)
-        conn.commit()
-        log(lf.success(f"Sequences recalculated for date range"))
-        progress(90)
-        timer.mark("PCE_TC sync + sequence recalc")
-
-        from production_update import (
-            sync_production_wm_metadata_from_wm_sql,
-            sync_wm_uwi_to_downstream_sql,
-        )
-
-        sync_wm_uwi_to_downstream_sql(cursor, overall_start, overall_end)
-        conn.commit()
-        timer.mark("WM UWI sync (Production + Allocation_Factors)")
-
-        sync_production_wm_metadata_from_wm_sql(cursor, overall_start, overall_end)
-        conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month)")
-
-        try:
-            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-            rebuild_pce_frcst_prd(log=log, conn=conn)
-        except Exception as e:
-            log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
-        timer.mark("PCE_FRCST_PRD rebuild")
-
-        affected_wells_count = mapping_df['Well Name'].nunique()
-        conn.close()
-
-        total_time = time.time() - total_start
-        summary = {
-            'months_processed': (end_date.year - start_date.year) * 12
-                                + end_date.month - start_date.month + 1,
-            'wells_updated': affected_wells_count,
-            'cda_records': total_cda,
-            'production_records': total_prod,
-            'duration': total_time,
-        }
-        log(lf.summary("COMPLETE", {
-            "Wells": affected_wells_count,
-            "PCE_CDA records": total_cda,
-            "PCE_Production records": total_prod,
-            "Duration": lf.elapsed(total_time),
-        }))
-        return summary
-
-    except Exception as e:
-        log(lf.error(str(e)))
-        import traceback
-        for line in traceback.format_exc().strip().split("\n"):
-            log(lf.detail(line))
-        return {"error": f"ERROR: {e}"}
-
-
-# ---------------------------------------------------------------------------
 # run_quick_update
 # ---------------------------------------------------------------------------
 
 
-def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=None):
+def run_quick_update(
+    progress_callback=None,
+    log_callback=None,
+    data_lag_days=None,
+    cancel_event=None,
+):
     log = partial(_emit_log, log_callback)
 
     def progress(val):
         if progress_callback:
             progress_callback(val)
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    def cancelled_summary():
+        return {
+            "cancelled": True,
+            "duration": time.time() - total_start,
+            "date_range_start": str(start_first),
+            "date_range_end": str(end_last),
+        }
 
     start_first, end_last = rolling_window_snowflake_range(data_lag_days)
     if start_first > end_last:
@@ -1155,8 +817,15 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
     ))
     total_start = time.time()
     timer = lf.StepTimer(log_fn=log)
+    conn = None
+    total_wells = 0
+    total_prod = 0
+    total_cda = 0
 
     try:
+        if aborted():
+            log(lf.warn("Cancelled before start."))
+            return cancelled_summary()
         from production_update import (
             apply_gathered_prd_month_labels,
             apply_uwi_from_well_master,
@@ -1166,6 +835,7 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
             add_on_production_year,
             fetch_cda_data,
             fetch_well_mapping,
+            fetch_well_master_lookups,
             apply_well_names,
             filter_to_first_production,
             apply_pad_name_from_well_master,
@@ -1209,12 +879,19 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
             log_callback=log_callback,
             conn=conn,
             progress_callback=progress_callback,
+            data_lag_days=data_lag_days,
         )
         progress(55)
         timer.mark("Snowflake → PCE_CDA refresh")
 
+        if aborted():
+            log(lf.warn("Cancelled after Snowflake CDA refresh."))
+            return cancelled_summary()
+
         log(lf.step("Loading CDA for wells in rolling window..."))
-        composite_map, fallback_map = fetch_well_mapping()
+        wm_lookups = fetch_well_master_lookups(conn)
+        composite_map = wm_lookups["composite_map"]
+        fallback_map = wm_lookups["fallback_map"]
         wells_in_window = query_wells_with_cda_in_range(cursor, start_first, end_last)
         all_cda = fetch_cda_data(
             well_names=wells_in_window,
@@ -1227,8 +904,8 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
-            all_cda = apply_pad_name_from_well_master(all_cda)
-            all_cda = apply_uwi_from_well_master(all_cda)
+            all_cda = apply_pad_name_from_well_master(all_cda, wm_lookups["pad_lookup"])
+            all_cda = apply_uwi_from_well_master(all_cda, wm_lookups["uwi_lookup"])
         if not all_cda.empty:
             all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
@@ -1238,6 +915,10 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
             all_cda = add_on_production_year(all_cda)
         progress(75)
         timer.mark("Production pandas calcs (seq / cum / avgs)")
+
+        if aborted():
+            log(lf.warn("Cancelled before PCE_Production rebuild."))
+            return cancelled_summary()
 
         if not all_cda.empty:
             log(lf.step("Rebuilding PCE_Production..."))
@@ -1278,51 +959,23 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
             total_prod = 0
         timer.mark("PCE_Production delete + insert")
 
-        log(lf.step("Materializing PCE_TC into PCE_Production..."))
-        try:
-            sync_tc_to_production(log_callback=log, conn=conn)
-        except Exception as e:
-            log(lf.warn(f"PCE_TC → PCE_Production sync: {e}"))
-        timer.mark("PCE_TC → PCE_Production sync")
+        if aborted():
+            log(lf.warn("Cancelled after PCE_Production rebuild."))
+            return cancelled_summary()
 
-        sync_wm_uwi_to_downstream_sql(cursor)
-        conn.commit()
-        timer.mark("WM UWI sync (Production + Allocation_Factors)")
+        from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-        from production_update import _refresh_ngl_from_allocation_factors
-
-        log(lf.step("Refreshing NGL ratios from Allocation_Factors..."))
-        _refresh_ngl_from_allocation_factors(log=log)
-        timer.mark("NGL ratio refresh from Allocation_Factors")
-
-        sync_production_wm_metadata_from_wm_sql(
-            cursor,
-            update_pad=False,
-            update_enersight=True,
-            update_month=True,
-        )
-        sync_production_wm_metadata_from_wm_sql(
-            cursor,
-            start_first,
-            end_last,
-            update_pad=True,
-            update_enersight=False,
-            update_month=False,
-        )
-        conn.commit()
-        timer.mark("WM metadata sync (pad, enersight, month)")
-
-        try:
-            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-            rebuild_pce_frcst_prd(log=log, conn=conn)
-        except Exception as e:
-            log(lf.warn(f"PCE_FRCST_PRD rebuild: {e}"))
-        timer.mark("PCE_FRCST_PRD rebuild")
+        if not run_post_production_rebuild_steps(
+            log,
+            conn=conn,
+            date_window=(start_first, end_last),
+            cancel_event=cancel_event,
+        ):
+            return cancelled_summary()
+        timer.mark("Post-production rebuild steps")
 
         progress(95)
-        conn.close()
-        
+
         total_time = time.time() - total_start
         summary = {
             "date_range_start": str(start_first),
@@ -1341,10 +994,13 @@ def run_quick_update(progress_callback=None, log_callback=None, data_lag_days=No
             "Duration": lf.elapsed(total_time),
         }))
         return summary
-        
+
     except Exception as e:
         log(lf.error(str(e)))
         import traceback
         for line in traceback.format_exc().strip().split("\n"):
             log(lf.detail(line))
         return {"error": f"ERROR: {e}"}
+    finally:
+        if conn is not None:
+            conn.close()

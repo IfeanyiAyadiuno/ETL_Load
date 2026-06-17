@@ -41,6 +41,7 @@ from type_curves_import import (  # noqa: E402
 
 # Default mapping table (change via --mapping-table)
 DEFAULT_MAPPING_TABLE = "dbo.Well_Mapping"
+ALLOWED_MAPPING_TABLES = frozenset({DEFAULT_MAPPING_TABLE, "dbo.Well_Mapping"})
 
 # Expected mapping columns (as in your imported sheet)
 COL_PROD = "Prod_name"
@@ -104,6 +105,16 @@ def _build_prod_key_to_enersight(
     return key_to_label_dict, warnings
 
 
+def _validate_mapping_table(mapping_table: str) -> str:
+    table = mapping_table.strip()
+    if table not in ALLOWED_MAPPING_TABLES:
+        allowed = ", ".join(sorted(ALLOWED_MAPPING_TABLES))
+        raise SystemExit(
+            f"Invalid --mapping-table {table!r}. Allowed values: {allowed}"
+        )
+    return table
+
+
 def _load_mapping(conn, mapping_table: str) -> pd.DataFrame:
     q = f"SELECT * FROM {mapping_table}"
     return pd.read_sql(q, conn)
@@ -136,9 +147,10 @@ def main() -> None:
         help="If [Composite Name] is empty, try keys from [Well Name] instead",
     )
     args = p.parse_args()
+    mapping_table = _validate_mapping_table(args.mapping_table)
 
     with get_sql_conn() as conn:
-        mapping_df = _load_mapping(conn, args.mapping_table)
+        mapping_df = _load_mapping(conn, mapping_table)
         wm_df = _load_wm(conn)
 
     key_to_enersight, collisions = _build_prod_key_to_enersight(mapping_df)

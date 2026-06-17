@@ -109,12 +109,16 @@ def test_insert_pce_production_sql_includes_uwi_column(monkeypatch):
 
 
 def test_prodview_quick_insert_source_includes_uwi():
+    from pce_production_schema import build_production_insert_sql
+
+    sql = build_production_insert_sql()
+    assert "[UWI]" in sql
+
     source = (Path(__file__).resolve().parents[1] / "prodview_update_gui.py").read_text(
         encoding="utf-8"
     )
-    assert "[UWI]" in source
     assert "apply_uwi_from_well_master" in source
-    assert "sync_wm_uwi_to_downstream_sql" in source
+    assert "pce_rebuild_pipeline" in source
 
 
 def test_sync_production_uwi_sql_updates_existing_rows():

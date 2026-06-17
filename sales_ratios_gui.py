@@ -184,6 +184,14 @@ def run_sales_ratios_update(
             total_cda_records = 0
             total_production_records = 0
 
+            from sales_allocation_updates import (
+                load_accumap_sales_workbook,
+                merge_accumap_into_allocation_factors,
+            )
+
+            accumap_df = load_accumap_sales_workbook(accumap_path)
+            log(lf.detail("Loaded Accumap workbook (single read for all months)"))
+
             for month_idx, month_row in enumerate(all_months):
                 if is_cancelled():
                     log(lf.warn(
@@ -216,7 +224,7 @@ def run_sales_ratios_update(
                 log(lf.step(f"Processing {month_name}"))
 
                 merge_result = merge_accumap_into_allocation_factors(
-                    conn, month_start, accumap_path, log=log
+                    conn, month_start, accumap_path, log=log, accumap_df=accumap_df
                 )
                 if "error" in merge_result:
                     log(lf.error(merge_result["error"]))
