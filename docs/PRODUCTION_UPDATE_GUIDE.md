@@ -1,8 +1,8 @@
 # Production Update System — User Guide
 
 **Organization:** Pacific Canbriam Energy LTD  
-**Document version:** 2.0  
-**Last updated:** May 2026  
+**Document version:** 2.1  
+**Last updated:** June 2026  
 **Audience:** Operations staff who run production updates, allocations, imports, and exports  
 
 ---
@@ -51,10 +51,10 @@ When you launch the app, you are asked for an **application password** before th
 | 5 | Survey Data Import |
 | 6 | Type Curves Import |
 | 7 | Monthly Forecasts Import |
-| 8 | Whitson+ Mass Upload |
-| 9 | Exports / Reports |
+| 8 | Exports / Reports |
+| 9 | Whitson+ Mass Upload |
 
-Settings (SQL server, database, and file paths) are available from the **Settings** button in the operations header.
+**Settings** (SQL server, database, file paths) is in the **RE Production System Actions** panel header. **Credits** opens engineering and design credits. The footer shows vendor attribution.
 
 ---
 
@@ -67,7 +67,7 @@ Settings (SQL server, database, and file paths) are available from the **Setting
 - **Snowflake / Prodview** access when running daily production refresh or importing new wells from Snowflake (VPN may be required — confirm with IT)
 - **ODBC Driver 17 or 18** for SQL Server installed
 - Application folder containing:
-  - **`settings.ini`** — SQL display names and default Excel paths (often on a shared drive; same paths for most users)
+  - **`settings.ini`** — `[SQL]` server/database, `[WHITSON]` API credentials (required for Whitson+ Mass Upload), and `[PATHS]` Excel workbook locations (often on a shared drive; same paths for most users)
   - **`.env`** — Snowflake credentials (copy from `.env.example`; do not share passwords)
 
 [IMAGE: Settings dialog — SQL server, database, and file paths]
@@ -76,21 +76,23 @@ Settings (SQL server, database, and file paths) are available from the **Setting
 
 | File | Purpose |
 |------|---------|
-| `settings.ini` | SQL server/database and paths to ValNav, Accumap, Survey, Type Curves, Whitson, and Monthly Forecasts workbooks |
+| `settings.ini` | `[SQL]` server/database; `[WHITSON]` client, client_id, client_secret, project_id (and optional `ca_bundle` for corporate SSL); `[PATHS]` to ValNav, Accumap, Survey, Type Curves, Whitson, and Monthly Forecasts workbooks |
 | `.env` | Snowflake account, user, password, warehouse, database, schema, role; optional SQL overrides |
 | `settings.ini.example` | Template for new installations |
 | `.env.example` | Template for Snowflake and SQL variable names |
+| `whitson_imperial.ini` | Metric-to-imperial conversion factors for Whitson+ production push (shipped with the app) |
 
 ### Running the app
 
-**Deployed build:** Run `ProductionUpdate.exe` from the folder that includes `_internal`, `images`, `settings.ini`, and `.env`.
+**Deployed build:** Run **`PCE_RE_Production_Update V2.4.exe`** from the folder that includes `_internal`, `images`, `settings.ini`, `whitson_imperial.ini`, `survey_mapping_presets.json`, and `.env`.
 
-**From source (developers / IT):**
+**From source in VSCode (developers / IT):**
 
-```text
-python -m pip install -r requirements.txt
-python production_update_gui.py
-```
+1. Open the project folder in VSCode.
+2. Create a virtual environment and select it as the Python interpreter.
+3. `pip install -r requirements.txt`
+4. Copy `settings.ini.example` → `settings.ini` and `.env.example` → `.env`; fill in real values.
+5. Run **`production_update_gui.py`** (Run Python File or integrated terminal).
 
 ---
 
@@ -151,9 +153,9 @@ erDiagram
 
 ## 4. Main window overview
 
-The main window title is **Production Update System**. The operations panel lists nine actions plus **Settings**.
+The main window title is **Pacific Canbriam Energy - Reservoir Production Update System**. The header shows the company logo, **Credits**, and a card with the application name. Below that, the **RE Production System Actions** panel lists nine operation buttons and **Settings** in the panel header row. The footer shows **Adobel Services Inc ©**.
 
-[IMAGE: Main window — full screen showing all nine operation buttons and Settings]
+[IMAGE: Main window — full screen showing header, RE Production System Actions panel, all nine operation buttons, Settings, and footer]
 
 Button order (top to bottom):
 
@@ -164,8 +166,8 @@ Button order (top to bottom):
 5. Survey Data Import  
 6. Type Curves Import  
 7. Monthly Forecasts Import  
-8. Whitson+ Mass Upload  
-9. Exports / Reports  
+8. Exports / Reports  
+9. Whitson+ Mass Upload  
 
 Each button opens a dedicated dialog. Long-running jobs show progress and a log in that dialog.
 
@@ -184,23 +186,24 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | Step | When to run | What gets updated |
 |------|-------------|-------------------|
 | **Well Master** | New wells, name/UWI/pad changes | `PCE_WM` only — **does not** load production by itself |
-| **Prodview quick update** | Routine refresh (often each business day) | Snowflake → `PCE_CDA` (~18-month window) → rebuild `PCE_Production` → `PCE_FRCST_PRD` |
+| **Prodview routine update** | Routine refresh (often each business day) | Snowflake → `PCE_CDA` (~18-month window) → rebuild `PCE_Production` → `PCE_FRCST_PRD` |
 | **Prodview full rebuild** | Serious data problems or full realignment | All CDA history → full `PCE_Production` rebuild |
 | **ValNav (PA)** | Monthly ValNav file is ready | `Allocation_Factors` (S2/cond/NGL from ValNav sheet, all PCE_WM wells), sales apply; daily NGL ratios on Production |
 | **Public Sales** | Accumap file is ready | Gas sales and sales CGR for month range |
 | **Surveys / Type Curves / Forecasts** | When those Excel files change | Respective tables; forecasts and Prodview also refresh `PCE_FRCST_PRD` |
 | **Whitson+** | When reservoir model needs latest production | Reads `PCE_Production`; pushes to Whitson API (no SQL table changes) |
 
-### Prodview: quick update vs full rebuild
+### Prodview: routine update vs full rebuild
 
-| | Quick update (default) | Full rebuild |
-|---|------------------------|--------------|
+| | Routine update (default) | Full rebuild |
+|---|--------------------------|--------------|
+| **Dialog label** | Routine update — Snowflake → CDA + production (~18 months) | Full rebuild — PCE_Production from all PCE_CDA |
 | **Typical time** | ~5 minutes | 15+ minutes on large history |
 | **Snowflake scope** | ~18 calendar months rolling window | Full history per well (first production through today − 2) |
 | **Use when** | Normal daily/weekly refresh | CDA and Production are broadly wrong, or after major fixes |
-| **Also rebuilds** | `PCE_FRCST_PRD` | `PCE_FRCST_PRD` |
+| **Also rebuilds** | `PCE_FRCST_PRD` (NGL, UWI, pad, and type-curve sync preserved) | `PCE_FRCST_PRD` (same post-rebuild steps) |
 
-[IMAGE: Prodview dialog — quick vs full rebuild radio buttons]
+[IMAGE: Prodview dialog — routine update vs full rebuild radio buttons]
 
 ### Prodview 2-day lag
 
@@ -209,7 +212,7 @@ Production is only loaded through **today minus 2 days**. Very recent days may a
 ### After adding new wells
 
 1. Import or edit the well in **Well Master** (including Snowflake IDs).  
-2. Run **Prodview** (quick update is usually enough) so `PCE_CDA` and `PCE_Production` populate.  
+2. Run **Prodview** (routine update is usually enough) so `PCE_CDA` and `PCE_Production` populate.  
 3. When monthly files are ready, run **ValNav** and **Public Sales** for affected months.
 
 Skipping step 2 is a common reason new wells show no production.
@@ -234,6 +237,12 @@ When closing a production month:
 
 **What changes:** `PCE_WM`. Removing a well can also purge its rows from CDA, Production, Allocation_Factors, and Surveys (confirm prompts).
 
+**Opening vs Refresh:** When you first open Well Master, the app loads wells from the database **without** recomputing Composite Name (faster startup). Click **Refresh** to reload from the database **and** recompute **Composite Name** from Well Name, Layer Producer, Completions Technology, and Orient for all active wells. The status bar may report how many composite names were updated.
+
+**Save and background work:** Save, staged updates, and database reloads run on background workers so the dialog stays responsive. Toolbar buttons (Save, Refresh, Export, Import, Remove) are disabled while a load or save is in progress. If you try to save while another save is running, the app shows **A save is already in progress.**
+
+**Refresh vs Save:** Editing well parts in the grid does **not** update Composite Name until you click **Save** (for checked wells) or run **Refresh** (bulk recompute for all wells). Do not expect composite names to fix themselves on every open.
+
 **Additional Fields:** After running `scripts/add_pce_wm_additional_fields.sql` on the database, scroll to the rightmost **Additional Fields** column and click **Fields…** on a checked well to edit coordinates, UTM, elevations, tubing, and dates. Values are stored in `PCE_WM` only (not in the main grid). Surface and bottom hole lat/long are pushed to Whitson+ on the next mass upload.
 
 **Bulk backfill:** To load many wells from Excel (row 2 headers, row 3+ data, UWI in column A), run `python scripts/backfill_wm_additional_fields.py path/to/file.xlsx` after the SQL migration is applied.
@@ -254,10 +263,10 @@ When closing a production month:
 
 **What changes:** `PCE_CDA`, `PCE_Production`, type-curve sync to production, `PCE_FRCST_PRD`.
 
-**Well Master propagation on Prodview:** After each quick or full rebuild, `PCE_WM` is the source of truth for production metadata. `[UWI]` is written on every new production row at insert time (from WM) and refreshed again from WM before NGL ratios run, so UWI is not left blank after a table clear. `[Pad Name]` on gathered production is WM pad plus ` PRD` (e.g. `15-12 PRD`) so forecast pads in `PCE_FRCST_PRD` stay distinct. `Allocation_Factors.[UWI]` is also aligned to WM on rebuild. ValNav/Excel UWIs that differ only by a leading digit (e.g. `02/...` vs `202/...`) still match the same well.
+**Well Master propagation on Prodview:** After each routine update or full rebuild, `PCE_WM` is the source of truth for production metadata. `[UWI]` is written on every new production row at insert time (from WM) and refreshed again from WM before NGL ratios run, so UWI is not left blank after a table clear. `[Pad Name]` on gathered production is WM pad plus ` PRD` (e.g. `15-12 PRD`) so forecast pads in `PCE_FRCST_PRD` stay distinct. `Allocation_Factors.[UWI]` is also aligned to WM on rebuild. ValNav/Excel UWIs that differ only by a leading digit (e.g. `02/...` vs `202/...`) still match the same well.
 
-**Modes:**
-- **Snowflake → CDA + production rebuild** (default, ~5 min)
+**Modes (match dialog radio labels):**
+- **Routine update — Snowflake → CDA + production (~18 months)** (default, ~5 min)
 - **Full rebuild — PCE_Production from all PCE_CDA** (heavy, 15+ min)
 
 **Typical duration:** 5–20+ minutes.
@@ -387,7 +396,7 @@ When closing a production month:
 
 Use this at month-close (adjust dates to your process):
 
-- [ ] Prodview quick update completed through effective end date (today − 2 days)
+- [ ] Prodview routine update completed through effective end date (today − 2 days)
 - [ ] New wells in Well Master have been followed by Prodview
 - [ ] ValNav Monthly Update run for closed month (includes NGL from ValNav sheet)
 - [ ] Public Sales run for same month(s) after PA
@@ -412,6 +421,7 @@ Use this at month-close (adjust dates to your process):
 | NGL ratios all zero for month | Re-run ValNav Monthly Update; confirm month tab has NGL-C2…C5 and NGLs columns with data |
 | Forecast import date warnings | Fix Date column in Excel to include full year, or confirm import |
 | Whitson 403 on Layer Producer | Create **Layer Producer** custom attribute in Whitson UI |
+| Whitson SSL / certificate errors | Confirm `[WHITSON] ca_bundle` in `settings.ini` if IT provides a corporate root CA; the app uses the `truststore` package for system trust on Windows |
 | Recent days blank in production | Expected — 2-day Prodview lag; wait or confirm with data team |
 | Broadly wrong history everywhere | Prodview **full rebuild** (or `python production_update.py` CLI) |
 
@@ -426,7 +436,7 @@ Use this at month-close (adjust dates to your process):
 | **PA / ValNav** | Production Accounting monthly loader from ValNav Excel |
 | **Accumap / Public Sales** | Public sales gas data from Accumap Excel |
 | **Prodview lag** | Data loaded only through today minus 2 days |
-| **Quick update** | Default Prodview mode — ~18-month Snowflake window, ~5 min |
+| **Routine update** | Default Prodview mode — Snowflake → CDA + production (~18 months); ~5 min |
 | **Full rebuild** | Prodview mode — entire CDA history, full Production rebuild |
 | **Gathered production** | Measured gathered gas/condensate/water rates (vs forecast rows) |
 | **PCE_FRCST_PRD** | Combined forecast + gathered table for reporting |
@@ -437,20 +447,20 @@ Use this at month-close (adjust dates to your process):
 
 ## Appendix A — Screenshot checklist
 
-Capture these for the Word document (replace `[IMAGE: …]` placeholders):
+Capture these for the Word document (replace `[IMAGE: …]` placeholders). Use the same window size and theme on a production PC; include the full header and footer on the main window shot.
 
 1. Password dialog  
-2. Main window (all nine buttons visible)  
+2. Main window (header with logo and Credits, RE Production System Actions panel, all nine buttons, Settings in panel header, footer)  
 3. Settings dialog  
-4. Well Master List  
-5. Prodview dialog (quick mode selected)  
+4. Well Master List (toolbar with Refresh highlighted if documenting composite sync)  
+5. Prodview dialog (routine update mode selected)  
 6. ValNav Monthly Update  
 7. Public Sales Data and Ratios  
 8. Survey Data Import  
 9. Type Curves Import  
 10. Monthly Forecasts Import (import + remove months sections)  
-11. Whitson+ Mass Upload  
-12. Exports / Reports  
+11. Exports / Reports  
+12. Whitson+ Mass Upload  
 13. ER diagrams (render Mermaid from Section 3)  
 
 ---
@@ -575,10 +585,17 @@ ORDER BY table_name, index_name;
 
 For packaging only — operators normally use the deployed `.exe`.
 
-1. Use 64-bit Python on a build PC.  
+1. Use 64-bit Python on a build PC in VSCode or a terminal.  
 2. `pip install -r requirements.txt` and `pip install -r requirements-dev.txt`  
-3. `pyinstaller --clean ProductionUpdate.spec`  
-4. Ship the entire `dist/ProductionUpdate/` folder including `_internal`, `images`, `settings.ini`, and `.env`.
+3. `pyinstaller --clean "PCE_RE_Production_Update V2.4.spec"`  
+4. Ship the entire `dist/PCE_RE_Production_Update V2.4/` folder including:
+   - `_internal/`
+   - `PCE_RE_Production_Update V2.4.exe`
+   - `images/`
+   - `settings.ini` (include `[WHITSON]` API credentials)
+   - `whitson_imperial.ini`
+   - `survey_mapping_presets.json`
+   - `.env` (Snowflake credentials; configure per deployment PC)
 
 ---
 

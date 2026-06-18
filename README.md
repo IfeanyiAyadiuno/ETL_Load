@@ -4,7 +4,11 @@ Desktop application (**PyQt5**) for **Pacific Canbriam Energy LTD**: refresh **S
 
 ## Documentation
 
-**[docs/PRODUCTION_UPDATE_GUIDE.md](docs/PRODUCTION_UPDATE_GUIDE.md)** — single user manual (operations, runbook, ER diagrams, troubleshooting). Suitable for conversion to Word.
+| Document | Audience |
+|----------|----------|
+| **[docs/PRODUCTION_UPDATE_GUIDE.md](docs/PRODUCTION_UPDATE_GUIDE.md)** | Operators — user manual (operations, runbook, ER diagrams, troubleshooting). Suitable for conversion to Word. |
+| [docs/REFACTOR_CHANGELOG.md](docs/REFACTOR_CHANGELOG.md) | Developers — recent refactor phases and verification notes |
+| [docs/DATABASE_INDEXES.md](docs/DATABASE_INDEXES.md) | DBAs — recommended indexes for ETL performance |
 
 ## Requirements
 
@@ -13,15 +17,20 @@ Desktop application (**PyQt5**) for **Pacific Canbriam Energy LTD**: refresh **S
 - Network access to SQL Server and **Snowflake** (VPN as required by IT)
 - Application password on startup (contact your team lead)
 
-## Quick start
+## Quick start (VSCode)
+
+1. Open this folder in **VSCode**.
+2. Create and select a Python virtual environment (Python 3.10+).
+3. Install dependencies:
 
 ```bash
-cd /path/to/ETL_Load
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-python production_update_gui.py
 ```
+
+4. Copy [`settings.ini.example`](settings.ini.example) → `settings.ini` and [`.env.example`](.env.example) → `.env`; fill in SQL, Snowflake, Whitson, and file paths.
+5. Run **`production_update_gui.py`** (Run Python File or integrated terminal).
 
 On macOS/Linux (development only): `source .venv/bin/activate`
 
@@ -30,7 +39,7 @@ On macOS/Linux (development only): `source .venv/bin/activate`
 | File | Purpose |
 |------|---------|
 | [`.env.example`](.env.example) | Copy to `.env` — Snowflake credentials and optional SQL overrides |
-| [`settings.ini.example`](settings.ini.example) | Copy to `settings.ini` — SQL server/database and Excel template paths |
+| [`settings.ini.example`](settings.ini.example) | Copy to `settings.ini` — `[SQL]`, `[WHITSON]`, and `[PATHS]` Excel template paths |
 
 **Settings paths** (`[PATHS]` in `settings.ini`):
 
@@ -47,6 +56,8 @@ Paths are usually on a **shared drive** and the same for most users.
 
 ## Main window operations
 
+Window title: **Pacific Canbriam Energy - Reservoir Production Update System**
+
 1. Well Master List  
 2. Prodview / Snowflake — Daily Production Retrieve  
 3. ValNav Monthly Update (Sales + NGL)  
@@ -54,10 +65,12 @@ Paths are usually on a **shared drive** and the same for most users.
 5. Survey Data Import  
 6. Type Curves Import  
 7. Monthly Forecasts Import  
-8. Whitson+ Mass Upload  
-9. Exports / Reports  
+8. Exports / Reports  
+9. Whitson+ Mass Upload  
 
-**Recommended update order:** Well Master (if needed) → Prodview → ValNav → Public Sales → optional imports. See the user guide for month-close detail.
+**Prodview default mode:** **Routine update — Snowflake → CDA + production (~18 months)** (~5 min). Use **Full rebuild** only for serious data problems.
+
+**Recommended update order:** Well Master (if needed) → Prodview → ValNav → Public Sales → optional imports → Exports / Whitson. See the user guide for month-close detail.
 
 ## CLI utilities (no main window)
 
@@ -80,10 +93,10 @@ python -m pytest -q
 
 ```bash
 pip install -r requirements-dev.txt
-pyinstaller --clean ProductionUpdate.spec
+pyinstaller --clean "PCE_RE_Production_Update V2.4.spec"
 ```
 
-Output: `dist/ProductionUpdate/ProductionUpdate.exe` plus `_internal/`. Ship the full folder with `settings.ini` (include `[WHITSON]` API credentials), `whitson_imperial.ini`, `.env`, and `images/`.
+Output: `dist/PCE_RE_Production_Update V2.4/PCE_RE_Production_Update V2.4.exe` plus `_internal/`. Ship the full folder with `settings.ini` (include `[WHITSON]` API credentials), `whitson_imperial.ini`, `survey_mapping_presets.json`, `.env`, and `images/`.
 
 ## Project layout
 
@@ -95,7 +108,7 @@ Output: `dist/ProductionUpdate/ProductionUpdate.exe` plus `_internal/`. Ship the
 | `db_connection.py`, `snowflake_connector.py` | Database connections |
 | `scripts/` | SQL migrations and CLI helpers |
 | `tests/` | pytest unit tests |
-| `docs/` | User documentation |
+| `docs/` | User and reference documentation |
 
 ## License / support
 
