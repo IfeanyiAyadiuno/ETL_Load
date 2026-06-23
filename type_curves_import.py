@@ -39,12 +39,13 @@ INSERT INTO dbo.PCE_TC (
     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
     [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
+    [Gathered Gas (e³m³/d)], [Gas Gathered Cumulative (e³m³)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
     [Lateral Length], [On Production Year], [Orientation]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -766,6 +767,9 @@ def append_typecurves_from_excel(
             gas_wh_e3 = gas_s2_metric
             cond_wh_m3 = cond_sales
 
+        gathered_gas_e3 = gas_wh_e3
+        gathered_gas_cum = cum_gas_e3
+
         rows_out.append(
             (
                 w_tc,
@@ -777,6 +781,8 @@ def append_typecurves_from_excel(
                 cgr_m3,
                 gas_wh_e3,
                 cond_wh_m3,
+                gathered_gas_e3,
+                gathered_gas_cum,
                 cum_gas_e3,
                 cum_cond_m3,
                 cum_gas_e3,
@@ -1017,6 +1023,9 @@ def ye2_append_rows_to_pce_tc(
             gas_wh_e3 = gas_s2_metric
             cond_wh_m3 = cond_sales
 
+        gathered_gas_e3 = gas_wh_e3
+        gathered_gas_cum = cum_gas_e3
+
         rows_out.append(
             (
                 wn,
@@ -1028,6 +1037,8 @@ def ye2_append_rows_to_pce_tc(
                 cgr_m3,
                 gas_wh_e3,
                 cond_wh_m3,
+                gathered_gas_e3,
+                gathered_gas_cum,
                 cum_gas_e3,
                 cum_cond_m3,
                 cum_gas_e3,

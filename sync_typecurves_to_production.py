@@ -33,6 +33,7 @@ SELECT
     [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
     [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
+    [Gathered Gas (e³m³/d)], [Gas Gathered Cumulative (e³m³)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
@@ -100,6 +101,12 @@ def _tc_row_to_production_tuple(
         cum_gas_wh = cum_gas
     if cum_cond_wh is None:
         cum_cond_wh = cum_condy
+    gathered_gas = _num(row.get("Gathered Gas (e³m³/d)"))
+    if gathered_gas is None:
+        gathered_gas = gas_wh
+    gathered_cum = _num(row.get("Gas Gathered Cumulative (e³m³)"))
+    if gathered_cum is None:
+        gathered_cum = cum_gas_wh
     layer = row.get("Layer Producer")
     pad = row.get("Pad Name")
     formation = row.get("Formation Producer")
@@ -139,7 +146,7 @@ def _tc_row_to_production_tuple(
         gas_s2,
         gas_sales,
         cond_sales,
-        None,
+        gathered_gas,
         None,
         None,
         sales_cgr,
@@ -155,7 +162,7 @@ def _tc_row_to_production_tuple(
         None,
         cum_condy,
         cum_cond_wh,
-        None,
+        gathered_cum,
         None,
         None,
         formation_s,
@@ -228,6 +235,18 @@ def sync_tc_to_production(
                 """,
                 pad_fixes,
             )
+            conn.commit()
+            df = pd.read_sql(_TC_SELECT, conn)
+        cursor.execute(
+            """
+            UPDATE dbo.PCE_TC
+            SET [Gathered Gas (e³m³/d)] = [Gas WH Production (e³m³/d)],
+                [Gas Gathered Cumulative (e³m³)] = [Gas WH Cumulative Production (10³m³)]
+            WHERE [Gathered Gas (e³m³/d)] IS NULL
+               OR [Gas Gathered Cumulative (e³m³)] IS NULL
+            """
+        )
+        if cursor.rowcount:
             conn.commit()
             df = pd.read_sql(_TC_SELECT, conn)
         cursor.fast_executemany = True
