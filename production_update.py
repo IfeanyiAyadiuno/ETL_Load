@@ -1,6 +1,9 @@
 import time
 import re
-from typing import Callable, Optional
+from datetime import date
+from typing import Callable, Dict, Optional, Tuple
+
+from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
 import pandas as pd
 import numpy as np
@@ -15,7 +18,6 @@ from pce_production_schema import (
     executemany_with_row_fallback,
 )
 from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
-from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -433,6 +435,23 @@ def _sort_cda_dataframe(df):
     return out.reset_index(drop=True)
 
 
+_CUMULATIVE_PAIRS: Tuple[Tuple[str, str], ...] = (
+    ("Gas WH Production (10³m³)", "Gas WH Cumulative Production (10³m³)"),
+    ("Gas S2 Production (10³m³)", "Gas S2 Cumulative Production (10³m³)"),
+    ("Gas Sales Production (10³m³)", "Gas Sales Cumulative Production (10³m³)"),
+    ("Condensate Sales (m³/d)", "Condensate Sales Cumulative Production (m³)"),
+    ("Condensate WH (m³/d)", "Condensate WH Cumulative Production (m³)"),
+    ("Gathered Gas (e³m³/d)", "Gas Gathered Cumulative (e³m³)"),
+    ("Gathered Condensate (m³/d)", "Condensate Gathered Cumulative (m³)"),
+    ("Gath. Water Rate (m³/d)", "Gath. Water Cumulative (m³)"),
+)
+
+
+def month_start_on_or_before(d: date) -> date:
+    """First calendar day of the month containing *d*."""
+    return d.replace(day=1)
+
+
 def query_wells_with_cda_in_range(cursor, date_start, date_end):
     """Distinct PCE_CDA well names with rows in [date_start, date_end]."""
     cursor.execute(
@@ -447,13 +466,19 @@ def query_wells_with_cda_in_range(cursor, date_start, date_end):
     return [row[0] for row in cursor.fetchall()]
 
 
-def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
+def fetch_cda_data(
+    well_names=None,
+    start_date=None,
+    end_cap=None,
+    conn=None,
+    log=None,
+):
     """
     Fetch daily production rows from PCE_CDA for rebuild.
 
     ``well_names``: optional list of CDA ``[Well Name]`` values; when set, only
-    those wells are loaded (full history per well). When omitted, loads all CDA.
-    Sorting is done in pandas (same order as the legacy SQL ORDER BY).
+    those wells are loaded. ``start_date`` / ``end_cap`` limit ProdDate inclusively.
+    When omitted, loads all CDA (or full history per well). Sorting is done in pandas.
     """
     log_fn = log or print
     own_conn = conn is None
@@ -480,11 +505,27 @@ def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
             for i in range(0, len(well_names), chunk_size):
                 chunk = well_names[i : i + chunk_size]
                 placeholders = ",".join("?" for _ in chunk)
-                query = f"{_CDA_SELECT_SQL} WHERE [Well Name] IN ({placeholders})"
-                frames.append(pd.read_sql(query, conn, params=chunk))
+                clauses = [f"[Well Name] IN ({placeholders})"]
+                params = list(chunk)
+                if start_date is not None:
+                    clauses.append("ProdDate >= ?")
+                    params.append(start_date)
+                if end_cap is not None:
+                    clauses.append("ProdDate <= ?")
+                    params.append(end_cap)
+                query = f"{_CDA_SELECT_SQL} WHERE {' AND '.join(clauses)}"
+                frames.append(pd.read_sql(query, conn, params=params))
             df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-        if end_cap is not None and not df.empty:
+        if well_names is None and start_date is not None and not df.empty:
+            start_series = pd.to_datetime(df["Date"], errors="coerce").dt.date
+            before = len(df)
+            df = df.loc[start_series >= start_date].copy()
+            dropped = before - len(df)
+            if dropped:
+                log_fn(lf.detail(f"Excluded {lf.num(dropped)} CDA row(s) before {start_date}"))
+
+        if well_names is None and end_cap is not None and not df.empty:
             cap_series = pd.to_datetime(df["Date"], errors="coerce").dt.date
             before = len(df)
             df = df.loc[cap_series <= end_cap].copy()
@@ -498,16 +539,97 @@ def fetch_cda_data(well_names=None, end_cap=None, conn=None, log=None):
         if well_names is None:
             log_fn(lf.detail(f"Loaded {lf.num(len(df))} rows from PCE_CDA"))
         else:
+            span = ""
+            if start_date is not None or end_cap is not None:
+                span = f" ({start_date or '…'} through {end_cap or '…'})"
             log_fn(
                 lf.detail(
                     f"Loaded {lf.num(len(df))} CDA rows for "
-                    f"{lf.num(len(well_names))} well(s) in rolling window"
+                    f"{lf.num(len(well_names))} well(s){span}"
                 )
             )
         return df
     finally:
         if own_conn and conn is not None:
             conn.close()
+
+
+def fetch_production_patch_seeds(
+    cursor,
+    well_names,
+    before_date: date,
+) -> Tuple[Dict[str, int], Dict[str, int], Dict[str, Dict[str, float]]]:
+    """
+    Anchors from the last PCE_Production row strictly before *before_date* per well.
+
+    Used when routine update replaces only a rolling date window (not full history).
+    """
+    days_seq: Dict[str, int] = {}
+    day_seq_uprt: Dict[str, int] = {}
+    cum_seeds: Dict[str, Dict[str, float]] = {}
+    if not well_names:
+        return days_seq, day_seq_uprt, cum_seeds
+
+    cum_cols = [target for _, target in _CUMULATIVE_PAIRS]
+    select_cols = ", ".join(f"p.[{c}]" for c in cum_cols)
+    batch_size = 200
+    for i in range(0, len(well_names), batch_size):
+        chunk = well_names[i : i + batch_size]
+        ph = ",".join("?" * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT p.[Well Name], p.[Days Seq], p.[Day Seq UPRT], {select_cols}
+            FROM dbo.PCE_Production AS p
+            INNER JOIN (
+                SELECT [Well Name], MAX([Date]) AS md
+                FROM dbo.PCE_Production
+                WHERE [Date] < ? AND [Well Name] IN ({ph})
+                GROUP BY [Well Name]
+            ) AS x
+                ON p.[Well Name] = x.[Well Name] AND p.[Date] = x.md
+            """,
+            (before_date, *chunk),
+        )
+        for row in cursor.fetchall():
+            wn = row[0]
+            if wn is None:
+                continue
+            wn_s = str(wn).strip()
+            days_seq[wn_s] = int(row[1] or 0)
+            day_seq_uprt[wn_s] = int(row[2] or 0)
+            cum_seeds[wn_s] = {}
+            for j, col in enumerate(cum_cols, start=3):
+                val = row[j]
+                cum_seeds[wn_s][col] = float(val) if val is not None else 0.0
+    return days_seq, day_seq_uprt, cum_seeds
+
+
+def fetch_on_production_year_by_well(cursor, well_names) -> Dict[str, int]:
+    """Year of first PCE_Production row per well (for window-only rebuilds)."""
+    out: Dict[str, int] = {}
+    if not well_names:
+        return out
+    batch_size = 200
+    for i in range(0, len(well_names), batch_size):
+        chunk = well_names[i : i + batch_size]
+        ph = ",".join("?" * len(chunk))
+        cursor.execute(
+            f"""
+            SELECT [Well Name], MIN([Date])
+            FROM dbo.PCE_Production
+            WHERE [Well Name] IN ({ph})
+            GROUP BY [Well Name]
+            """,
+            chunk,
+        )
+        for wn, first_dt in cursor.fetchall():
+            if wn is None or first_dt is None:
+                continue
+            ts = pd.to_datetime(first_dt, errors="coerce")
+            if pd.isna(ts):
+                continue
+            out[str(wn).strip()] = int(ts.year)
+    return out
 
 
 def fetch_well_mapping(conn=None):
@@ -816,57 +938,60 @@ def filter_to_first_production(df):
     ))
     return df_filtered
 
-def calculate_sequences(df):
+def calculate_sequences(
+    df,
+    *,
+    days_seq_seed: Optional[Dict[str, int]] = None,
+    day_seq_uprt_seed: Optional[Dict[str, int]] = None,
+):
     """
     Calculate Days Seq and Day Seq UPRT for each well.
     Vectorized via groupby().cumcount() and cumsum().
+
+    Optional seeds continue numbering from existing PCE_Production before a patch window.
     """
-    df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
+    days_seq_seed = days_seq_seed or {}
+    day_seq_uprt_seed = day_seq_uprt_seed or {}
+    df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
 
-    # Days Seq: simple per-well counter starting at 1
-    df['Days Seq'] = df.groupby('Well Name').cumcount() + 1
+    seq_off = df["Well Name"].map(lambda w: days_seq_seed.get(str(w).strip(), 0))
+    df["Days Seq"] = df.groupby("Well Name").cumcount() + 1 + seq_off
 
-    # Day Seq UPRT: cumulative count of production days (>0), floored at 1
     gas_positive = (
-        pd.to_numeric(df['Gas WH Production (10³m³)'], errors='coerce')
+        pd.to_numeric(df["Gas WH Production (10³m³)"], errors="coerce")
         .fillna(0)
         .gt(0)
         .astype(int)
     )
-    df['Day Seq UPRT'] = gas_positive.groupby(df['Well Name']).cumsum().clip(lower=1)
+    uprt_off = df["Well Name"].map(lambda w: day_seq_uprt_seed.get(str(w).strip(), 0))
+    df["Day Seq UPRT"] = (
+        gas_positive.groupby(df["Well Name"]).cumsum() + uprt_off
+    ).clip(lower=1)
 
-    total_wells = df['Well Name'].nunique()
+    total_wells = df["Well Name"].nunique()
     print(lf.detail(f"Sequences calculated for {lf.num(total_wells)} wells"))
     return df
 
-def calculate_cumulatives(df):
+
+def calculate_cumulatives(df, *, cum_seeds: Optional[Dict[str, Dict[str, float]]] = None):
     """
     Calculate cumulative totals for each well.
 
     For each well, cumulative columns are simple running totals
     over time that NEVER reset within a well and always reflect
     the sum of the daily values up to and including that date.
+
+    ``cum_seeds`` adds per-well starting totals (last row before a patch window).
     """
-    # Ensure data is sorted by well and date so running totals are stable
-    df = df.sort_values(['Well Name', 'Date']).reset_index(drop=True)
+    cum_seeds = cum_seeds or {}
+    df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
 
-    # List of source columns and their cumulative target columns
-    cumulatives = [
-        ('Gas WH Production (10³m³)', 'Gas WH Cumulative Production (10³m³)'),
-        ('Gas S2 Production (10³m³)', 'Gas S2 Cumulative Production (10³m³)'),
-        ('Gas Sales Production (10³m³)', 'Gas Sales Cumulative Production (10³m³)'),
-        ('Condensate Sales (m³/d)', 'Condensate Sales Cumulative Production (m³)'),
-        ('Condensate WH (m³/d)', 'Condensate WH Cumulative Production (m³)'),
-        ('Gathered Gas (e³m³/d)', 'Gas Gathered Cumulative (e³m³)'),
-        ('Gathered Condensate (m³/d)', 'Condensate Gathered Cumulative (m³)'),
-        ('Gath. Water Rate (m³/d)', 'Gath. Water Cumulative (m³)'),
-    ]
-
-    # For each pair, compute per‑well running total that never resets
-    for source_col, target_col in cumulatives:
-        # Convert to numeric and fill NaNs with zero for clean sums
-        values = pd.to_numeric(df[source_col], errors='coerce').fillna(0.0)
-        df[target_col] = values.groupby(df['Well Name']).cumsum()
+    for source_col, target_col in _CUMULATIVE_PAIRS:
+        values = pd.to_numeric(df[source_col], errors="coerce").fillna(0.0)
+        seed = df["Well Name"].map(
+            lambda w: cum_seeds.get(str(w).strip(), {}).get(target_col, 0.0)
+        )
+        df[target_col] = values.groupby(df["Well Name"]).cumsum() + seed
 
     return df
 
@@ -897,15 +1022,21 @@ def calculate_monthly_averages(df):
     print(lf.detail(f"Monthly averages calculated for {lf.num(df['Well Name'].nunique())} wells (vectorized)"))
     return df
 
-def add_on_production_year(df):
+def add_on_production_year(df, year_by_well: Optional[Dict[str, int]] = None):
     """
     Add On Production Year column (year of first production date per well).
-    Vectorized via groupby().transform('min').
+
+    When ``year_by_well`` is supplied (from existing PCE_Production), use it;
+    otherwise fall back to the minimum date in *df* per well.
     """
-    first_dates = pd.to_datetime(
-        df.groupby('Well Name')['Date'].transform('min')
-    )
-    df['On Production Year'] = first_dates.dt.year
+    year_by_well = dict(year_by_well or {})
+    df = df.copy()
+    chunk_first = pd.to_datetime(df.groupby("Well Name")["Date"].min()).dt.year
+    for wn, yr in chunk_first.items():
+        key = str(wn).strip()
+        if key not in year_by_well:
+            year_by_well[key] = int(yr)
+    df["On Production Year"] = df["Well Name"].astype(str).str.strip().map(year_by_well)
     return df
 
 _INSERT_COLS = list(PCE_PRODUCTION_INSERT_COLUMNS)

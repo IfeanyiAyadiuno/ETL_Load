@@ -834,11 +834,14 @@ def run_quick_update(
             calculate_monthly_averages,
             add_on_production_year,
             fetch_cda_data,
+            fetch_on_production_year_by_well,
+            fetch_production_patch_seeds,
             fetch_well_mapping,
             fetch_well_master_lookups,
             apply_well_names,
             filter_to_first_production,
             apply_pad_name_from_well_master,
+            month_start_on_or_before,
             query_wells_with_cda_in_range,
             sync_production_wm_metadata_from_wm_sql,
             sync_wm_uwi_to_downstream_sql,
@@ -893,14 +896,21 @@ def run_quick_update(
         composite_map = wm_lookups["composite_map"]
         fallback_map = wm_lookups["fallback_map"]
         wells_in_window = query_wells_with_cda_in_range(cursor, start_first, end_last)
+        cda_load_start = month_start_on_or_before(start_first)
         all_cda = fetch_cda_data(
             well_names=wells_in_window,
+            start_date=cda_load_start,
             end_cap=end_last,
             conn=conn,
             log=log,
         )
         progress(60)
         timer.mark("Load PCE_CDA for rolling-window wells")
+
+        days_seq_seed, day_seq_uprt_seed, cum_seeds = fetch_production_patch_seeds(
+            cursor, wells_in_window, start_first
+        )
+        on_prod_year = fetch_on_production_year_by_well(cursor, wells_in_window)
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
@@ -909,10 +919,24 @@ def run_quick_update(
         if not all_cda.empty:
             all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
-            all_cda = calculate_sequences(all_cda)
-            all_cda = calculate_cumulatives(all_cda)
+            all_cda = calculate_sequences(
+                all_cda,
+                days_seq_seed=days_seq_seed,
+                day_seq_uprt_seed=day_seq_uprt_seed,
+            )
+            all_cda = calculate_cumulatives(all_cda, cum_seeds=cum_seeds)
             all_cda = calculate_monthly_averages(all_cda)
-            all_cda = add_on_production_year(all_cda)
+            all_cda = add_on_production_year(all_cda, year_by_well=on_prod_year)
+            date_series = pd.to_datetime(all_cda["Date"], errors="coerce").dt.date
+            before = len(all_cda)
+            all_cda = all_cda.loc[date_series >= start_first].copy()
+            if len(all_cda) < before:
+                log(
+                    lf.detail(
+                        f"Production insert scope: {start_first} through {end_last} "
+                        f"({lf.num(len(all_cda))} row(s); month-partial rows used only for calcs)"
+                    )
+                )
         progress(75)
         timer.mark("Production pandas calcs (seq / cum / avgs)")
 
@@ -921,15 +945,12 @@ def run_quick_update(
             return cancelled_summary()
 
         if not all_cda.empty:
-            log(lf.step("Rebuilding PCE_Production..."))
-            affected_well_names = all_cda['Well Name'].unique().tolist()
-
-            del_batch = 200
-            for i in range(0, len(affected_well_names), del_batch):
-                batch = affected_well_names[i:i + del_batch]
-                ph = ','.join(['?'] * len(batch))
-                cursor.execute(f"DELETE FROM PCE_Production WHERE [Well Name] IN ({ph})", batch)
-            conn.commit()
+            log(
+                lf.step(
+                    f"Replacing PCE_Production rows ({start_first} through {end_last})…"
+                )
+            )
+            affected_well_names = all_cda["Well Name"].unique().tolist()
 
             for col in _PROD_COLUMNS:
                 if col not in all_cda.columns:

@@ -200,6 +200,7 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | **Dialog label** | Routine update — Snowflake → CDA + production (~18 months) | Full rebuild — PCE_Production from all PCE_CDA |
 | **Typical time** | ~5 minutes | 15+ minutes on large history |
 | **Snowflake scope** | ~18 calendar months rolling window | Full history per well (first production through today − 2) |
+| **PCE_Production** | Replaces rows **only inside** the rolling window (~18 mo through today − 2); older production history is kept | Full delete and rebuild from all CDA |
 | **Use when** | Normal daily/weekly refresh | CDA and Production are broadly wrong, or after major fixes |
 | **Also rebuilds** | `PCE_FRCST_PRD` (NGL, UWI, pad, and type-curve sync preserved) | `PCE_FRCST_PRD` (same post-rebuild steps) |
 
