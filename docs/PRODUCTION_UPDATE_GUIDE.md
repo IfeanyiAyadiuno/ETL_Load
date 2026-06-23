@@ -190,7 +190,7 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | **Prodview full rebuild** | Serious data problems or full realignment | All CDA history → full `PCE_Production` rebuild |
 | **ValNav (PA)** | Monthly ValNav file is ready | `Allocation_Factors` (S2/cond/NGL from ValNav sheet, all PCE_WM wells), sales apply; daily NGL ratios on Production |
 | **Public Sales** | Accumap file is ready | Gas sales and sales CGR for month range |
-| **Surveys / Type Curves / Forecasts** | When those Excel files change | Respective tables; forecasts and Prodview also refresh `PCE_FRCST_PRD` |
+| **Surveys / Type Curves / Forecasts** | When those Excel files change | Respective tables; **Monthly Forecasts** and **Prodview** refresh `PCE_FRCST_PRD` (Type Curves does not) |
 | **Whitson+** | When reservoir model needs latest production | Reads `PCE_Production`; pushes to Whitson API (no SQL table changes) |
 
 ### Prodview: routine update vs full rebuild
@@ -340,7 +340,7 @@ When closing a production month:
 
 **When to run:** Updated type-curve Excel workbook.
 
-**What changes:** `PCE_TC`; materialized copy into `PCE_Production` at import date; `PCE_FRCST_PRD` rebuild.
+**What changes:** `PCE_TC`; materialized copy into `PCE_Production` at import date. Does **not** rebuild `PCE_FRCST_PRD` (type-curve wells are excluded from that reporting table; run Prodview or Monthly Forecasts import to refresh it).
 
 **Gathered gas:** Type-curve rows do not read gathered volumes from Excel. On import, `[Gathered Gas (e³m³/d)]` and `[Gas Gathered Cumulative (e³m³)]` in `PCE_TC` and `PCE_Production` are set to the same values as Gas WH daily and Gas WH cumulative.
 

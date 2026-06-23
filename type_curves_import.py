@@ -878,6 +878,7 @@ def append_typecurves_from_excel(
         include_ngl=False,
         include_uwi_sync=False,
         include_wm_metadata=False,
+        include_frcst_rebuild=False,
     )
     progress(100)
     result["ok"] = True
@@ -925,7 +926,7 @@ def delete_typecurves_from_tc(
         include_ngl=False,
         include_uwi_sync=False,
         include_wm_metadata=False,
-        include_frcst_rebuild=True,
+        include_frcst_rebuild=False,
     )
     return total
 
@@ -1073,6 +1074,7 @@ def ye2_append_rows_to_pce_tc(
         include_ngl=False,
         include_uwi_sync=False,
         include_wm_metadata=False,
+        include_frcst_rebuild=False,
     )
 
     log(lf.success(f"YE2 PCE_TC insert: {lf.num(len(rows_out))} row(s)."))
