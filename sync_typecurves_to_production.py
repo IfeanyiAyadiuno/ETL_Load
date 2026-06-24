@@ -27,6 +27,20 @@ _INSERT_SQL = build_production_insert_sql(
     extra_columns=PCE_PRODUCTION_TC_EXTRA_COLUMNS,
 )
 
+_TC_SELECT_LEGACY = """
+SELECT
+    [Well Name], [ImportDate],
+    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
+    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
+    [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
+    [Cum Gas (e³m³)], [Cum Condy (m³)],
+    [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
+    [Layer Producer], [Pad Name], [SourceFileName],
+    [Formation Producer], [Fault Block], [Remarks],
+    [Lateral Length], [On Production Year], [Orientation]
+FROM dbo.PCE_TC
+"""
+
 _TC_SELECT = """
 SELECT
     [Well Name], [ImportDate],
@@ -41,6 +55,25 @@ SELECT
     [Lateral Length], [On Production Year], [Orientation]
 FROM dbo.PCE_TC
 """
+
+
+def _pce_tc_has_gathered_columns(cursor) -> bool:
+    cursor.execute("SELECT COL_LENGTH('dbo.PCE_TC', 'Gathered Gas (e³m³/d)')")
+    row = cursor.fetchone()
+    return row is not None and row[0] is not None
+
+
+def _read_pce_tc_dataframe(conn) -> pd.DataFrame:
+    """Load PCE_TC; tolerate DBs that have not run gathered-gas migration yet."""
+    cur = conn.cursor()
+    if _pce_tc_has_gathered_columns(cur):
+        df = pd.read_sql(_TC_SELECT, conn)
+    else:
+        df = pd.read_sql(_TC_SELECT_LEGACY, conn)
+        if not df.empty:
+            df["Gathered Gas (e³m³/d)"] = np.nan
+            df["Gas Gathered Cumulative (e³m³)"] = np.nan
+    return df
 
 
 def _as_date(v) -> Optional[date]:
@@ -203,12 +236,13 @@ def sync_tc_to_production(
         conn = get_sql_conn()
         close_conn = True
     try:
-        df = pd.read_sql(_TC_SELECT, conn)
+        df = _read_pce_tc_dataframe(conn)
         if df.empty:
             log(lf.detail("sync_tc_to_production: PCE_TC empty; nothing to materialize."))
             return {"ok": True, "rows_deleted": 0, "rows_inserted": 0}
 
         cursor = conn.cursor()
+        has_gathered = _pce_tc_has_gathered_columns(cursor)
         # Backfill dbo.PCE_TC.[Pad Name] when legacy rows lack the PCE-TC- prefix (same rules as import).
         pad_fixes: List[Tuple] = []
         for _, row in df.iterrows():
@@ -236,19 +270,20 @@ def sync_tc_to_production(
                 pad_fixes,
             )
             conn.commit()
-            df = pd.read_sql(_TC_SELECT, conn)
-        cursor.execute(
-            """
-            UPDATE dbo.PCE_TC
-            SET [Gathered Gas (e³m³/d)] = [Gas WH Production (e³m³/d)],
-                [Gas Gathered Cumulative (e³m³)] = [Gas WH Cumulative Production (10³m³)]
-            WHERE [Gathered Gas (e³m³/d)] IS NULL
-               OR [Gas Gathered Cumulative (e³m³)] IS NULL
-            """
-        )
-        if cursor.rowcount:
-            conn.commit()
-            df = pd.read_sql(_TC_SELECT, conn)
+            df = _read_pce_tc_dataframe(conn)
+        if has_gathered:
+            cursor.execute(
+                """
+                UPDATE dbo.PCE_TC
+                SET [Gathered Gas (e³m³/d)] = [Gas WH Production (e³m³/d)],
+                    [Gas Gathered Cumulative (e³m³)] = [Gas WH Cumulative Production (10³m³)]
+                WHERE [Gathered Gas (e³m³/d)] IS NULL
+                   OR [Gas Gathered Cumulative (e³m³)] IS NULL
+                """
+            )
+            if cursor.rowcount:
+                conn.commit()
+                df = _read_pce_tc_dataframe(conn)
         cursor.fast_executemany = True
         cursor.execute(
             """

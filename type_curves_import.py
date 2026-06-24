@@ -619,6 +619,42 @@ def _cum_gas_e3(
     return _bcf_to_cum_e3m3(col_fn("cum_gas_bcf", row))
 
 
+def _fetch_tc_import_pairs(cursor, names: List[str]) -> List[Tuple[str, object]]:
+    """(Well Name, ImportDate) rows in PCE_TC for the given stored keys (read before DELETE)."""
+    if not names:
+        return []
+    pairs: List[Tuple[str, object]] = []
+    batch_size = 50
+    for i in range(0, len(names), batch_size):
+        chunk = names[i : i + batch_size]
+        ph = ",".join("?" * len(chunk))
+        cursor.execute(
+            f"SELECT [Well Name], [ImportDate] FROM dbo.PCE_TC WHERE [Well Name] IN ({ph})",
+            chunk,
+        )
+        for row in cursor.fetchall():
+            wn = row[0]
+            if wn is None or str(wn).strip() == "":
+                continue
+            pairs.append((str(wn).strip(), row[1]))
+    return pairs
+
+
+def _delete_production_for_tc_import_pairs(cursor, pairs: List[Tuple[str, object]]) -> int:
+    """Remove PCE_Production rows materialized from type curves (Well Name + ImportDate)."""
+    if not pairs:
+        return 0
+    total = 0
+    for wn, imp in pairs:
+        cursor.execute(
+            "DELETE FROM dbo.PCE_Production WHERE [Well Name] = ? AND [Date] = ?",
+            wn,
+            imp,
+        )
+        total += cursor.rowcount or 0
+    return total
+
+
 def _delete_production_for_tc_well_names(cursor, names: List[str]) -> int:
     if not names:
         return 0
@@ -910,23 +946,22 @@ def delete_typecurves_from_tc(
     total = 0
     with get_sql_conn() as conn:
         cur = conn.cursor()
+        import_pairs = _fetch_tc_import_pairs(cur, names)
         batch_size = 50
         for i in range(0, len(names), batch_size):
             chunk = names[i : i + batch_size]
             ph = ",".join("?" * len(chunk))
             cur.execute(f"DELETE FROM dbo.PCE_TC WHERE [Well Name] IN ({ph})", chunk)
             total += cur.rowcount or 0
-        _delete_production_for_tc_well_names(cur, names)
+        prod_by_date = _delete_production_for_tc_import_pairs(cur, import_pairs)
+        prod_by_name = _delete_production_for_tc_well_names(cur, names)
         conn.commit()
-    log(lf.detail(f"Deleted {lf.num(total)} PCE_TC row(s) for {lf.num(len(names))} well key(s)"))
-    from pce_rebuild_pipeline import run_post_production_rebuild_steps
-
-    run_post_production_rebuild_steps(
-        log,
-        include_ngl=False,
-        include_uwi_sync=False,
-        include_wm_metadata=False,
-        include_frcst_rebuild=False,
+    log(
+        lf.detail(
+            f"Deleted {lf.num(total)} PCE_TC row(s) for {lf.num(len(names))} well key(s); "
+            f"removed {lf.num(prod_by_date)} PCE_Production row(s) at import date(s), "
+            f"{lf.num(prod_by_name)} by well name (incl. any stragglers)."
+        )
     )
     return total
 

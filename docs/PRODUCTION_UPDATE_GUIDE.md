@@ -345,7 +345,7 @@ When closing a production month:
 
 **Gathered gas:** Type-curve rows do not read gathered volumes from Excel. On import, `[Gathered Gas (e³m³/d)]` and `[Gas Gathered Cumulative (e³m³)]` in `PCE_TC` and `PCE_Production` are set to the same values as Gas WH daily and Gas WH cumulative.
 
-**Modes:** Append selected wells from file, or delete selected wells from database.
+**Modes:** Append selected wells from file, or delete selected wells from database. Delete removes matching rows from `PCE_TC` and from `PCE_Production` (at each row's import date, plus any remaining rows for that well name). Delete does **not** run a full production sync or FRCST rebuild afterward.
 
 [IMAGE: Type Curves import dialog — append and delete panels]
 
