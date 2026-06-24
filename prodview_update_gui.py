@@ -681,7 +681,7 @@ def refresh_rolling_window_cda(
     data_lag_days=None,
 ):
     """
-    Replace PCE_CDA rows for the Prodview rolling Snowflake window (~18 months).
+    Replace PCE_CDA rows for the Prodview rolling Snowflake window (~12 months).
 
     Used by Quick Update. Returns (start_date, end_date, rows_inserted).
     """
@@ -813,7 +813,7 @@ def run_quick_update(
 
     log(lf.header(
         "SNOWFLAKE → CDA + PRODUCTION — PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
-        Range=f"{start_first} through {end_last} (rolling 18 months)",
+        Range=f"{start_first} through {end_last} (rolling 12 months)",
     ))
     total_start = time.time()
     timer = lf.StepTimer(log_fn=log)
@@ -841,10 +841,12 @@ def run_quick_update(
             apply_well_names,
             filter_to_first_production,
             apply_pad_name_from_well_master,
+            map_cda_well_names_to_production,
             month_start_on_or_before,
             query_wells_with_cda_in_range,
             sync_production_wm_metadata_from_wm_sql,
             sync_wm_uwi_to_downstream_sql,
+            _refresh_cda_sales_from_allocation_factors,
         )
 
         conn = get_sql_conn()
@@ -891,12 +893,25 @@ def run_quick_update(
             log(lf.warn("Cancelled after Snowflake CDA refresh."))
             return cancelled_summary()
 
+        cda_load_start = month_start_on_or_before(start_first)
+        if not _refresh_cda_sales_from_allocation_factors(
+            log=log,
+            cancel_event=cancel_event,
+            update_production=False,
+            date_window=(cda_load_start, end_last),
+        ):
+            return cancelled_summary()
+        timer.mark("PCE_CDA sales refresh from Allocation_Factors")
+
+        if aborted():
+            log(lf.warn("Cancelled after PCE_CDA sales refresh."))
+            return cancelled_summary()
+
         log(lf.step("Loading CDA for wells in rolling window..."))
         wm_lookups = fetch_well_master_lookups(conn)
         composite_map = wm_lookups["composite_map"]
         fallback_map = wm_lookups["fallback_map"]
         wells_in_window = query_wells_with_cda_in_range(cursor, start_first, end_last)
-        cda_load_start = month_start_on_or_before(start_first)
         all_cda = fetch_cda_data(
             well_names=wells_in_window,
             start_date=cda_load_start,
@@ -907,17 +922,36 @@ def run_quick_update(
         progress(60)
         timer.mark("Load PCE_CDA for rolling-window wells")
 
-        days_seq_seed, day_seq_uprt_seed, cum_seeds = fetch_production_patch_seeds(
-            cursor, wells_in_window, start_first
-        )
-        on_prod_year = fetch_on_production_year_by_well(cursor, wells_in_window)
-
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
             all_cda = apply_pad_name_from_well_master(all_cda, wm_lookups["pad_lookup"])
             all_cda = apply_uwi_from_well_master(all_cda, wm_lookups["uwi_lookup"])
+
+        prod_well_names = (
+            sorted(all_cda["Well Name"].astype(str).str.strip().unique().tolist())
+            if not all_cda.empty
+            else map_cda_well_names_to_production(
+                wells_in_window, composite_map, fallback_map
+            )
+        )
+        days_seq_seed, day_seq_uprt_seed, cum_seeds = fetch_production_patch_seeds(
+            cursor, prod_well_names, cda_load_start
+        )
+        on_prod_year = fetch_on_production_year_by_well(cursor, prod_well_names)
+
         if not all_cda.empty:
-            all_cda = filter_to_first_production(all_cda)
+            seeded_wells = set(days_seq_seed.keys())
+            if seeded_wells:
+                has_seed = all_cda["Well Name"].astype(str).str.strip().isin(seeded_wells)
+                df_new = all_cda.loc[~has_seed]
+                if not df_new.empty:
+                    df_new = filter_to_first_production(df_new)
+                    all_cda = pd.concat(
+                        [all_cda.loc[has_seed], df_new],
+                        ignore_index=True,
+                    ).sort_values(["Well Name", "Date"]).reset_index(drop=True)
+            else:
+                all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
             all_cda = calculate_sequences(
                 all_cda,

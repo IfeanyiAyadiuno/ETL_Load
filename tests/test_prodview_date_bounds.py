@@ -13,11 +13,11 @@ def test_prodview_effective_end_date_respects_lag():
         assert pdb.prodview_effective_end_date(5) == date(2026, 4, 14)
 
 
-def test_quick_update_date_range_18_months():
+def test_quick_update_date_range_12_months():
     with patch.object(pdb, "_today", return_value=date(2026, 4, 19)):
         s, e = pdb.quick_update_date_range()
         assert e == date(2026, 4, 17)
-        assert s == date(2024, 10, 17)
+        assert s == date(2025, 4, 17)
 
 
 def test_snowflake_cda_gap_range_skips_when_current():

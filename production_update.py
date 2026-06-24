@@ -1,7 +1,7 @@
 import time
 import re
 from datetime import date
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
@@ -240,18 +240,40 @@ def apply_gathered_prd_month_labels(df, enersight_lookup=None):
     return out
 
 
+def _allocation_factor_months_overlapping(
+    cursor,
+    range_start: date,
+    range_end: date,
+) -> List:
+    """MonthStartDate values in Allocation_Factors whose calendar month overlaps [range_start, range_end]."""
+    from sales_allocation_updates import calendar_month_bounds
+
+    cursor.execute(
+        "SELECT DISTINCT MonthStartDate FROM Allocation_Factors ORDER BY MonthStartDate"
+    )
+    out = []
+    for (month_start,) in cursor.fetchall():
+        first, last, _ = calendar_month_bounds(month_start)
+        if first <= range_end and last >= range_start:
+            out.append(month_start)
+    return out
+
+
 def _refresh_cda_sales_from_allocation_factors(
     log=print,
     cancel_event=None,
     update_production=True,
     progress: Optional[_RebuildProgress] = None,
+    date_window: Optional[Tuple[date, date]] = None,
 ):
     """
     Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
     Allocation_Factors (same logic as PA + Public Sales ratio passes).
 
-    Runs every distinct month in Allocation_Factors. Returns False if cancelled
-    mid-loop; True otherwise (including when AF is empty).
+    When ``date_window`` is set, only months overlapping that inclusive range are
+    processed (routine update). Otherwise all AF months run (full rebuild).
+
+    Returns False if cancelled mid-loop; True otherwise (including when AF is empty).
     """
     from sales_allocation_updates import (
         apply_full_sales_ratios_for_month,
@@ -263,23 +285,41 @@ def _refresh_cda_sales_from_allocation_factors(
 
     with get_sql_conn() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT DISTINCT MonthStartDate FROM Allocation_Factors ORDER BY MonthStartDate"
-        )
-        months = [row[0] for row in cursor.fetchall()]
+        if date_window is not None:
+            months = _allocation_factor_months_overlapping(
+                cursor, date_window[0], date_window[1]
+            )
+        else:
+            cursor.execute(
+                "SELECT DISTINCT MonthStartDate FROM Allocation_Factors ORDER BY MonthStartDate"
+            )
+            months = [row[0] for row in cursor.fetchall()]
 
     if not months:
-        log(
-            lf.warn(
-                "No Allocation_Factors rows; PCE_CDA Gas S2 / sales columns are unchanged."
+        if date_window is not None:
+            log(
+                lf.warn(
+                    "No Allocation_Factors rows overlap the rolling window; "
+                    "PCE_CDA Gas S2 / sales columns are unchanged."
+                )
             )
-        )
+        else:
+            log(
+                lf.warn(
+                    "No Allocation_Factors rows; PCE_CDA Gas S2 / sales columns are unchanged."
+                )
+            )
         return True
 
+    scope = (
+        f"{date_window[0]} through {date_window[1]}"
+        if date_window is not None
+        else "all months"
+    )
     log(
         lf.step(
-            f"Refreshing PCE_CDA from Allocation_Factors ({lf.num(len(months))} months: "
-            "Gas S2, gas sales, condensate sales, Sales CGR)…"
+            f"Refreshing PCE_CDA from Allocation_Factors ({lf.num(len(months))} month(s), "
+            f"{scope}: Gas S2, gas sales, condensate sales, Sales CGR)…"
         )
     )
 
@@ -452,6 +492,30 @@ def month_start_on_or_before(d: date) -> date:
     return d.replace(day=1)
 
 
+def map_cda_well_names_to_production(
+    cda_well_names,
+    composite_map,
+    fallback_map,
+) -> List[str]:
+    """
+    Map PCE_CDA ``[Well Name]`` values to PCE_Production ``[Well Name]`` (composite / WM).
+
+    Preserves order; drops blanks; de-duplicates.
+    """
+    seen = set()
+    out: List[str] = []
+    for raw in cda_well_names or []:
+        s = str(raw).strip()
+        if not s:
+            continue
+        mapped = composite_map.get(s) or fallback_map.get(s) or s
+        key = str(mapped).strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
 def query_wells_with_cda_in_range(cursor, date_start, date_end):
     """Distinct PCE_CDA well names with rows in [date_start, date_end]."""
     cursor.execute(
@@ -563,6 +627,8 @@ def fetch_production_patch_seeds(
     Anchors from the last PCE_Production row strictly before *before_date* per well.
 
     Used when routine update replaces only a rolling date window (not full history).
+    ``well_names`` must be PCE_Production ``[Well Name]`` values (after WM mapping),
+    not raw PCE_CDA source names.
     """
     days_seq: Dict[str, int] = {}
     day_seq_uprt: Dict[str, int] = {}

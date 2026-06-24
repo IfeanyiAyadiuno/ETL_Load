@@ -1,4 +1,4 @@
-"""Full rebuild refreshes Snowflake for the full CDA lifespan, not only ~18 months."""
+"""Full rebuild refreshes Snowflake for the full CDA lifespan, not only ~12 months."""
 
 from datetime import date
 from unittest.mock import MagicMock, patch

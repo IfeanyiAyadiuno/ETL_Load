@@ -16,7 +16,7 @@ import pandas as pd
 PRODVIEW_DATA_LAG_DAYS = 2
 
 # Rolling lookback for Prodview Snowflake mode (calendar months from effective end).
-QUICK_UPDATE_LOOKBACK_MONTHS = 18
+QUICK_UPDATE_LOOKBACK_MONTHS = 12
 
 
 def _today() -> date:
@@ -47,7 +47,7 @@ def quick_update_date_range(data_lag_days: int | None = None) -> Tuple[date, dat
 
 
 def rolling_window_snowflake_range(data_lag_days: int | None = None) -> Tuple[date, date]:
-    """Inclusive range for Prodview Snowflake → PCE_CDA (Quick Update only, ~18 months)."""
+    """Inclusive range for Prodview Snowflake → PCE_CDA (Quick Update only, ~12 months)."""
     return quick_update_date_range(data_lag_days)
 
 

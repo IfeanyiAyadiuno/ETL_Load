@@ -68,7 +68,7 @@ Window title: **Pacific Canbriam Energy - Reservoir Production Update System**
 8. Exports / Reports  
 9. Whitson+ Mass Upload  
 
-**Prodview default mode:** **Routine update — Snowflake → CDA + production (~18 months)** (~5 min). Use **Full rebuild** only for serious data problems.
+**Prodview default mode:** **Routine update — Snowflake → CDA + production (~12 months)** (~5 min). Use **Full rebuild** only for serious data problems.
 
 **Recommended update order:** Well Master (if needed) → Prodview → ValNav → Public Sales → optional imports → Exports / Whitson. See the user guide for month-close detail.
 

@@ -186,7 +186,7 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | Step | When to run | What gets updated |
 |------|-------------|-------------------|
 | **Well Master** | New wells, name/UWI/pad changes | `PCE_WM` only — **does not** load production by itself |
-| **Prodview routine update** | Routine refresh (often each business day) | Snowflake → `PCE_CDA` (~18-month window) → rebuild `PCE_Production` → `PCE_FRCST_PRD` |
+| **Prodview routine update** | Routine refresh (often each business day) | Snowflake → `PCE_CDA` (~12-month window) → rebuild `PCE_Production` → `PCE_FRCST_PRD` |
 | **Prodview full rebuild** | Serious data problems or full realignment | All CDA history → full `PCE_Production` rebuild |
 | **ValNav (PA)** | Monthly ValNav file is ready | `Allocation_Factors` (S2/cond/NGL from ValNav sheet, all PCE_WM wells), sales apply; daily NGL ratios on Production |
 | **Public Sales** | Accumap file is ready | Gas sales and sales CGR for month range |
@@ -197,12 +197,12 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 
 | | Routine update (default) | Full rebuild |
 |---|--------------------------|--------------|
-| **Dialog label** | Routine update — Snowflake → CDA + production (~18 months) | Full rebuild — PCE_Production from all PCE_CDA |
+| **Dialog label** | Routine update — Snowflake → CDA + production (~12 months) | Full rebuild — PCE_Production from all PCE_CDA |
 | **Typical time** | ~5 minutes | 15+ minutes on large history |
-| **Snowflake scope** | ~18 calendar months rolling window | Full history per well (first production through today − 2) |
-| **PCE_Production** | Replaces rows **only inside** the rolling window (~18 mo through today − 2); older production history is kept | Full delete and rebuild from all CDA |
+| **Snowflake scope** | ~12 calendar months rolling window | Full history per well (first production through today − 2) |
+| **PCE_Production** | Replaces rows **only inside** the rolling window (~12 mo through today − 2); older production history is kept. Seq/cum continue from the last row before the month containing the window start (WM composite well names). | Full delete and rebuild from all CDA |
 | **Use when** | Normal daily/weekly refresh | CDA and Production are broadly wrong, or after major fixes |
-| **Also rebuilds** | `PCE_FRCST_PRD` (NGL, UWI, pad, and type-curve sync preserved) | `PCE_FRCST_PRD` (same post-rebuild steps) |
+| **Also rebuilds** | `PCE_FRCST_PRD` (NGL, UWI, pad, and type-curve sync preserved). Re-applies **existing** ValNav + Public Sales ratios from `Allocation_Factors` onto CDA for months in the window before writing production (does not read Excel). | `PCE_FRCST_PRD` (same post-rebuild steps). Re-applies all AF months to CDA before full production rebuild. |
 
 [IMAGE: Prodview dialog — routine update vs full rebuild radio buttons]
 
@@ -267,7 +267,7 @@ When closing a production month:
 **Well Master propagation on Prodview:** After each routine update or full rebuild, `PCE_WM` is the source of truth for production metadata. `[UWI]` is written on every new production row at insert time (from WM) and refreshed again from WM before NGL ratios run, so UWI is not left blank after a table clear. `[Pad Name]` on gathered production is WM pad plus ` PRD` (e.g. `15-12 PRD`) so forecast pads in `PCE_FRCST_PRD` stay distinct. `Allocation_Factors.[UWI]` is also aligned to WM on rebuild. ValNav/Excel UWIs that differ only by a leading digit (e.g. `02/...` vs `202/...`) still match the same well.
 
 **Modes (match dialog radio labels):**
-- **Routine update — Snowflake → CDA + production (~18 months)** (default, ~5 min)
+- **Routine update — Snowflake → CDA + production (~12 months)** (default, ~5 min)
 - **Full rebuild — PCE_Production from all PCE_CDA** (heavy, 15+ min)
 
 **Typical duration:** 5–20+ minutes.
@@ -439,7 +439,7 @@ Use this at month-close (adjust dates to your process):
 | **PA / ValNav** | Production Accounting monthly loader from ValNav Excel |
 | **Accumap / Public Sales** | Public sales gas data from Accumap Excel |
 | **Prodview lag** | Data loaded only through today minus 2 days |
-| **Routine update** | Default Prodview mode — Snowflake → CDA + production (~18 months); ~5 min |
+| **Routine update** | Default Prodview mode — Snowflake → CDA + production (~12 months); ~5 min |
 | **Full rebuild** | Prodview mode — entire CDA history, full Production rebuild |
 | **Gathered production** | Measured gathered gas/condensate/water rates (vs forecast rows) |
 | **PCE_FRCST_PRD** | Combined forecast + gathered table for reporting |

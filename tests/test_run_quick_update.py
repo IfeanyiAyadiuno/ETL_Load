@@ -25,10 +25,10 @@ def test_refresh_rolling_window_cda_uses_data_lag_days():
                 conn=MagicMock(),
                 data_lag_days=5,
             )
-            assert start == date(2024, 10, 14)
+            assert start == date(2025, 4, 14)
             assert end == date(2026, 4, 14)
             mock_refresh.assert_called_once_with(
-                date(2024, 10, 14),
+                date(2025, 4, 14),
                 date(2026, 4, 14),
                 log_callback=mock_refresh.call_args.kwargs.get("log_callback"),
                 conn=mock_refresh.call_args.kwargs.get("conn"),

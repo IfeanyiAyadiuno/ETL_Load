@@ -124,13 +124,13 @@ class ProdviewUpdateDialog(QDialog):
         mode_layout.addWidget(full_rebuild_desc)
 
         self.mode_quick_update = QRadioButton(
-            "Routine update — Snowflake → CDA + production (~18 months)"
+            "Routine update — Snowflake → CDA + production (~12 months)"
         )
         self.mode_quick_update.setChecked(True)
         mode_layout.addWidget(self.mode_quick_update)
 
         quick_update_desc = QLabel(
-            "Rolling ~18-month Snowflake window and production rebuild for that span. "
+            "Rolling ~12-month Snowflake window and production rebuild for that span. "
             "Typical runtime about 25 minutes."
         )
         quick_update_desc.setWordWrap(True)
@@ -285,7 +285,7 @@ class ProdviewUpdateDialog(QDialog):
             )
         else:
             self.summary_text.setText(
-                f"Routine update through {end.isoformat()}: refresh the ~18-month Snowflake "
+                f"Routine update through {end.isoformat()}: refresh the ~12-month Snowflake "
                 "window in PCE_CDA and rebuild PCE_Production for that span. "
                 "Allow about 25 minutes."
             )
@@ -339,7 +339,7 @@ class ProdviewUpdateDialog(QDialog):
                 "Continue?"
             )
         else:
-            mode_label = "Routine update (~18-month window)"
+            mode_label = "Routine update (~12-month window)"
             body = (
                 "Run routine Snowflake → CDA + production update?\n\n"
                 f"SQL target: {sql_target}\n"
@@ -376,7 +376,7 @@ class ProdviewUpdateDialog(QDialog):
             "Lag days": str(lag),
         }
         if update_mode == "quick_update":
-            hdr["Scope"] = "~18 mo rolling window"
+            hdr["Scope"] = "~12 mo rolling window"
         else:
             hdr["Scope"] = "Full CDA → production"
         self.log_result(lf.header("PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE", **hdr))
