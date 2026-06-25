@@ -834,14 +834,11 @@ def run_quick_update(
             calculate_monthly_averages,
             add_on_production_year,
             fetch_cda_data,
-            fetch_on_production_year_by_well,
-            fetch_production_patch_seeds,
             fetch_well_mapping,
             fetch_well_master_lookups,
             apply_well_names,
             filter_to_first_production,
             apply_pad_name_from_well_master,
-            map_cda_well_names_to_production,
             month_start_on_or_before,
             query_wells_with_cda_in_range,
             sync_production_wm_metadata_from_wm_sql,
@@ -907,60 +904,36 @@ def run_quick_update(
             log(lf.warn("Cancelled after PCE_CDA sales refresh."))
             return cancelled_summary()
 
-        log(lf.step("Loading CDA for wells in rolling window..."))
+        log(lf.step("Loading full CDA history for wells in rolling window…"))
         wm_lookups = fetch_well_master_lookups(conn)
         composite_map = wm_lookups["composite_map"]
         fallback_map = wm_lookups["fallback_map"]
         wells_in_window = query_wells_with_cda_in_range(cursor, start_first, end_last)
         all_cda = fetch_cda_data(
             well_names=wells_in_window,
-            start_date=cda_load_start,
             end_cap=end_last,
             conn=conn,
             log=log,
         )
         progress(60)
-        timer.mark("Load PCE_CDA for rolling-window wells")
+        timer.mark("Load full PCE_CDA history for rolling-window wells")
 
         if not all_cda.empty:
             all_cda = apply_well_names(all_cda, composite_map, fallback_map)
             all_cda = apply_pad_name_from_well_master(all_cda, wm_lookups["pad_lookup"])
             all_cda = apply_uwi_from_well_master(all_cda, wm_lookups["uwi_lookup"])
-
-        prod_well_names = (
-            sorted(all_cda["Well Name"].astype(str).str.strip().unique().tolist())
-            if not all_cda.empty
-            else map_cda_well_names_to_production(
-                wells_in_window, composite_map, fallback_map
-            )
-        )
-        days_seq_seed, day_seq_uprt_seed, cum_seeds = fetch_production_patch_seeds(
-            cursor, prod_well_names, cda_load_start
-        )
-        on_prod_year = fetch_on_production_year_by_well(cursor, prod_well_names)
-
+            all_cda = filter_to_first_production(all_cda)
         if not all_cda.empty:
-            seeded_wells = set(days_seq_seed.keys())
-            if seeded_wells:
-                has_seed = all_cda["Well Name"].astype(str).str.strip().isin(seeded_wells)
-                df_new = all_cda.loc[~has_seed]
-                if not df_new.empty:
-                    df_new = filter_to_first_production(df_new)
-                    all_cda = pd.concat(
-                        [all_cda.loc[has_seed], df_new],
-                        ignore_index=True,
-                    ).sort_values(["Well Name", "Date"]).reset_index(drop=True)
-            else:
-                all_cda = filter_to_first_production(all_cda)
-        if not all_cda.empty:
-            all_cda = calculate_sequences(
-                all_cda,
-                days_seq_seed=days_seq_seed,
-                day_seq_uprt_seed=day_seq_uprt_seed,
+            log(
+                lf.detail(
+                    "Recalculating Days Seq, Day Seq UPRT, and cumulatives from each "
+                    "well's first production (no carry-forward from prior PCE_Production rows)."
+                )
             )
-            all_cda = calculate_cumulatives(all_cda, cum_seeds=cum_seeds)
+            all_cda = calculate_sequences(all_cda)
+            all_cda = calculate_cumulatives(all_cda)
             all_cda = calculate_monthly_averages(all_cda)
-            all_cda = add_on_production_year(all_cda, year_by_well=on_prod_year)
+            all_cda = add_on_production_year(all_cda)
             date_series = pd.to_datetime(all_cda["Date"], errors="coerce").dt.date
             before = len(all_cda)
             all_cda = all_cda.loc[date_series >= start_first].copy()
@@ -968,7 +941,7 @@ def run_quick_update(
                 log(
                     lf.detail(
                         f"Production insert scope: {start_first} through {end_last} "
-                        f"({lf.num(len(all_cda))} row(s); month-partial rows used only for calcs)"
+                        f"({lf.num(len(all_cda))} row(s); full history used for seq/cum calcs)"
                     )
                 )
         progress(75)
@@ -1019,6 +992,7 @@ def run_quick_update(
             return cancelled_summary()
 
         from pce_rebuild_pipeline import run_post_production_rebuild_steps
+        from production_update import rebuild_all_production_sequences_from_scratch
 
         if not run_post_production_rebuild_steps(
             log,
@@ -1028,6 +1002,20 @@ def run_quick_update(
         ):
             return cancelled_summary()
         timer.mark("Post-production rebuild steps")
+
+        if aborted():
+            log(lf.warn("Cancelled before sequence rebuild."))
+            return cancelled_summary()
+
+        try:
+            rebuild_all_production_sequences_from_scratch(
+                conn=conn,
+                log=log,
+                cancel_event=cancel_event,
+            )
+        except Exception as e:
+            log(lf.warn(f"PCE_Production sequence rebuild: {e}"))
+        timer.mark("Full-table sequence rebuild (routine update)")
 
         progress(95)
 

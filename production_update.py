@@ -1105,7 +1105,174 @@ def add_on_production_year(df, year_by_well: Optional[Dict[str, int]] = None):
     df["On Production Year"] = df["Well Name"].astype(str).str.strip().map(year_by_well)
     return df
 
+
+_MONTHLY_AVG_COLUMNS: Tuple[str, ...] = (
+    "Gas WH Avg (10³m³)",
+    "Gas S2 Avg (10³m³)",
+    "Gas Gathered Avg (e³m³/d)",
+    "Condensate Gathered Avg (m³/d)",
+    "Gath. Water Avg (m³/d)",
+    "Alloc. Water Avg (m³)",
+)
+
+PRODUCTION_SEQUENCE_RECALC_COLUMNS: Tuple[str, ...] = (
+    "Days Seq",
+    "Day Seq UPRT",
+    *(target for _, target in _CUMULATIVE_PAIRS),
+    *_MONTHLY_AVG_COLUMNS,
+    "On Production Year",
+)
+
+_PRODUCTION_SEQUENCE_SOURCE_COLUMNS: Tuple[str, ...] = (
+    "Date",
+    "Well Name",
+    "Gas WH Production (10³m³)",
+    "Gas S2 Production (10³m³)",
+    "Gas Sales Production (10³m³)",
+    "Condensate Sales (m³/d)",
+    "Condensate WH (m³/d)",
+    "Gathered Gas (e³m³/d)",
+    "Gathered Condensate (m³/d)",
+    "Gath. Water Rate (m³/d)",
+    "Alloc. Water Rate (m³)",
+)
+
+_PRODUCTION_SEQUENCE_SELECT_SQL = (
+    "SELECT "
+    + ", ".join(f"[{c}]" for c in _PRODUCTION_SEQUENCE_SOURCE_COLUMNS)
+    + " FROM dbo.PCE_Production ORDER BY [Well Name], [Date]"
+)
+
+
+def build_production_sequence_update_sql(table_name: str = "dbo.PCE_Production") -> str:
+    """UPDATE seq/cum/avg columns keyed on (Well Name, Date)."""
+    sets = ", ".join(f"[{c}] = ?" for c in PRODUCTION_SEQUENCE_RECALC_COLUMNS)
+    return f"""
+UPDATE {table_name}
+SET {sets}
+WHERE [Well Name] = ? AND [Date] = ?
+""".strip()
+
+
+def fetch_pce_production_for_sequence_rebuild(conn, *, log=None):
+    """Load all PCE_Production rows needed to recalculate sequences."""
+    log_fn = log or print
+    count_cur = conn.cursor()
+    count_cur.execute("SELECT COUNT(*) FROM dbo.PCE_Production")
+    row_count = count_cur.fetchone()[0] or 0
+    log_fn(
+        lf.step(
+            f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild…"
+        )
+    )
+    df = pd.read_sql(_PRODUCTION_SEQUENCE_SELECT_SQL, conn)
+    if not df.empty:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+    log_fn(lf.detail(f"Loaded {lf.num(len(df))} production row(s)"))
+    return df
+
+
+def _prepare_production_sequence_updates(df: pd.DataFrame) -> pd.DataFrame:
+    """Recalculate seq/cum/avgs from production rates (no carry-forward seeds)."""
+    if df.empty:
+        return df
+    df = filter_to_first_production(df.copy())
+    if df.empty:
+        return df
+    df = calculate_sequences(df)
+    df = calculate_cumulatives(df)
+    df = calculate_monthly_averages(df)
+    df = add_on_production_year(df)
+    df["Days Seq"] = pd.to_numeric(df["Days Seq"], errors="coerce").fillna(0).astype(int)
+    df["Day Seq UPRT"] = pd.to_numeric(df["Day Seq UPRT"], errors="coerce").fillna(0).astype(int)
+    df["On Production Year"] = pd.to_numeric(df["On Production Year"], errors="coerce")
+    return df
+
+
+def _production_sequence_update_rows(df: pd.DataFrame) -> List[Tuple]:
+    """Build UPDATE parameter tuples: recalc columns, then Well Name and Date."""
+    cols = list(PRODUCTION_SEQUENCE_RECALC_COLUMNS) + ["Well Name", "Date"]
+    sub = df[cols].astype(object)
+    sub[sub.isna()] = None
+    return list(sub.itertuples(index=False, name=None))
+
+
+def rebuild_all_production_sequences_from_scratch(
+    *,
+    conn=None,
+    log=None,
+    cancel_event=None,
+    progress: Optional[Callable[[int], None]] = None,
+) -> dict:
+    """
+    Recalculate Days Seq, Day Seq UPRT, cumulatives, monthly averages, and
+    On Production Year for **every** well in PCE_Production from existing rates.
+
+    Intended to run after production rows are written (routine window insert,
+    full rebuild, or type-curve materialization) so sequencing is consistent
+    across the full table, not only the patched date span.
+    """
+    from pce_production_schema import batch_executemany
+
+    log_fn = log or print
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+
+    try:
+        if aborted():
+            return {"ok": False, "cancelled": True, "rows_updated": 0, "wells": 0}
+
+        log_fn(
+            lf.step(
+                "Recalculating Days Seq, Day Seq UPRT, cumulatives, and monthly "
+                "averages for all wells in PCE_Production (from scratch)…"
+            )
+        )
+        df = fetch_pce_production_for_sequence_rebuild(conn, log=log_fn)
+        if df.empty:
+            log_fn(lf.detail("PCE_Production empty; nothing to recalculate."))
+            return {"ok": True, "rows_updated": 0, "wells": 0}
+
+        df = _prepare_production_sequence_updates(df)
+        if df.empty:
+            log_fn(lf.warn("No production rows after first-production filter."))
+            return {"ok": True, "rows_updated": 0, "wells": 0}
+
+        wells = int(df["Well Name"].nunique())
+        update_rows = _production_sequence_update_rows(df)
+        update_sql = build_production_sequence_update_sql()
+        cursor = conn.cursor()
+        cursor.fast_executemany = True
+        batch_executemany(
+            cursor,
+            update_sql,
+            update_rows,
+            log=log_fn,
+            label="PCE_Production sequence update",
+            progress=progress,
+            progress_lo=0,
+            progress_hi=100,
+        )
+        conn.commit()
+        log_fn(
+            lf.success(
+                f"Sequence rebuild complete — {lf.num(len(update_rows))} row(s), "
+                f"{lf.num(wells)} well(s)"
+            )
+        )
+        return {"ok": True, "rows_updated": len(update_rows), "wells": wells}
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+
 _INSERT_COLS = list(PCE_PRODUCTION_INSERT_COLUMNS)
+
 
 def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     """

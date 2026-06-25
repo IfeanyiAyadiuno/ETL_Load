@@ -7,6 +7,10 @@ Order (unchanged across full rebuild, quick update, and type-curve import):
 3. Refresh NGL ratios from Allocation_Factors
 4. Sync WM metadata (pad, enersight, month) to Production
 5. Rebuild PCE_FRCST_PRD
+
+Routine update runs a separate full-table sequence rebuild after its window insert
+(see prodview_update_gui.run_quick_update); full rebuild already calculates
+sequences when building from CDA.
 """
 
 from __future__ import annotations
