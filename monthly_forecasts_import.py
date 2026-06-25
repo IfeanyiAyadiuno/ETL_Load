@@ -4,10 +4,13 @@ Monthly forecast workbook (first sheet, row 1 = headers) -> ``dbo.PCE_Monthly_Fo
 Excel headers are mapped to the table's real column names (template uses labels like
 ``CDGR(Mcf/d)``; SQL uses ``CDGR_Mcf_d``, etc.). Unmapped columns are ignored.
 
-Each import **appends** rows from the file: existing ``(Date, UWI)`` keys in the file
-are replaced (deleted then re-inserted). Afterwards ``rebuild_pce_frcst_prd`` refreshes
-``dbo.PCE_FRCST_PRD`` (forecasts + gathered production capped at
-``prodview_effective_end_date()``).
+Each import **appends** rows from the file only. To reload a month that is already
+in the database, use **Remove selected months** first, then import again. The ``Month``
+column must be ``YYYY Month`` (e.g. ``2026 May``). Import is blocked when any file
+month already exists in ``PCE_Monthly_Forecasts``.
+
+Afterwards ``rebuild_pce_frcst_prd`` refreshes ``dbo.PCE_FRCST_PRD`` (all forecast
+months plus gathered production through ``prodview_effective_end_date()``).
 
 Selected forecast months can be removed via ``delete_forecast_months`` (GUI), which
 deletes rows matching the ``[Month]`` column value(s) and rebuilds ``PCE_FRCST_PRD``.
@@ -31,6 +34,41 @@ INSERT_BATCH_SIZE = 2500
 DATE_WARNING_SAMPLE_LIMIT = 15
 
 _YEAR_IN_STRING = re.compile(r"\d{4}")
+
+_MONTH_NAME_TO_NUM: Dict[str, int] = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+
+_YEAR_MONTH_LABEL = re.compile(
+    r"^\s*(\d{4})\s+("
+    r"January|February|March|April|May|June|July|August|September|October|November|December|"
+    r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
+    r")\.?\s*$",
+    re.IGNORECASE,
+)
 
 # Insert order matches typical table design; only columns present in the file are used.
 SQL_COLUMN_ORDER: List[str] = [
@@ -230,24 +268,134 @@ def forecast_month_display_label(
     """Display label for a forecast calendar month."""
     if month_column and str(month_column).strip():
         return str(month_column).strip()
-    return date(year, month, 1).strftime("%b %Y")
+    return date(year, month, 1).strftime("%Y %B")
 
 
-def distinct_forecast_keys(df: pd.DataFrame) -> List[Tuple[date, str]]:
-    """Distinct (Date, UWI) keys from mapped forecast rows; skips null Date or UWI."""
-    keys: set[Tuple[date, str]] = set()
-    for _, row in df.iterrows():
-        d = _cell_value_sql(row.get("Date"))
-        u = _cell_value_sql(row.get("UWI"))
-        if d is None or u is None:
+def normalize_forecast_month_label(raw: object) -> Optional[str]:
+    """
+    Parse a forecast ``[Month]`` value into canonical ``YYYY Month`` (e.g. ``2026 May``).
+
+    Returns None when the value is blank or not year-first ``YYYY MonthName``.
+    """
+    if raw is None or (isinstance(raw, float) and np.isnan(raw)) or pd.isna(raw):
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    match = _YEAR_MONTH_LABEL.match(text)
+    if not match:
+        return None
+    year = int(match.group(1))
+    month_token = match.group(2).strip().lower().rstrip(".")
+    month_num = _MONTH_NAME_TO_NUM.get(month_token)
+    if month_num is None:
+        return None
+    return date(year, month_num, 1).strftime("%Y %B")
+
+
+def validate_forecast_month_labels(
+    df: pd.DataFrame,
+    max_samples: int = DATE_WARNING_SAMPLE_LIMIT,
+) -> List[str]:
+    """Return error lines for invalid or missing ``Month`` values (empty list = OK)."""
+    if "Month" not in df.columns:
+        return ["Month column missing after header mapping (required)."]
+
+    issues: List[str] = []
+    for idx, val in enumerate(df["Month"]):
+        row_num = idx + 2
+        if val is None or (isinstance(val, float) and np.isnan(val)) or pd.isna(val):
+            issues.append(f"Row {row_num}: Month is blank or missing")
             continue
-        u_str = str(u).strip()
-        if not u_str:
+        if str(val).strip() == "":
+            issues.append(f"Row {row_num}: Month is blank or missing")
             continue
-        if not isinstance(d, date):
-            continue
-        keys.add((d, u_str))
-    return sorted(keys)
+        if normalize_forecast_month_label(val) is None:
+            issues.append(
+                f"Row {row_num}: Month {val!r} must be year-first "
+                f"(e.g. '2026 May', not 'May 2026')"
+            )
+
+    if len(issues) > max_samples:
+        extra = len(issues) - max_samples
+        return issues[:max_samples] + [
+            f"... and {extra} more row(s) with Month issues (total {len(issues)})."
+        ]
+    return issues
+
+
+def normalize_forecast_month_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Rewrite ``Month`` to canonical ``YYYY Month`` labels."""
+    out = df.copy()
+    out["Month"] = out["Month"].map(
+        lambda v: normalize_forecast_month_label(v) if not pd.isna(v) else None
+    )
+    return out
+
+
+def distinct_forecast_months_in_df(df: pd.DataFrame) -> List[str]:
+    """Distinct canonical ``Month`` labels in a mapped forecast dataframe."""
+    if "Month" not in df.columns:
+        return []
+    seen = set()
+    out: List[str] = []
+    for val in df["Month"]:
+        label = normalize_forecast_month_label(val)
+        if label and label not in seen:
+            seen.add(label)
+            out.append(label)
+    return sorted(out)
+
+
+def forecast_months_already_in_db(
+    file_months: Sequence[str],
+    conn=None,
+) -> List[str]:
+    """Return file month labels that already exist in PCE_Monthly_Forecasts."""
+    if not file_months:
+        return []
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
+        existing = fetch_distinct_forecast_months(conn)
+    finally:
+        if own_conn and conn is not None:
+            conn.close()
+
+    existing_by_fold = {str(m).strip().casefold(): str(m).strip() for m in existing}
+    conflicts: List[str] = []
+    seen = set()
+    for raw in file_months:
+        label = normalize_forecast_month_label(raw) or str(raw).strip()
+        key = label.casefold()
+        if key in existing_by_fold and key not in seen:
+            seen.add(key)
+            conflicts.append(existing_by_fold[key])
+    return sorted(conflicts)
+
+
+def _format_duplicate_months_error(conflicts: Sequence[str]) -> str:
+    listed = ", ".join(conflicts)
+    return (
+        f"Month(s) already in PCE_Monthly_Forecasts: {listed}. "
+        "Remove them using Remove selected months before importing again."
+    )
+
+
+def _run_frcst_prd_rebuild(
+    log: Callable[[str], None],
+    conn,
+    own_conn: bool,
+    data_lag_days: Optional[int] = None,
+) -> Dict[str, Any]:
+    from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
+
+    return rebuild_pce_frcst_prd(
+        log=log,
+        conn=None if own_conn else conn,
+        data_lag_days=data_lag_days,
+    )
 
 
 def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame:
@@ -286,7 +434,7 @@ def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame
     df = raw[[p[0] for p in pairs]].copy()
     df.columns = [p[1] for p in pairs]
 
-    missing = [r for r in ("Date", "UWI") if r not in df.columns]
+    missing = [r for r in ("Date", "UWI", "Month") if r not in df.columns]
     if missing:
         raise ValueError(
             "After header mapping, required column(s) missing: "
@@ -297,9 +445,19 @@ def read_monthly_forecast_excel(path: str, sheet_index: int = 0) -> pd.DataFrame
     return df
 
 
-def preview_monthly_forecast_import(path: str) -> Tuple[pd.DataFrame, List[str]]:
-    """Read Excel and return mapped DataFrame plus date-year validation warnings."""
+def preview_monthly_forecast_import(
+    path: str,
+    conn=None,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Read Excel; validate Month labels; block duplicate DB months; return date warnings."""
     df = read_monthly_forecast_excel(path)
+    month_errors = validate_forecast_month_labels(df)
+    if month_errors:
+        raise ValueError("\n".join(month_errors))
+    df = normalize_forecast_month_column(df)
+    conflicts = forecast_months_already_in_db(distinct_forecast_months_in_df(df), conn=conn)
+    if conflicts:
+        raise ValueError(_format_duplicate_months_error(conflicts))
     warnings = validate_forecast_dates(df)
     return df, warnings
 
@@ -338,29 +496,6 @@ def fetch_distinct_forecast_months(conn=None) -> List[str]:
     finally:
         if own_conn and conn is not None:
             conn.close()
-
-
-def _delete_forecast_keys_by_temp_table(cur, keys: List[Tuple[date, str]]) -> int:
-    if not keys:
-        return 0
-    cur.execute("CREATE TABLE #ForecastKeys ([Date] DATE, [Uwi] NVARCHAR(4000))")
-    try:
-        cur.executemany(
-            "INSERT INTO #ForecastKeys ([Date], [Uwi]) VALUES (?, ?)",
-            keys,
-        )
-        cur.execute(
-            f"""
-            DELETE mf
-            FROM {TARGET_TABLE} AS mf
-            INNER JOIN #ForecastKeys AS k
-                ON mf.[Date] = k.[Date]
-               AND mf.[UWI] = k.[Uwi]
-            """
-        )
-        return max(getattr(cur, "rowcount", 0) or 0, 0)
-    finally:
-        cur.execute("DROP TABLE #ForecastKeys")
 
 
 def delete_forecast_months(
@@ -423,14 +558,12 @@ def delete_forecast_months(
         )
         prog(70)
 
-        prd_rebuilt = False
+        frcst_prd_rebuild: Dict[str, Any] = {}
         try:
-            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-            rebuild_pce_frcst_prd(log=log, conn=None if own_conn else conn)
-            prd_rebuilt = True
+            frcst_prd_rebuild = _run_frcst_prd_rebuild(log, conn, own_conn)
         except Exception as e:
-            log(lf.warn(f"PCE_FRCST_PRD rebuild after month delete: {e}"))
+            log(lf.error(f"PCE_FRCST_PRD rebuild after month delete: {e}"))
+            raise
 
         prog(100)
         log(lf.success("Forecast month removal complete."))
@@ -438,7 +571,7 @@ def delete_forecast_months(
         return {
             "deleted_forecast_rows": deleted_total,
             "months_removed": len(unique_months),
-            "prd_rebuilt": prd_rebuilt,
+            "frcst_prd_rebuild": frcst_prd_rebuild,
         }
     except Exception:
         try:
@@ -467,6 +600,11 @@ def append_monthly_forecasts_from_excel(
 
     log(lf.step("Reading Excel…"))
     df = read_monthly_forecast_excel(path)
+    month_errors = validate_forecast_month_labels(df)
+    if month_errors:
+        raise ValueError("\n".join(month_errors))
+    df = normalize_forecast_month_column(df)
+    file_months = distinct_forecast_months_in_df(df)
     n_raw = len(df)
     date_warnings = validate_forecast_dates(df)
     colnames = [c for c in SQL_COLUMN_ORDER if c in df.columns]
@@ -474,12 +612,12 @@ def append_monthly_forecasts_from_excel(
         lf.detail(
             "Loaded "
             f"{lf.num(n_raw)} row(s); "
-            f"{lf.num(len(colnames))} column(s): {', '.join(colnames)}."
+            f"{lf.num(len(colnames))} column(s): {', '.join(colnames)}; "
+            f"month(s): {', '.join(file_months) or '—'}."
         )
     )
     prog(15)
 
-    keys = distinct_forecast_keys(df)
     params: List[tuple] = []
     for _, row in df.iterrows():
         params.append(tuple(_cell_value_sql(row[col]) for col in colnames))
@@ -495,24 +633,14 @@ def append_monthly_forecasts_from_excel(
         conn = get_sql_conn()
 
     try:
+        conflicts = forecast_months_already_in_db(file_months, conn=conn)
+        if conflicts:
+            raise ValueError(_format_duplicate_months_error(conflicts))
+
         cur = conn.cursor()
         cur.fast_executemany = True
 
-        deleted_rows = 0
-        if keys:
-            log(
-                lf.step(
-                    f"Replacing existing rows for {lf.num(len(keys))} "
-                    f"distinct (Date, UWI) key(s)…"
-                )
-            )
-            prog(24)
-            deleted_rows = _delete_forecast_keys_by_temp_table(cur, keys)
-            log(lf.detail(f"Removed {lf.num(deleted_rows)} existing row(s) for overlap keys."))
-        else:
-            log(lf.detail("No valid (Date, UWI) keys in file; skipping key replace delete."))
-
-        log(lf.step(f"Inserting into {TARGET_TABLE}…"))
+        log(lf.step(f"Appending {lf.num(len(params))} row(s) into {TARGET_TABLE}…"))
         prog(28)
 
         total = len(params)
@@ -533,33 +661,30 @@ def append_monthly_forecasts_from_excel(
         )
         prog(93)
 
-        try:
-            from pce_frcst_prd_rebuild import rebuild_pce_frcst_prd
-
-            rebuild_pce_frcst_prd(log=log, conn=None if own_conn else conn)
-        except Exception as e:
-            log(lf.warn(f"PCE_FRCST_PRD rebuild after forecasts import: {e}"))
+        frcst_prd_rebuild = _run_frcst_prd_rebuild(log, conn, own_conn)
 
         prog(100)
 
         inserted = len(params)
+        eff_end = frcst_prd_rebuild.get("effective_end_date")
         log(
             lf.detail(
                 "Monthly forecasts: "
-                f"imported {lf.num(inserted)} row(s); "
-                f"replaced {lf.num(len(keys))} key(s) "
-                f"({lf.num(deleted_rows)} prior row(s) removed); "
-                f"columns: {', '.join(colnames)}; "
-                f"{lf.num(n_raw)} row(s) read from workbook."
+                f"appended {lf.num(inserted)} row(s) for "
+                f"{lf.num(len(file_months))} month(s); "
+                f"PCE_FRCST_PRD forecast rows {lf.num(frcst_prd_rebuild.get('forecast_rows') or 0)}, "
+                f"gathered rows {lf.num(frcst_prd_rebuild.get('gathered_rows') or 0)}"
+                + (f", production through {eff_end}" if eff_end else "")
+                + f"; columns: {', '.join(colnames)}."
             )
         )
 
         return {
             "inserted": inserted,
             "total_rows_read": n_raw,
-            "replaced_keys": len(keys),
-            "deleted_rows": deleted_rows,
+            "months_added": file_months,
             "date_warnings": date_warnings,
+            "frcst_prd_rebuild": frcst_prd_rebuild,
         }
     except Exception:
         try:

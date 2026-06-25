@@ -113,9 +113,12 @@ def rebuild_pce_frcst_prd(
     *,
     log: Optional[Callable[[str], None]] = None,
     conn=None,
+    data_lag_days: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     DELETE all rows from PCE_FRCST_PRD, refill from forecasts, append production rows.
+
+    Gathered production is included through ``prodview_effective_end_date(data_lag_days)``.
 
     If ``conn`` is provided, uses that connection and still commits on success
     (and rolls back on failure). The connection is never closed here unless
@@ -127,10 +130,14 @@ def rebuild_pce_frcst_prd(
     if own_conn:
         conn = get_sql_conn()
 
+    lag_days = PRODVIEW_DATA_LAG_DAYS if data_lag_days is None else max(0, int(data_lag_days))
+
     out: Dict[str, Any] = {
         "skipped": False,
         "forecast_rows": None,
         "gathered_rows": None,
+        "effective_end_date": None,
+        "data_lag_days": lag_days,
     }
 
     try:
@@ -146,11 +153,12 @@ def rebuild_pce_frcst_prd(
             out["reason"] = "PCE_FRCST_PRD does not exist"
             return out
 
-        eff_end = prodview_effective_end_date()
+        eff_end = prodview_effective_end_date(data_lag_days)
+        out["effective_end_date"] = str(eff_end)
         log_fn(
             lf.step(
                 "Rebuilding dbo.PCE_FRCST_PRD (forecasts + gathered production, "
-                f"production through {eff_end.isoformat()} — today minus {PRODVIEW_DATA_LAG_DAYS} day(s))…"
+                f"production through {eff_end.isoformat()} — today minus {lag_days} day(s))…"
             )
         )
         cur.execute("DELETE FROM dbo.PCE_FRCST_PRD")

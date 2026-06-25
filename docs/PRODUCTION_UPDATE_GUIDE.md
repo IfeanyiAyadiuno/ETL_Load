@@ -355,13 +355,15 @@ When closing a production month:
 
 **When to run:** New forecast months arrive in the monthly forecasts workbook.
 
-**What changes:** Appends to `PCE_Monthly_Forecasts` (replaces matching Date+UWI keys from the file); rebuilds `PCE_FRCST_PRD`. Separate **Remove selected months** action deletes forecast months without needing a new Excel file.
+**What changes:** Appends to `PCE_Monthly_Forecasts` only (no replace-by-date). `[Month]` must be year-first (e.g. `2026 May`). If that month label already exists in the database, import is blocked — use **Remove selected months** first, then import again. Rebuilds `PCE_FRCST_PRD` from **all** forecast months in the table plus gathered daily production through **today − 2 days** (Prodview lag).
 
 **Typical duration:** 1–5 minutes.
 
 [IMAGE: Monthly Forecasts dialog — import and remove-months sections]
 
 **Common mistakes:**
+- Excel **Month** not in `YYYY Month` form (e.g. use `2026 May`, not `May 2026`).
+- Importing a month that is already loaded — remove it first via **Remove selected months**.
 - Excel **Date** cells with no year (e.g. "Apr") — app warns before import; fix the file or confirm to proceed.
 - Expecting remove-months to delete gathered daily rows in `PCE_FRCST_PRD` — rebuild preserves gathered production; only forecast slice is removed.
 

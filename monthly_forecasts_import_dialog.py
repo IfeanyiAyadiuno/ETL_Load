@@ -169,10 +169,12 @@ class MonthlyForecastsImportDialog(QDialog):
 
         hint = QLabel(
             "First sheet, row 1 headers. Mapped to PCE_Monthly_Forecasts (e.g. CDGR(Mcf/d) → "
-            "CDGR_Mcf_d). Date and UWI are required. Run import appends rows from the file: "
-            "matching (Date, UWI) keys are replaced, then PCE_FRCST_PRD is rebuilt from the "
-            "full forecasts table (gathered slice uses production through today minus the "
-            "Prodview lag). You are warned before import if any Date values lack a reliable year."
+            "CDGR_Mcf_d). Date, UWI, and Month are required. Month must be year-first "
+            "(e.g. 2026 May). Import appends rows only — if a month already exists in the "
+            "database, remove it first (Remove selected months), then import again. "
+            "PCE_FRCST_PRD is rebuilt from all forecast months plus gathered production "
+            "through today minus the Prodview lag. You are warned before import if any Date "
+            "values lack a reliable year."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")
@@ -487,18 +489,32 @@ class MonthlyForecastsImportDialog(QDialog):
         self.delete_worker.error_signal.connect(self._on_delete_error)
         self.delete_worker.start()
 
+    @staticmethod
+    def _frcst_prd_summary_fields(rebuild: dict) -> dict:
+        if not rebuild:
+            return {}
+        fields = {}
+        if rebuild.get("forecast_rows") is not None:
+            fields["FRCST forecast rows"] = lf.num(rebuild.get("forecast_rows", 0))
+        if rebuild.get("gathered_rows") is not None:
+            fields["FRCST gathered rows"] = lf.num(rebuild.get("gathered_rows", 0))
+        if rebuild.get("effective_end_date"):
+            fields["Production through"] = rebuild.get("effective_end_date")
+        return fields
+
     def _on_import_finished(self, summary: dict):
         self.import_worker = None
         self.progress.setValue(100)
         self._update_action_buttons()
+        months = summary.get("months_added") or []
         summary_fields = {
             "Inserted": lf.num(summary.get("inserted", 0)),
             "Rows read": lf.num(summary.get("total_rows_read", 0)),
+            "Months added": ", ".join(months) if months else "—",
         }
-        if summary.get("replaced_keys") is not None:
-            summary_fields["Keys replaced"] = lf.num(summary.get("replaced_keys", 0))
-        if summary.get("deleted_rows") is not None:
-            summary_fields["Prior rows removed"] = lf.num(summary.get("deleted_rows", 0))
+        summary_fields.update(
+            self._frcst_prd_summary_fields(summary.get("frcst_prd_rebuild") or {})
+        )
         self.log_result(lf.summary("Complete", summary_fields))
         self._refresh_month_list()
 
@@ -513,16 +529,14 @@ class MonthlyForecastsImportDialog(QDialog):
         self.delete_worker = None
         self.progress.setValue(100)
         self._update_action_buttons()
-        self.log_result(
-            lf.summary(
-                "Complete",
-                {
-                    "Forecast rows deleted": lf.num(summary.get("deleted_forecast_rows", 0)),
-                    "Months removed": lf.num(summary.get("months_removed", 0)),
-                    "PRD rebuilt": "Yes" if summary.get("prd_rebuilt") else "No",
-                },
-            )
+        summary_fields = {
+            "Forecast rows deleted": lf.num(summary.get("deleted_forecast_rows", 0)),
+            "Months removed": lf.num(summary.get("months_removed", 0)),
+        }
+        summary_fields.update(
+            self._frcst_prd_summary_fields(summary.get("frcst_prd_rebuild") or {})
         )
+        self.log_result(lf.summary("Complete", summary_fields))
         self._refresh_month_list()
 
     def _on_delete_error(self, msg: str):
