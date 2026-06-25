@@ -200,7 +200,7 @@ Settings → Well Master (if needed) → Prodview → ValNav (PA) → Public Sal
 | **Dialog label** | Routine update — Snowflake → CDA + production (~12 months) | Full rebuild — PCE_Production from all PCE_CDA |
 | **Typical time** | ~5 minutes | 15+ minutes on large history |
 | **Snowflake scope** | ~12 calendar months rolling window | Full history per well (first production through today − 2) |
-| **PCE_Production** | Replaces rows **only inside** the rolling window (~12 mo through today − 2); older daily rates are kept. After the window insert, **all wells** in `PCE_Production` get Days Seq, Day Seq UPRT, cumulatives, and monthly averages recalculated from scratch (routine-only full-table pass). | Full delete and rebuild from all CDA (sequences calculated during rebuild) |
+| **PCE_Production** | Replaces rows **only inside** the rolling window (~12 mo through today − 2); older daily rates are kept. Window insert writes daily rates only; **all wells** then get Days Seq, Day Seq UPRT, cumulatives, and monthly averages recalculated from scratch in a full-table pass (after TC sync). | Full delete and rebuild from all CDA; sequences calculated from each well's first production before insert (same shared logic as routine full-table pass) |
 | **Use when** | Normal daily/weekly refresh | CDA and Production are broadly wrong, or after major fixes |
 | **Also rebuilds** | `PCE_FRCST_PRD` (NGL, UWI, pad, and type-curve sync preserved). Re-applies **existing** ValNav + Public Sales ratios from `Allocation_Factors` onto CDA for months in the window before writing production (does not read Excel). | `PCE_FRCST_PRD` (same post-rebuild steps). Re-applies all AF months to CDA before full production rebuild. |
 

@@ -1154,18 +1154,65 @@ WHERE [Well Name] = ? AND [Date] = ?
 """.strip()
 
 
+def apply_production_sequences_from_scratch(
+    df: pd.DataFrame,
+    *,
+    for_persist: bool = False,
+    log=None,
+) -> pd.DataFrame:
+    """
+    Filter to each well's first production, then calculate Days Seq, Day Seq UPRT,
+    cumulatives, monthly averages, and On Production Year with no carry-forward seeds.
+
+    Shared by full rebuild (before insert) and routine full-table sequence rebuild.
+    """
+    if df.empty:
+        return df
+    out = filter_to_first_production(df.copy())
+    if out.empty:
+        return out
+    out = calculate_sequences(out)
+    out = calculate_cumulatives(out)
+    out = calculate_monthly_averages(out)
+    out = add_on_production_year(out)
+    if for_persist:
+        out["Days Seq"] = pd.to_numeric(out["Days Seq"], errors="coerce").fillna(0).astype(int)
+        out["Day Seq UPRT"] = (
+            pd.to_numeric(out["Day Seq UPRT"], errors="coerce").fillna(0).astype(int)
+        )
+        out["On Production Year"] = pd.to_numeric(out["On Production Year"], errors="coerce")
+    return out
+
+
+def stamp_production_sequence_placeholders(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Placeholder seq/cum/avg values for routine window insert.
+
+    Routine update recalculates these columns for every well in a full-table pass
+    after the window rows are written.
+    """
+    out = df.copy()
+    out["Days Seq"] = 0
+    out["Day Seq UPRT"] = 1
+    for _, target in _CUMULATIVE_PAIRS:
+        out[target] = 0.0
+    for col in _MONTHLY_AVG_COLUMNS:
+        out[col] = np.nan
+    out["On Production Year"] = np.nan
+    return out
+
+
 def fetch_pce_production_for_sequence_rebuild(conn, *, log=None):
     """Load all PCE_Production rows needed to recalculate sequences."""
     log_fn = log or print
     count_cur = conn.cursor()
     count_cur.execute("SELECT COUNT(*) FROM dbo.PCE_Production")
     row_count = count_cur.fetchone()[0] or 0
-    log_fn(
-        lf.step(
-            f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild…"
-        )
+    load_msg = (
+        f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild"
     )
-    df = pd.read_sql(_PRODUCTION_SEQUENCE_SELECT_SQL, conn)
+    with lf.activity_log(log_fn, load_msg):
+        df = pd.read_sql(_PRODUCTION_SEQUENCE_SELECT_SQL, conn)
     if not df.empty:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
     log_fn(lf.detail(f"Loaded {lf.num(len(df))} production row(s)"))
@@ -1174,19 +1221,7 @@ def fetch_pce_production_for_sequence_rebuild(conn, *, log=None):
 
 def _prepare_production_sequence_updates(df: pd.DataFrame) -> pd.DataFrame:
     """Recalculate seq/cum/avgs from production rates (no carry-forward seeds)."""
-    if df.empty:
-        return df
-    df = filter_to_first_production(df.copy())
-    if df.empty:
-        return df
-    df = calculate_sequences(df)
-    df = calculate_cumulatives(df)
-    df = calculate_monthly_averages(df)
-    df = add_on_production_year(df)
-    df["Days Seq"] = pd.to_numeric(df["Days Seq"], errors="coerce").fillna(0).astype(int)
-    df["Day Seq UPRT"] = pd.to_numeric(df["Day Seq UPRT"], errors="coerce").fillna(0).astype(int)
-    df["On Production Year"] = pd.to_numeric(df["On Production Year"], errors="coerce")
-    return df
+    return apply_production_sequences_from_scratch(df, for_persist=True)
 
 
 def _production_sequence_update_rows(df: pd.DataFrame) -> List[Tuple]:
@@ -1208,9 +1243,10 @@ def rebuild_all_production_sequences_from_scratch(
     Recalculate Days Seq, Day Seq UPRT, cumulatives, monthly averages, and
     On Production Year for **every** well in PCE_Production from existing rates.
 
-    Intended to run after production rows are written (routine window insert,
-    full rebuild, or type-curve materialization) so sequencing is consistent
-    across the full table, not only the patched date span.
+    Used by routine update after the rolling-window insert and post steps so
+    sequencing is consistent across the full table (including rows before the
+    window). Full rebuild calculates sequences during the CDA → production build
+    and does not call this function.
     """
     from pce_production_schema import batch_executemany
 
@@ -1227,18 +1263,17 @@ def rebuild_all_production_sequences_from_scratch(
         if aborted():
             return {"ok": False, "cancelled": True, "rows_updated": 0, "wells": 0}
 
-        log_fn(
-            lf.step(
-                "Recalculating Days Seq, Day Seq UPRT, cumulatives, and monthly "
-                "averages for all wells in PCE_Production (from scratch)…"
-            )
+        activity_msg = (
+            "Recalculating Days Seq, Day Seq UPRT, cumulatives, and monthly "
+            "averages for all wells in PCE_Production (from scratch)"
         )
         df = fetch_pce_production_for_sequence_rebuild(conn, log=log_fn)
         if df.empty:
             log_fn(lf.detail("PCE_Production empty; nothing to recalculate."))
             return {"ok": True, "rows_updated": 0, "wells": 0}
 
-        df = _prepare_production_sequence_updates(df)
+        with lf.activity_log(log_fn, activity_msg):
+            df = _prepare_production_sequence_updates(df)
         if df.empty:
             log_fn(lf.warn("No production rows after first-production filter."))
             return {"ok": True, "rows_updated": 0, "wells": 0}
@@ -1248,17 +1283,18 @@ def rebuild_all_production_sequences_from_scratch(
         update_sql = build_production_sequence_update_sql()
         cursor = conn.cursor()
         cursor.fast_executemany = True
-        batch_executemany(
-            cursor,
-            update_sql,
-            update_rows,
-            log=log_fn,
-            label="PCE_Production sequence update",
-            progress=progress,
-            progress_lo=0,
-            progress_hi=100,
-        )
-        conn.commit()
+        with lf.activity_log(log_fn, "Writing sequence updates to PCE_Production"):
+            batch_executemany(
+                cursor,
+                update_sql,
+                update_rows,
+                log=log_fn,
+                label="PCE_Production sequence update",
+                progress=progress,
+                progress_lo=0,
+                progress_hi=100,
+            )
+            conn.commit()
         log_fn(
             lf.success(
                 f"Sequence rebuild complete — {lf.num(len(update_rows))} row(s), "
@@ -1547,25 +1583,19 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None, log_call
         log(lf.warn("Cancelled before sequence calculations."))
         return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    # Step 7: Calculate sequences with corrected Day Seq UPRT logic
+    # Step 7–10: Sequences, cumulatives, monthly averages, On Production Year
     log(
         lf.step(
             f"Calculating sequences, cumulatives, and monthly averages "
             f"({lf.num(len(df))} row(s))…"
         )
     )
-    df = calculate_sequences(df)
-    progress.emit(73)
-
-    # Step 8: Calculate cumulatives
-    df = calculate_cumulatives(df)
+    calc_msg = (
+        f"Calculating sequences and cumulatives for {lf.num(len(df))} row(s)"
+    )
+    with lf.activity_log(log, calc_msg):
+        df = apply_production_sequences_from_scratch(df, for_persist=True)
     progress.emit(74)
-
-    # Step 9: Calculate monthly averages
-    df = calculate_monthly_averages(df)
-
-    # Step 10: Add On Production Year
-    df = add_on_production_year(df)
     timer.mark("Sequences, cumulatives, monthly avgs")
     progress.phase_done("prep")
 

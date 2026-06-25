@@ -3,6 +3,7 @@
 import threading
 import time
 import log_format as lf
+from log_view import append_log_message
 
 from PyQt5.QtWidgets import (
     QApplication,
@@ -21,7 +22,6 @@ from PyQt5.QtWidgets import (
     QSpinBox,
 )
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QTextCursor
 from styles import (
     DIALOG_BASE, card_style, section_title_style, dialog_title_style,
     btn_brand, btn_neutral, btn_danger, progress_bar_style, results_area_style,
@@ -305,11 +305,7 @@ class ProdviewUpdateDialog(QDialog):
 
     def log_result(self, message):
         """Add message to results area"""
-        self.results_text.append(message)
-        cursor = self.results_text.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.results_text.setTextCursor(cursor)
-        QApplication.processEvents()
+        append_log_message(self.results_text, message)
     
     def run_update(self):
         """Run the prodview update in a separate thread"""

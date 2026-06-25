@@ -155,19 +155,17 @@ def rebuild_pce_frcst_prd(
 
         eff_end = prodview_effective_end_date(data_lag_days)
         out["effective_end_date"] = str(eff_end)
-        log_fn(
-            lf.step(
-                "Rebuilding dbo.PCE_FRCST_PRD (forecasts + gathered production, "
-                f"production through {eff_end.isoformat()} — today minus {lag_days} day(s))…"
-            )
+        activity_msg = (
+            "Rebuilding dbo.PCE_FRCST_PRD (forecasts + gathered production, "
+            f"production through {eff_end.isoformat()} — today minus {lag_days} day(s))"
         )
-        cur.execute("DELETE FROM dbo.PCE_FRCST_PRD")
-        cur.execute(_INSERT_FORECAST)
-        out["forecast_rows"] = cur.rowcount
-        cur.execute(_INSERT_GATHERED, (eff_end,))
-        out["gathered_rows"] = cur.rowcount
-
-        conn.commit()
+        with lf.activity_log(log_fn, activity_msg):
+            cur.execute("DELETE FROM dbo.PCE_FRCST_PRD")
+            cur.execute(_INSERT_FORECAST)
+            out["forecast_rows"] = cur.rowcount
+            cur.execute(_INSERT_GATHERED, (eff_end,))
+            out["gathered_rows"] = cur.rowcount
+            conn.commit()
 
         log_fn(
             lf.success(

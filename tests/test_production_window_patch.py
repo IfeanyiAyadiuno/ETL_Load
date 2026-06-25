@@ -5,11 +5,13 @@ from datetime import date
 import pandas as pd
 
 from production_update import (
+    apply_production_sequences_from_scratch,
     calculate_cumulatives,
     calculate_sequences,
     filter_to_first_production,
     map_cda_well_names_to_production,
     month_start_on_or_before,
+    stamp_production_sequence_placeholders,
 )
 
 
@@ -69,7 +71,7 @@ def test_calculate_sequences_with_seed():
 
 
 def test_sequences_rebuilt_from_scratch_then_window_trim():
-    """Quick update: full history calcs, insert only rows in rolling window."""
+    """Routine update: full-table seq rebuild logic; window insert uses placeholders."""
     dates = [date(2024, 11, d) for d in range(28, 31)] + [
         date(2024, 12, d) for d in range(1, 23)
     ]
@@ -79,26 +81,24 @@ def test_sequences_rebuilt_from_scratch_then_window_trim():
             "Date": dates,
             "Gas WH Production (10³m³)": [10.0] * len(dates),
             "Gathered Gas (e³m³/d)": [10.0] * len(dates),
+            "Gas S2 Production (10³m³)": [0.0] * len(dates),
+            "Gas Sales Production (10³m³)": [0.0] * len(dates),
+            "Condensate Sales (m³/d)": [0.0] * len(dates),
+            "Condensate WH (m³/d)": [0.0] * len(dates),
+            "Gathered Condensate (m³/d)": [0.0] * len(dates),
+            "Gath. Water Rate (m³/d)": [0.0] * len(dates),
+            "Alloc. Water Rate (m³)": [0.0] * len(dates),
         }
     )
-    df = filter_to_first_production(df)
-    out = calculate_sequences(df)
-    out = calculate_cumulatives(
-        out.assign(
-            **{
-                "Gas S2 Production (10³m³)": 0.0,
-                "Gas Sales Production (10³m³)": 0.0,
-                "Condensate Sales (m³/d)": 0.0,
-                "Condensate WH (m³/d)": 0.0,
-                "Gathered Condensate (m³/d)": 0.0,
-                "Gath. Water Rate (m³/d)": 0.0,
-            }
-        )
-    )
     window_start = date(2024, 12, 1)
-    trimmed = out.loc[out["Date"] >= window_start].copy()
-    dec21 = trimmed.loc[trimmed["Date"] == date(2024, 12, 21)].iloc[0]
-    dec22 = trimmed.loc[trimmed["Date"] == date(2024, 12, 22)].iloc[0]
+    trimmed = df.loc[df["Date"] >= window_start].copy()
+    placeholders = stamp_production_sequence_placeholders(trimmed)
+    assert placeholders.iloc[0]["Days Seq"] == 0
+    assert placeholders.iloc[0]["Gas WH Cumulative Production (10³m³)"] == 0.0
+
+    out = apply_production_sequences_from_scratch(df, for_persist=True)
+    dec21 = out.loc[out["Date"] == date(2024, 12, 21)].iloc[0]
+    dec22 = out.loc[out["Date"] == date(2024, 12, 22)].iloc[0]
     assert dec21["Days Seq"] == 24
     assert dec22["Days Seq"] == 25
     assert dec21["Gas WH Cumulative Production (10³m³)"] == 240.0

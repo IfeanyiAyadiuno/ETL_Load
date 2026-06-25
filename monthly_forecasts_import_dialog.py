@@ -19,9 +19,9 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
-from PyQt5.QtGui import QTextCursor
 
 import log_format as lf
+from log_view import append_log_message
 from monthly_forecasts_import import (
     append_monthly_forecasts_from_excel,
     delete_forecast_months,
@@ -269,10 +269,7 @@ class MonthlyForecastsImportDialog(QDialog):
         return group
 
     def log_result(self, message: str):
-        self.results.append(message)
-        c = self.results.textCursor()
-        c.movePosition(QTextCursor.End)
-        self.results.setTextCursor(c)
+        append_log_message(self.results, message)
 
     def _workers_idle(self) -> bool:
         return (
