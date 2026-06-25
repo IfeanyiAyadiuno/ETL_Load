@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 _XOR_KEY = b"PCE_AppKey"
-_EXPECTED_XOR_HEX = "6170726c714042"
+_EXPECTED_XOR_HEX = "1226202d0f1f07"
 
 
 def xor_bytes(data: bytes, key: bytes = _XOR_KEY) -> bytes:
