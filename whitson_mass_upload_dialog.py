@@ -362,6 +362,18 @@ class WhitsonMassUploadDialog(QDialog):
             return
 
         project_id = self.project_id_spin.value()
+        reply = QMessageBox.question(
+            self,
+            "Confirm Production Push",
+            "Push all PCE_Production data to Whitson+ "
+            f"(project {project_id})?\n\n"
+            "New wells will be created and all attributes synced.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
         self.log_output.clear()
         self.log_output.append("=" * 60)
         self.log_output.append("WHITSON+ MASS UPLOAD (PCE_Production)")
