@@ -2,8 +2,10 @@
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -44,21 +46,24 @@ from whitson_imperial_units import (
     load_whitson_imperial_factors,
 )
 from whitson_credentials import WhitsonCredentialsError, get_default_project_id, load_whitson_credentials
-from whitson_production_push import push_all_wells
+from whitson_production_push import push_all_attributes, push_all_wells
+from whitson_well_attributes import ATTRIBUTE_OPTIONS
 
 
 class WhitsonUploadWorker(QThread):
-    """Worker thread: push all PCE_Production wells to Whitson+ (append only)."""
+    """Worker thread: push production or attributes to Whitson+."""
 
     progress_signal = pyqtSignal(int)
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, dict)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, project_id: int, log_callback):
+    def __init__(self, project_id: int, log_callback, mode="production", selected_ids=None):
         super().__init__()
         self.project_id = project_id
         self.log_callback = log_callback
+        self.mode = mode
+        self.selected_ids = list(selected_ids or [])
         self._cancelled = False
 
     def run(self):
@@ -80,15 +85,26 @@ class WhitsonUploadWorker(QThread):
                 return self._cancelled
 
             factors = load_whitson_imperial_factors()
-            summary = push_all_wells(
-                append_only=True,
-                apply_prodview_cap=True,
-                factors=factors,
-                project_id=self.project_id,
-                log_cb=log,
-                progress_cb=progress,
-                cancel_cb=cancel_cb,
-            )
+            if self.mode == "attributes":
+                summary = push_all_attributes(
+                    selected_ids=self.selected_ids,
+                    apply_prodview_cap=True,
+                    factors=factors,
+                    project_id=self.project_id,
+                    log_cb=log,
+                    progress_cb=progress,
+                    cancel_cb=cancel_cb,
+                )
+            else:
+                summary = push_all_wells(
+                    append_only=True,
+                    apply_prodview_cap=True,
+                    factors=factors,
+                    project_id=self.project_id,
+                    log_cb=log,
+                    progress_cb=progress,
+                    cancel_cb=cancel_cb,
+                )
             if self._cancelled:
                 return
             success = summary.get("failed", 0) == 0
@@ -160,6 +176,22 @@ class WhitsonMassUploadDialog(QDialog):
         ini_label.setStyleSheet(muted_body_label_style())
         layout.addWidget(ini_label)
 
+        attr_group = self.create_group(
+            "Attributes to push",
+            "Select which well attributes the Push Attributes action sends to "
+            "Whitson+. Applies to all wells that already exist in Whitson+.",
+        )
+        attr_grid = QGridLayout()
+        attr_grid.setHorizontalSpacing(20)
+        self.attr_checkboxes = {}
+        for idx, option in enumerate(ATTRIBUTE_OPTIONS):
+            checkbox = QCheckBox(option.label)
+            checkbox.setChecked(True)
+            self.attr_checkboxes[option.id] = checkbox
+            attr_grid.addWidget(checkbox, idx // 2, idx % 2)
+        attr_group.layout().addLayout(attr_grid)
+        layout.addWidget(attr_group)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setStyleSheet(progress_bar_style())
@@ -179,10 +211,14 @@ class WhitsonMassUploadDialog(QDialog):
         scroll.setWidget(scroll_content)
 
         button_layout = QHBoxLayout()
-        self.run_btn = QPushButton("Post Data")
-        self.run_btn.setStyleSheet(btn_brand())
-        self.run_btn.clicked.connect(self.run_upload)
-        button_layout.addWidget(self.run_btn)
+        self.run_production_btn = QPushButton("Push Production")
+        self.run_production_btn.setStyleSheet(btn_brand())
+        self.run_production_btn.clicked.connect(self.run_production)
+        button_layout.addWidget(self.run_production_btn)
+        self.run_attributes_btn = QPushButton("Push Attributes")
+        self.run_attributes_btn.setStyleSheet(btn_neutral())
+        self.run_attributes_btn.clicked.connect(self.run_attributes)
+        button_layout.addWidget(self.run_attributes_btn)
         button_layout.addStretch()
         self.close_btn = QPushButton("Close")
         self.close_btn.setStyleSheet(btn_neutral())
@@ -238,25 +274,64 @@ class WhitsonMassUploadDialog(QDialog):
 
         return True
 
-    def run_upload(self):
+    def run_production(self):
         if not self._preflight():
             return
 
+        project_id = self.project_id_spin.value()
         self.log_output.clear()
         self.log_output.append("=" * 60)
         self.log_output.append("WHITSON+ MASS UPLOAD (PCE_Production)")
         self.log_output.append("=" * 60)
-        project_id = self.project_id_spin.value()
         self.log_output.append("Mode: append only; create wells if missing")
         self.log_output.append(f"Project ID: {project_id}")
         self.log_output.append("=" * 60)
         self.log_output.append("")
 
+        self._start_worker(project_id, mode="production")
+
+    def run_attributes(self):
+        if not self._preflight():
+            return
+
+        selected_ids = [
+            option_id
+            for option_id, checkbox in self.attr_checkboxes.items()
+            if checkbox.isChecked()
+        ]
+        if not selected_ids:
+            QMessageBox.warning(
+                self,
+                "No attributes selected",
+                "Select at least one attribute to push.",
+            )
+            return
+
+        selected_labels = [
+            checkbox.text()
+            for checkbox in self.attr_checkboxes.values()
+            if checkbox.isChecked()
+        ]
+        project_id = self.project_id_spin.value()
+        self.log_output.clear()
+        self.log_output.append("=" * 60)
+        self.log_output.append("WHITSON+ ATTRIBUTE PUSH (PCE_WM)")
+        self.log_output.append("=" * 60)
+        self.log_output.append("Mode: update existing wells only (no creation)")
+        self.log_output.append(f"Attributes: {', '.join(selected_labels)}")
+        self.log_output.append(f"Project ID: {project_id}")
+        self.log_output.append("=" * 60)
+        self.log_output.append("")
+
+        self._start_worker(project_id, mode="attributes", selected_ids=selected_ids)
+
+    def _start_worker(self, project_id, *, mode, selected_ids=None):
         parent = self.parent()
         if parent and hasattr(parent, "set_buttons_enabled"):
             parent.set_buttons_enabled(False)
 
-        self.run_btn.setEnabled(False)
+        self.run_production_btn.setEnabled(False)
+        self.run_attributes_btn.setEnabled(False)
         self.close_btn.setText("Cancel")
         self.progress_bar.setVisible(True)
         set_progress_bar_percent_mode(self.progress_bar)
@@ -267,7 +342,9 @@ class WhitsonMassUploadDialog(QDialog):
                 parent.log(message)
 
         self.project_id_spin.setEnabled(False)
-        self.worker = WhitsonUploadWorker(project_id, log_callback)
+        self.worker = WhitsonUploadWorker(
+            project_id, log_callback, mode=mode, selected_ids=selected_ids
+        )
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.upload_finished)
@@ -282,7 +359,8 @@ class WhitsonMassUploadDialog(QDialog):
 
     def _reenable_ui(self):
         set_progress_bar_percent_mode(self.progress_bar)
-        self.run_btn.setEnabled(True)
+        self.run_production_btn.setEnabled(True)
+        self.run_attributes_btn.setEnabled(True)
         self.project_id_spin.setEnabled(True)
         self.close_btn.setText("Close")
         parent = self.parent()

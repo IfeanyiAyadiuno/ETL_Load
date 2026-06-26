@@ -29,6 +29,9 @@ class WhitsonImperialFactors:
     tubing_kpa_to_psi: float
     casing_kpa_to_psi: float
     choke_multiplier: float
+    fluid_pumped_m3_to_bbl: float
+    prop_pumped_tonnes_to_lb: float
+    lateral_length_m_to_ft: float
 
 
 class WhitsonImperialConfigError(Exception):
@@ -93,6 +96,24 @@ def load_whitson_imperial_factors(
             "choke_size_multiplier",
             required=False,
             default=0.03937,
+        ),
+        fluid_pumped_m3_to_bbl=_parse_float(
+            section,
+            "fluid_pumped_m3_to_bbl",
+            required=False,
+            default=6.29010,
+        ),
+        prop_pumped_tonnes_to_lb=_parse_float(
+            section,
+            "prop_pumped_tonnes_to_lb",
+            required=False,
+            default=2204.62,
+        ),
+        lateral_length_m_to_ft=_parse_float(
+            section,
+            "lateral_length_m_to_ft",
+            required=False,
+            default=3.28084,
         ),
     )
 

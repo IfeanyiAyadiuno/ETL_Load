@@ -22,6 +22,7 @@ from whitson_well_attributes import (
     WellMetadata,
     build_whitson_well_create_payload,
     fetch_well_metadata_for_whitson,
+    sync_selected_whitson_attributes,
     sync_whitson_well_attributes,
 )
 
@@ -171,6 +172,7 @@ def ensure_whitson_well(
     uwi_api: Optional[str],
     *,
     metadata: Optional[WellMetadata] = None,
+    factors: Optional[WhitsonImperialFactors] = None,
     log_cb: Optional[Callable[[str], None]] = None,
 ) -> Optional[int]:
     def log(msg: str) -> None:
@@ -197,6 +199,7 @@ def ensure_whitson_well(
         project_id=project_id,
         name=name,
         uwi_api=uwi_api,
+        factors=factors,
     )
     whitson.create_well(payload=create_payload)
     well_id = whitson.find_well_id_by_name(project_id, name)
@@ -246,6 +249,7 @@ def push_well(
         well_name,
         uwi_api,
         metadata=metadata,
+        factors=factors,
         log_cb=log_cb,
     )
     if not well_id:
@@ -253,7 +257,7 @@ def push_well(
         return "failed", 0, "well not found or created", False
 
     attrs_synced = sync_whitson_well_attributes(
-        whitson, well_id, metadata, log_cb=log_cb
+        whitson, well_id, metadata, factors=factors, log_cb=log_cb
     )
 
     resp = whitson.upload_production_to_well(
@@ -378,6 +382,156 @@ def push_all_wells(
             f"{summary['failed']} failed; "
             f"attributes synced {summary['attributes_synced']}, "
             f"attribute sync issues {summary['attributes_failed']}"
+        )
+        return summary
+    finally:
+        conn.close()
+
+
+def find_whitson_well_id(
+    whitson: whitson_connect.WhitsonConnection,
+    project_id: int,
+    name: str,
+    uwi_api: Optional[str],
+    *,
+    log_cb: Optional[Callable[[str], None]] = None,
+) -> Optional[int]:
+    """Locate an existing Whitson+ well by name (UWI fallback). Never creates."""
+    def log(msg: str) -> None:
+        if log_cb:
+            log_cb(msg)
+
+    well_id = whitson.find_well_id_by_name(project_id, name)
+    if well_id:
+        return well_id
+
+    if uwi_api:
+        try:
+            matches = whitson.get_wells(project_id, uwi_api=uwi_api)
+            well_id = whitson.get_well_id_by_uwi_api(matches, uwi_api)
+            if well_id:
+                log(f"  Found Whitson well id={well_id} by UWI {uwi_api!r}")
+                return well_id
+        except RuntimeError as exc:
+            log(f"  UWI lookup failed: {exc}")
+
+    return None
+
+
+def push_all_attributes(
+    *,
+    selected_ids,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    apply_prodview_cap: bool = True,
+    factors: Optional[WhitsonImperialFactors] = None,
+    project_id: Optional[int] = None,
+    log_cb: Optional[Callable[[str], None]] = None,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+    cancel_cb: Optional[Callable[[], bool]] = None,
+) -> Dict[str, Any]:
+    """
+    Push only the selected well attributes for all production wells.
+
+    Updates attributes on wells that already exist in Whitson+; wells that are
+    not found are skipped (no wells are created). No production data is pushed.
+    """
+    def log(msg: str) -> None:
+        if log_cb:
+            log_cb(msg)
+
+    def cancelled() -> bool:
+        return bool(cancel_cb and cancel_cb())
+
+    selected_ids = list(selected_ids)
+
+    _, _, _, default_project = load_whitson_credentials()
+    project_id = project_id if project_id is not None else default_project
+    factors = factors or load_whitson_imperial_factors()
+
+    conn = get_sql_conn()
+    try:
+        start_date, end_date = resolve_upload_date_range(
+            conn, start_date=start_date, end_date=end_date
+        )
+        end = effective_end_date(end_date, apply_prodview_cap)
+        if end < start_date:
+            raise ValueError(
+                f"Effective end date {end} is before start date {start_date}."
+            )
+
+        summary: Dict[str, Any] = {
+            "ok": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+            "project_id": project_id,
+            "start": start_date.isoformat(),
+            "end": end.isoformat(),
+        }
+
+        if not selected_ids:
+            log("No attributes selected; nothing to push.")
+            return summary
+
+        wells = list_production_wells(conn, start=start_date, end=end)
+        total = len(wells)
+        log(f"Whitson+ project_id: {project_id}")
+        log(f"Attributes: {', '.join(selected_ids)}")
+        log(f"Wells to process: {total} ({start_date} to {end})")
+
+        whitson = make_whitson_connection()
+        if cancelled():
+            log("Cancelled before attribute push.")
+            return summary
+
+        for i, (well_name, uwi) in enumerate(wells):
+            if cancelled():
+                log("Attribute push cancelled.")
+                break
+            try:
+                if not uwi:
+                    log(f"SKIP {well_name!r}: no Value Navigator UWI in PCE_WM")
+                    summary["skipped"] += 1
+                    continue
+
+                well_id = find_whitson_well_id(
+                    whitson, project_id, well_name, uwi, log_cb=log_cb
+                )
+                if not well_id:
+                    log(f"SKIP {well_name!r}: not found in Whitson+ (not created)")
+                    summary["skipped"] += 1
+                    continue
+
+                metadata = fetch_well_metadata_for_whitson(conn, well_name)
+                ok = sync_selected_whitson_attributes(
+                    whitson,
+                    well_id,
+                    metadata,
+                    selected_ids,
+                    factors=factors,
+                    log_cb=log_cb,
+                )
+                if ok:
+                    log(f"OK {well_name!r} -> id={well_id}")
+                    summary["ok"] += 1
+                else:
+                    summary["failed"] += 1
+                    summary["errors"].append(
+                        {"well": well_name, "error": "attribute PATCH failed"}
+                    )
+            except Exception as exc:
+                summary["failed"] += 1
+                msg = str(exc)
+                summary["errors"].append({"well": well_name, "error": msg})
+                log(f"FAIL {well_name!r}: {msg}")
+
+            if progress_cb:
+                progress_cb(i + 1, total)
+
+        log(
+            f"Done: {summary['ok']} ok, {summary['skipped']} skipped, "
+            f"{summary['failed']} failed"
         )
         return summary
     finally:
