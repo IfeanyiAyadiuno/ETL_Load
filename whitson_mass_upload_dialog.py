@@ -117,11 +117,107 @@ class WhitsonUploadWorker(QThread):
         self._cancelled = True
 
 
+class WhitsonAttributeSelectDialog(QDialog):
+    """Popup to choose which attributes to push to Whitson+."""
+
+    def __init__(self, selected_ids=None, parent=None):
+        super().__init__(parent)
+        preselected = set(
+            selected_ids if selected_ids is not None
+            else [opt.id for opt in ATTRIBUTE_OPTIONS]
+        )
+        self.setWindowTitle("Select Attributes to Push")
+        self.setModal(True)
+        self.setMinimumWidth(420)
+        self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+
+        heading = QLabel("Select Attributes to Push")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        subtitle = QLabel(
+            "These attributes will be pushed for all wells that already exist "
+            "in Whitson+."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(muted_body_label_style())
+        layout.addWidget(subtitle)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(20)
+        grid.setVerticalSpacing(8)
+        self.attr_checkboxes = {}
+        for idx, option in enumerate(ATTRIBUTE_OPTIONS):
+            checkbox = QCheckBox(option.label)
+            checkbox.setChecked(option.id in preselected)
+            self.attr_checkboxes[option.id] = checkbox
+            grid.addWidget(checkbox, idx // 2, idx % 2)
+        layout.addLayout(grid)
+
+        toggle_row = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.setStyleSheet(btn_neutral())
+        select_all_btn.clicked.connect(lambda: self._set_all(True))
+        clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.setStyleSheet(btn_neutral())
+        clear_all_btn.clicked.connect(lambda: self._set_all(False))
+        toggle_row.addWidget(select_all_btn)
+        toggle_row.addWidget(clear_all_btn)
+        toggle_row.addStretch(1)
+        layout.addLayout(toggle_row)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(btn_neutral())
+        cancel_btn.clicked.connect(self.reject)
+        button_row.addWidget(cancel_btn)
+        self.push_btn = QPushButton("Push Attributes")
+        self.push_btn.setStyleSheet(btn_brand())
+        self.push_btn.clicked.connect(self._accept_if_valid)
+        button_row.addWidget(self.push_btn)
+        layout.addLayout(button_row)
+
+    def _set_all(self, checked):
+        for checkbox in self.attr_checkboxes.values():
+            checkbox.setChecked(checked)
+
+    def _accept_if_valid(self):
+        if not self.selected_ids():
+            QMessageBox.warning(
+                self,
+                "No attributes selected",
+                "Select at least one attribute to push.",
+            )
+            return
+        self.accept()
+
+    def selected_ids(self):
+        return [
+            option_id
+            for option_id, checkbox in self.attr_checkboxes.items()
+            if checkbox.isChecked()
+        ]
+
+    def selected_labels(self):
+        return [
+            checkbox.text()
+            for checkbox in self.attr_checkboxes.values()
+            if checkbox.isChecked()
+        ]
+
+
 class WhitsonMassUploadDialog(QDialog):
     def __init__(self, settings_section, parent=None):
         super().__init__(parent)
         self.settings_section = settings_section
         self.worker = None
+        self.selected_attribute_ids = [opt.id for opt in ATTRIBUTE_OPTIONS]
         self.setWindowTitle("📤 Whitson+ Mass Upload")
         self.setModal(True)
         self.setMinimumWidth(760)
@@ -167,6 +263,9 @@ class WhitsonMassUploadDialog(QDialog):
             "Whitson+ project to create/find wells and upload production into."
         )
         project_row.addWidget(self.project_id_spin)
+        main_project_hint = QLabel("(main project is 2)")
+        main_project_hint.setStyleSheet(muted_body_label_style())
+        project_row.addWidget(main_project_hint)
         project_row.addStretch(1)
         project_group.layout().addLayout(project_row)
         layout.addWidget(project_group)
@@ -175,22 +274,6 @@ class WhitsonMassUploadDialog(QDialog):
         ini_label.setWordWrap(True)
         ini_label.setStyleSheet(muted_body_label_style())
         layout.addWidget(ini_label)
-
-        attr_group = self.create_group(
-            "Attributes to push",
-            "Select which well attributes the Push Attributes action sends to "
-            "Whitson+. Applies to all wells that already exist in Whitson+.",
-        )
-        attr_grid = QGridLayout()
-        attr_grid.setHorizontalSpacing(20)
-        self.attr_checkboxes = {}
-        for idx, option in enumerate(ATTRIBUTE_OPTIONS):
-            checkbox = QCheckBox(option.label)
-            checkbox.setChecked(True)
-            self.attr_checkboxes[option.id] = checkbox
-            attr_grid.addWidget(checkbox, idx // 2, idx % 2)
-        attr_group.layout().addLayout(attr_grid)
-        layout.addWidget(attr_group)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -294,24 +377,18 @@ class WhitsonMassUploadDialog(QDialog):
         if not self._preflight():
             return
 
-        selected_ids = [
-            option_id
-            for option_id, checkbox in self.attr_checkboxes.items()
-            if checkbox.isChecked()
-        ]
-        if not selected_ids:
-            QMessageBox.warning(
-                self,
-                "No attributes selected",
-                "Select at least one attribute to push.",
-            )
+        selector = WhitsonAttributeSelectDialog(
+            selected_ids=self.selected_attribute_ids, parent=self
+        )
+        if selector.exec_() != QDialog.Accepted:
             return
 
-        selected_labels = [
-            checkbox.text()
-            for checkbox in self.attr_checkboxes.values()
-            if checkbox.isChecked()
-        ]
+        selected_ids = selector.selected_ids()
+        if not selected_ids:
+            return
+        self.selected_attribute_ids = selected_ids
+        selected_labels = selector.selected_labels()
+
         project_id = self.project_id_spin.value()
         self.log_output.clear()
         self.log_output.append("=" * 60)
