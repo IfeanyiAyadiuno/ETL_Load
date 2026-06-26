@@ -28,10 +28,9 @@ from monthly_forecasts_import import (
     fetch_distinct_forecast_months,
     preview_monthly_forecast_import,
 )
+from dialog_widgets import add_title_with_info, create_dialog_group
 from styles import (
     DIALOG_BASE,
-    card_style,
-    dialog_title_style,
     btn_brand,
     btn_neutral,
     btn_danger,
@@ -43,7 +42,22 @@ from styles import (
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
     list_widget_style,
-    muted_body_label_style,
+)
+
+_SOURCE_INFO = (
+    "First sheet, row 1 headers. Mapped to PCE_Monthly_Forecasts (e.g. CDGR(Mcf/d) → "
+    "CDGR_Mcf_d). Date, UWI, and Month are required. Month must be year-first "
+    "(e.g. 2026 May). Import appends rows only — if a month already exists in the "
+    "database, remove it first (Remove selected months), then import again. "
+    "PCE_FRCST_PRD is rebuilt from all forecast months plus gathered production "
+    "through today minus the Prodview lag. You are warned before import if any Date "
+    "values lack a reliable year."
+)
+_REMOVE_MONTHS_INFO = (
+    "Check one or more forecast months (the Month column in "
+    "PCE_Monthly_Forecasts), then remove them. This deletes all rows with "
+    "matching Month values and rebuilds PCE_FRCST_PRD (gathered daily rows "
+    "are preserved via rebuild)."
 )
 
 
@@ -147,11 +161,9 @@ class MonthlyForecastsImportDialog(QDialog):
         inner = QVBoxLayout(content)
         inner.setSpacing(14)
 
-        title = QLabel("Monthly Forecasts Import")
-        title.setStyleSheet(dialog_title_style())
-        inner.addWidget(title)
+        add_title_with_info(inner, "Monthly Forecasts Import", parent=content)
 
-        src = self.create_group("Source workbook")
+        src = self.create_group("Source workbook", _SOURCE_INFO)
         row = QHBoxLayout()
         row.addWidget(QLabel("Path:"))
         self.path_label = QLabel()
@@ -166,31 +178,9 @@ class MonthlyForecastsImportDialog(QDialog):
         browse.clicked.connect(self._browse)
         row.addWidget(browse)
         src.layout().addLayout(row)
-
-        hint = QLabel(
-            "First sheet, row 1 headers. Mapped to PCE_Monthly_Forecasts (e.g. CDGR(Mcf/d) → "
-            "CDGR_Mcf_d). Date, UWI, and Month are required. Month must be year-first "
-            "(e.g. 2026 May). Import appends rows only — if a month already exists in the "
-            "database, remove it first (Remove selected months), then import again. "
-            "PCE_FRCST_PRD is rebuilt from all forecast months plus gathered production "
-            "through today minus the Prodview lag. You are warned before import if any Date "
-            "values lack a reliable year."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #64748b; font-size: 12px; padding-top: 4px;")
-        src.layout().addWidget(hint)
         inner.addWidget(src)
 
-        remove_group = self.create_group("Remove forecast months")
-        remove_hint = QLabel(
-            "Check one or more forecast months (the Month column in "
-            "PCE_Monthly_Forecasts), then remove them. This deletes all rows with "
-            "matching Month values and rebuilds PCE_FRCST_PRD (gathered daily rows "
-            "are preserved via rebuild)."
-        )
-        remove_hint.setWordWrap(True)
-        remove_hint.setStyleSheet(muted_body_label_style())
-        remove_group.layout().addWidget(remove_hint)
+        remove_group = self.create_group("Remove forecast months", _REMOVE_MONTHS_INFO)
 
         self.month_list = QListWidget()
         self.month_list.setSelectionMode(QAbstractItemView.NoSelection)
@@ -254,19 +244,8 @@ class MonthlyForecastsImportDialog(QDialog):
 
         self._update_action_buttons()
 
-    def create_group(self, title: str):
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        gl = QVBoxLayout(group)
-        gl.setContentsMargins(14, 12, 14, 12)
-        t = QLabel(title)
-        t.setStyleSheet(
-            "color: #0f172a; font-size: 12px; font-weight: 700;"
-            "letter-spacing: 0.06em; text-transform: uppercase;"
-        )
-        gl.addWidget(t)
-        return group
+    def create_group(self, title: str, info_text=None, info_title=None):
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def log_result(self, message: str):
         append_log_message(self.results, message)

@@ -147,6 +147,25 @@ def section_title_style() -> str:
     """
 
 
+def info_button_style() -> str:
+    """Compact circular info ('i') button for dialog help text."""
+    return f"""
+        QToolButton {{
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 11px;
+            color: {_PRIMARY};
+            font-size: 12px;
+            font-weight: bold;
+            padding: 0px;
+        }}
+        QToolButton:hover {{
+            background-color: #dbeafe;
+            border-color: #93c5fd;
+        }}
+    """
+
+
 def dialog_title_style() -> str:
     """Large branded title at the top of a dialog."""
     return f"""

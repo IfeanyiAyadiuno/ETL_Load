@@ -22,14 +22,28 @@ from PyQt5.QtWidgets import (
     QSpinBox,
 )
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
+from dialog_widgets import InfoButton, add_title_with_info, create_dialog_group
 from styles import (
-    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
-    btn_brand, btn_neutral, btn_danger, progress_bar_style, results_area_style,
-    configure_percentage_progress_bar, set_progress_bar_percent_mode,
-    info_panel_style,
+    DIALOG_BASE,
+    btn_brand,
+    btn_neutral,
+    btn_danger,
+    progress_bar_style,
+    results_area_style,
+    configure_percentage_progress_bar,
+    set_progress_bar_percent_mode,
     muted_body_label_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_FULL_REBUILD_INFO = (
+    "Snowflake full CDA history, allocation refresh, and complete production rebuild. "
+    "Typical runtime up to 40 minutes."
+)
+_QUICK_UPDATE_INFO = (
+    "Rolling ~12-month Snowflake window and production rebuild for that span. "
+    "Typical runtime about 25 minutes."
 )
 from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
@@ -71,9 +85,11 @@ class ProdviewUpdateDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Prodview / Snowflake Daily Production Retrieve")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
+        add_title_with_info(
+            layout,
+            "Prodview / Snowflake Daily Production Retrieve",
+            parent=scroll_content,
+        )
 
         sql_group = self.create_group("SQL destination")
         sql_layout = QVBoxLayout()
@@ -87,7 +103,8 @@ class ProdviewUpdateDialog(QDialog):
         sql_group.layout().addLayout(sql_layout)
         layout.addWidget(sql_group)
 
-        options_group = self.create_group("Options")
+        options_group = self.create_group("Options", show_info=True)
+        self.options_info_btn = options_group.info_button
         options_layout = QVBoxLayout()
         lag_row = QHBoxLayout()
         lag_row.addWidget(QLabel("End date lag:"))
@@ -113,42 +130,27 @@ class ProdviewUpdateDialog(QDialog):
         self.mode_full_rebuild = QRadioButton(
             "Full rebuild — PCE_Production from all PCE_CDA"
         )
-        mode_layout.addWidget(self.mode_full_rebuild)
-
-        full_rebuild_desc = QLabel(
-            "Snowflake full CDA history, allocation refresh, and complete production rebuild. "
-            "Typical runtime up to 40 minutes."
-        )
-        full_rebuild_desc.setWordWrap(True)
-        full_rebuild_desc.setStyleSheet(muted_body_label_style() + " padding-left: 22px; padding-bottom: 4px;")
-        mode_layout.addWidget(full_rebuild_desc)
+        full_row = QHBoxLayout()
+        full_row.addWidget(self.mode_full_rebuild)
+        full_row.addWidget(InfoButton(self, _FULL_REBUILD_INFO, "Full rebuild"))
+        full_row.addStretch()
+        mode_layout.addLayout(full_row)
 
         self.mode_quick_update = QRadioButton(
             "Routine update — Snowflake → CDA + production (~12 months)"
         )
         self.mode_quick_update.setChecked(True)
-        mode_layout.addWidget(self.mode_quick_update)
-
-        quick_update_desc = QLabel(
-            "Rolling ~12-month Snowflake window and production rebuild for that span. "
-            "Typical runtime about 25 minutes."
-        )
-        quick_update_desc.setWordWrap(True)
-        quick_update_desc.setStyleSheet(muted_body_label_style() + " padding-left: 22px; padding-bottom: 4px;")
-        mode_layout.addWidget(quick_update_desc)
+        quick_row = QHBoxLayout()
+        quick_row.addWidget(self.mode_quick_update)
+        quick_row.addWidget(InfoButton(self, _QUICK_UPDATE_INFO, "Routine update"))
+        quick_row.addStretch()
+        mode_layout.addLayout(quick_row)
 
         self.mode_full_rebuild.toggled.connect(self.update_info_text)
         self.mode_quick_update.toggled.connect(self.update_info_text)
 
         mode_group.layout().addLayout(mode_layout)
         layout.addWidget(mode_group)
-
-        summary_group = self.create_group("Summary")
-        self.summary_text = QLabel("")
-        self.summary_text.setWordWrap(True)
-        self.summary_text.setStyleSheet(info_panel_style())
-        summary_group.layout().addWidget(self.summary_text)
-        layout.addWidget(summary_group)
 
         # Overall Progress
         progress_group = self.create_group("Progress")
@@ -278,30 +280,29 @@ class ProdviewUpdateDialog(QDialog):
             f"Production data through {end.isoformat()} (today minus {lag} day(s))."
         )
         if self.mode_full_rebuild.isChecked():
-            self.summary_text.setText(
+            self.options_info_btn.set_info_text(
                 f"Full rebuild through {end.isoformat()}: refresh PCE_CDA from Snowflake, "
                 "apply allocation factors, then rebuild all PCE_Production. "
-                "Allow up to 40 minutes."
+                "Allow up to 40 minutes.",
+                "Options",
             )
         else:
-            self.summary_text.setText(
+            self.options_info_btn.set_info_text(
                 f"Routine update through {end.isoformat()}: refresh the ~12-month Snowflake "
                 "window in PCE_CDA and rebuild PCE_Production for that span. "
-                "Allow about 25 minutes."
+                "Allow about 25 minutes.",
+                "Options",
             )
 
-    def create_group(self, title):
+    def create_group(self, title, info_text=None, info_title=None, show_info=False):
         """Create a styled card group."""
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(14, 12, 14, 12)
-        group_layout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        group_layout.addWidget(title_label)
-        return group
+        return create_dialog_group(
+            title,
+            info_text,
+            info_title,
+            parent=self,
+            show_info=show_info,
+        )
 
     def log_result(self, message):
         """Add message to results area"""

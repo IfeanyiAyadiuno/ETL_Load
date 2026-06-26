@@ -32,11 +32,9 @@ from exports_gathered_monthly import (
     validate_month_range,
     write_excel,
 )
+from dialog_widgets import add_title_with_info, create_dialog_group
 from styles import (
     DIALOG_BASE,
-    card_style,
-    section_title_style,
-    dialog_title_style,
     btn_brand,
     btn_neutral,
     progress_bar_style,
@@ -45,6 +43,12 @@ from styles import (
     results_area_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_EXPORT_INFO = (
+    "Export monthly sums of gathered gas, condensate, water, and total "
+    "Hours On for all active wells in Well Master. Select a month range from "
+    "production data."
 )
 
 
@@ -79,17 +83,15 @@ class ExportsDialog(QDialog):
         self.initUI()
         QTimer.singleShot(0, self.load_month_bounds)
 
-    def create_group(self, title):
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(15, 15, 15, 15)
-        group_layout.setSpacing(10)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        group_layout.addWidget(title_label)
-        return group
+    def create_group(self, title, info_text=None, info_title=None):
+        return create_dialog_group(
+            title,
+            info_text,
+            info_title,
+            parent=self,
+            margins=(15, 15, 15, 15),
+            spacing=10,
+        )
 
     def initUI(self):
         main_layout = QVBoxLayout(self)
@@ -103,21 +105,10 @@ class ExportsDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("Exports / Reports")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
+        add_title_with_info(layout, "Exports / Reports", parent=scroll_content)
 
-        export_group = self.create_group("Gathered production (monthly)")
+        export_group = self.create_group("Gathered production (monthly)", _EXPORT_INFO)
         export_layout = export_group.layout()
-
-        desc = QLabel(
-            "Export monthly sums of gathered gas, condensate, water, and total "
-            "Hours On for all active wells in Well Master. Select a month range from "
-            "production data."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748b; font-size: 13px;")
-        export_layout.addWidget(desc)
 
         from_layout = QHBoxLayout()
         from_layout.addWidget(QLabel("From:"))

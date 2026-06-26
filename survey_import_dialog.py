@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 import log_format as lf
+from dialog_widgets import add_title_with_info, create_dialog_group
 from survey_import import (
     import_surveys,
     import_directional_survey_with_mapping,
@@ -28,9 +29,6 @@ from survey_import import (
 from survey_mapping_dialog import SurveyMappingDialog
 from styles import (
     DIALOG_BASE,
-    card_style,
-    section_title_style,
-    dialog_title_style,
     btn_brand,
     btn_neutral,
     btn_danger,
@@ -42,6 +40,11 @@ from styles import (
     file_path_label_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_ACCUMAP_INFO = (
+    "Accumap Directional Survey export with UWI, MD, EW/NS, and UTM easting/northing columns. "
+    "Headers are detected automatically."
 )
 
 
@@ -158,9 +161,7 @@ class SurveyImportDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("📐 Survey Data Import")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
+        add_title_with_info(layout, "📐 Survey Data Import", parent=scroll_content)
 
         source_group = self.create_group("Import source")
         src_layout = QVBoxLayout()
@@ -222,7 +223,7 @@ class SurveyImportDialog(QDialog):
         self.directional_group_widget = dir_group
         self.directional_group_widget.setVisible(False)
 
-        acc_group = self.create_group("Accumap file")
+        acc_group = self.create_group("Accumap file", _ACCUMAP_INFO)
         a1 = QHBoxLayout()
         self.acc_path_label = QLabel("No file selected")
         self.acc_path_label.setStyleSheet(file_path_label_style())
@@ -233,12 +234,6 @@ class SurveyImportDialog(QDialog):
         a1.addWidget(self.acc_path_label, 1)
         a1.addWidget(self.btn_browse_accumap)
         acc_group.layout().addLayout(a1)
-        acc_hint = QLabel(
-            "Accumap Directional Survey export with UWI, MD, EW/NS, and UTM easting/northing columns. "
-            "Headers are detected automatically."
-        )
-        acc_hint.setWordWrap(True)
-        acc_group.layout().addWidget(acc_hint)
         layout.addWidget(acc_group)
         self.accumap_group_widget = acc_group
         self.accumap_group_widget.setVisible(False)
@@ -289,17 +284,8 @@ class SurveyImportDialog(QDialog):
 
         attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
-    def create_group(self, title):
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        glayout = QVBoxLayout(group)
-        glayout.setContentsMargins(14, 12, 14, 12)
-        glayout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        glayout.addWidget(title_label)
-        return group
+    def create_group(self, title, info_text=None, info_title=None):
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def _on_source_changed(self):
         legacy = self.radio_legacy.isChecked()

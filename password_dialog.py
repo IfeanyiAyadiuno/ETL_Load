@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import (
 )
 
 from app_password import verify_password
-from styles import configure_dialog_window_mode, dialog_title_style
+from dialog_widgets import add_title_with_info
+from styles import configure_dialog_window_mode
 
 
 class PasswordDialog(QDialog):
@@ -27,13 +28,11 @@ class PasswordDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
-        title = QLabel("Enter Password")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
-
-        hint = QLabel("Password is required to open the application.")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        add_title_with_info(
+            layout,
+            "Enter Password",
+            "Password is required to open the application.",
+        )
 
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)

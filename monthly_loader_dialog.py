@@ -22,13 +22,20 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
+from dialog_widgets import add_title_with_info, create_dialog_group
 from styles import (
-    DIALOG_BASE, card_style, section_title_style, dialog_title_style,
-    btn_brand, btn_neutral, progress_bar_style, results_area_style,
+    DIALOG_BASE, btn_brand, btn_neutral, progress_bar_style, results_area_style,
     configure_percentage_progress_bar, set_progress_bar_percent_mode,
     file_path_label_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_VALNAV_INFO = (
+    "Worksheet tab must include the selected month abbreviation and year "
+    "(e.g. Apr 2026 or April 2026). "
+    "NGL-C2…C5 and NGLs on that sheet are written to Allocation_Factors, "
+    "then applied to PCE_Production as daily NGL ratios."
 )
 
 
@@ -64,9 +71,11 @@ class MonthlyLoaderDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("📊 ValNav Monthly Update (Sales + NGL)")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
+        add_title_with_info(
+            layout,
+            "📊 ValNav Monthly Update (Sales + NGL)",
+            parent=scroll_content,
+        )
 
         # Month Selection Group
         month_group = self.create_group("📅 Select Month")
@@ -82,7 +91,7 @@ class MonthlyLoaderDialog(QDialog):
         layout.addWidget(month_group)
 
         # ValNav File Group
-        valnav_group = self.create_group("📁 ValNav File")
+        valnav_group = self.create_group("📁 ValNav File", _VALNAV_INFO)
         valnav_layout = QHBoxLayout()
         valnav_layout.addWidget(QLabel("Path:"))
 
@@ -93,15 +102,6 @@ class MonthlyLoaderDialog(QDialog):
         self.valnav_label.setWordWrap(True)
         valnav_layout.addWidget(self.valnav_label, 1)
         valnav_group.layout().addLayout(valnav_layout)
-        valnav_hint = QLabel(
-            "Worksheet tab must include the selected month abbreviation and year "
-            "(e.g. Apr 2026 or April 2026). "
-            "NGL-C2…C5 and NGLs on that sheet are written to Allocation_Factors, "
-            "then applied to PCE_Production as daily NGL ratios."
-        )
-        valnav_hint.setWordWrap(True)
-        valnav_hint.setStyleSheet("color: #64748b; font-size: 12px;")
-        valnav_group.layout().addWidget(valnav_hint)
         layout.addWidget(valnav_group)
 
         # Status Group
@@ -196,18 +196,9 @@ class MonthlyLoaderDialog(QDialog):
         
         event.accept()
 
-    def create_group(self, title):
+    def create_group(self, title, info_text=None, info_title=None):
         """Create a styled card group."""
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(14, 12, 14, 12)
-        group_layout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        group_layout.addWidget(title_label)
-        return group
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def populate_months(self):
         """Populate month combo box with last 24 months in short format"""

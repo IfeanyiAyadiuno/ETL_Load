@@ -18,20 +18,26 @@ from PyQt5.QtWidgets import (
 
 from app_paths import get_whitson_imperial_ini_path
 from db_connection import get_sql_conn
+from dialog_widgets import add_title_with_info, create_dialog_group
 from styles import (
     DIALOG_BASE,
     btn_brand,
     btn_neutral,
-    card_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
-    dialog_title_style,
     muted_body_label_style,
     progress_bar_style,
     configure_percentage_progress_bar,
     set_progress_bar_percent_mode,
     results_area_style,
-    section_title_style,
+)
+
+_WHITSON_INFO = (
+    "Uploads all daily production from PCE_Production to Whitson+. "
+    "New wells are created automatically; existing wells receive new "
+    "data only (append). Well name = production [Well Name]; UWI from "
+    "PCE_WM. API credentials: settings.ini [WHITSON] or scripts/whitson_upload.py. "
+    "Imperial conversion uses whitson_imperial.ini."
 )
 from whitson_imperial_units import (
     WhitsonImperialConfigError,
@@ -125,20 +131,12 @@ class WhitsonMassUploadDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("📤 Whitson+ Mass Upload")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
-
-        whitson_intro = QLabel(
-            "Uploads all daily production from PCE_Production to Whitson+. "
-            "New wells are created automatically; existing wells receive new "
-            "data only (append). Well name = production [Well Name]; UWI from "
-            "PCE_WM. API credentials: settings.ini [WHITSON] or scripts/whitson_upload.py. "
-            "Imperial conversion uses whitson_imperial.ini."
+        add_title_with_info(
+            layout,
+            "📤 Whitson+ Mass Upload",
+            _WHITSON_INFO,
+            parent=scroll_content,
         )
-        whitson_intro.setWordWrap(True)
-        whitson_intro.setStyleSheet(muted_body_label_style())
-        layout.addWidget(whitson_intro)
 
         project_group = self.create_group("Whitson+ project")
         project_row = QHBoxLayout()
@@ -193,17 +191,8 @@ class WhitsonMassUploadDialog(QDialog):
 
         attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
-    def create_group(self, title):
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        layout.addWidget(title_label)
-        return group
+    def create_group(self, title, info_text=None, info_title=None):
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def _preflight(self) -> bool:
         try:

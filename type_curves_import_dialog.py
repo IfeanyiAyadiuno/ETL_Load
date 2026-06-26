@@ -25,6 +25,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 
 import log_format as lf
+from dialog_widgets import InfoButton, add_title_with_info, create_dialog_group
 from type_curves_import import (
     append_typecurves_from_excel,
     delete_typecurves_from_tc,
@@ -34,9 +35,6 @@ from type_curves_import import (
 )
 from styles import (
     DIALOG_BASE,
-    card_style,
-    section_title_style,
-    dialog_title_style,
     btn_brand,
     btn_neutral,
     btn_danger,
@@ -46,10 +44,26 @@ from styles import (
     set_progress_bar_percent_mode,
     results_area_style,
     file_path_label_style,
-    muted_body_label_style,
     list_widget_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_TYPE_CURVES_INTRO = (
+    "Loads into dbo.PCE_TC, then materializes into PCE_Production at ImportDate. "
+    "WM-backed keys use the longer of Excel vs WM well id plus ' - TC'. "
+    "File-only rows: names starting with YE2 (including YE23) stay verbatim; "
+    "other file-only wells get ' - TC'. "
+    "Pad names get the 'PCE-TC-' prefix only for non-YE2-family type curves; "
+    "YE2/YE23 rows keep pad text without that prefix."
+)
+_APPEND_INFO = (
+    "First sheet, row 1 = headers. [WM] / [File] tags show match source. "
+    "Check rows to limit import; leave all unchecked to import every row in the file."
+)
+_DELETE_INFO = (
+    "List shows WM name (suffix hidden). Check one or more wells, then Delete "
+    "(full stored key is used)."
 )
 
 
@@ -154,20 +168,12 @@ class TypeCurvesImportDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        title = QLabel("📈 Type Curves Import")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
-
-        intro = QLabel(
-            "Loads into dbo.PCE_TC, then materializes into PCE_Production at ImportDate. "
-            "WM-backed keys use the longer of Excel vs WM well id plus ' - TC'. "
-            "File-only rows: names starting with YE2 (including YE23) stay verbatim; "
-            "other file-only wells get ' - TC'. "
-            "Pad names get the 'PCE-TC-' prefix only for non-YE2-family type curves; YE2/YE23 rows keep pad text without that prefix."
+        add_title_with_info(
+            layout,
+            "📈 Type Curves Import",
+            _TYPE_CURVES_INTRO,
+            parent=scroll_content,
         )
-        intro.setWordWrap(True)
-        intro.setStyleSheet(muted_body_label_style())
-        layout.addWidget(intro)
 
         mode_row = QHBoxLayout()
         self.mode_group = QButtonGroup(self)
@@ -199,13 +205,10 @@ class TypeCurvesImportDialog(QDialog):
         file_group.layout().addLayout(file_layout)
         al.addWidget(file_group)
 
-        append_hint = QLabel(
-            "First sheet, row 1 = headers. [WM] / [File] tags show match source. "
-            "Check rows to limit import; leave all unchecked to import every row in the file."
-        )
-        append_hint.setWordWrap(True)
-        append_hint.setStyleSheet(muted_body_label_style())
-        al.addWidget(append_hint)
+        append_info_row = QHBoxLayout()
+        append_info_row.addStretch()
+        append_info_row.addWidget(InfoButton(self, _APPEND_INFO, "Append from Excel"))
+        al.addLayout(append_info_row)
 
         self.append_list = QListWidget()
         self.append_list.setSelectionMode(QAbstractItemView.NoSelection)
@@ -239,13 +242,10 @@ class TypeCurvesImportDialog(QDialog):
         self.delete_panel = QWidget()
         dl = QVBoxLayout(self.delete_panel)
         dl.setContentsMargins(0, 0, 0, 0)
-        delete_hint = QLabel(
-            "List shows WM name (suffix hidden). Check one or more wells, then Delete "
-            "(full stored key is used)."
-        )
-        delete_hint.setWordWrap(True)
-        delete_hint.setStyleSheet(muted_body_label_style())
-        dl.addWidget(delete_hint)
+        delete_info_row = QHBoxLayout()
+        delete_info_row.addStretch()
+        delete_info_row.addWidget(InfoButton(self, _DELETE_INFO, "Delete from PCE_TC"))
+        dl.addLayout(delete_info_row)
 
         db = QHBoxLayout()
         self.load_delete_btn = QPushButton("Load from DB")
@@ -307,17 +307,8 @@ class TypeCurvesImportDialog(QDialog):
 
         attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
-    def create_group(self, title):
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-        gl = QVBoxLayout(group)
-        gl.setContentsMargins(14, 12, 14, 12)
-        gl.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        gl.addWidget(title_label)
-        return group
+    def create_group(self, title, info_text=None, info_title=None):
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def _on_mode_changed(self):
         use_append = self.radio_append.isChecked()

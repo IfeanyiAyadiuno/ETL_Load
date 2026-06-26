@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from styles import DIALOG_BASE, btn_primary, btn_neutral, dialog_title_style, configure_dialog_window_mode, attach_dialog_scroll_and_actions
+from dialog_widgets import add_title_with_info
+from styles import DIALOG_BASE, btn_primary, btn_neutral, configure_dialog_window_mode, attach_dialog_scroll_and_actions
 from well_master_db import WellMasterDB, ADDITIONAL_FIELD_COLUMNS
 
 _FIELD_LABELS = {
@@ -60,17 +61,12 @@ class WellMasterAdditionalFieldsDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel(f"Additional fields for {self.well_name}")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
-
-        hint = QLabel(
+        add_title_with_info(
+            layout,
+            f"Additional fields for {self.well_name}",
             "Coordinates, elevations, tubing, and completion dates. "
-            "Surface and bottom hole latitude/longitude sync to Whitson+ on push."
+            "Surface and bottom hole latitude/longitude sync to Whitson+ on push.",
         )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #64748b; font-size: 12px;")
-        layout.addWidget(hint)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

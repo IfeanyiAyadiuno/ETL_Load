@@ -21,14 +21,12 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QMessageBox,
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 
+from dialog_widgets import add_title_with_info, create_dialog_group
 from styles import (
     DIALOG_BASE,
-    card_style,
-    section_title_style,
-    dialog_title_style,
     btn_brand,
     btn_neutral,
     progress_bar_style,
@@ -38,6 +36,12 @@ from styles import (
     file_path_label_style,
     configure_dialog_window_mode,
     attach_dialog_scroll_and_actions,
+)
+
+_SALES_RATIOS_INFO = (
+    "Merges Accumap into allocation factors, updates gas sales and CGR on PCE_CDA, "
+    "then syncs production from CDA (four columns).\n\n"
+    "Run PA for the same months first."
 )
 from sales_ratios_gui import preflight_sales_ratios_range
 
@@ -76,10 +80,12 @@ class SalesRatiosDialog(QDialog):
         layout.setSpacing(15)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        # Title
-        title = QLabel("📈 Public Sales Data and Ratios")
-        title.setStyleSheet(dialog_title_style())
-        layout.addWidget(title)
+        add_title_with_info(
+            layout,
+            "📈 Public Sales Data and Ratios",
+            _SALES_RATIOS_INFO,
+            parent=scroll_content,
+        )
 
         # Month Range Selection
         range_group = self.create_group("📅 Select Month Range")
@@ -118,30 +124,6 @@ class SalesRatiosDialog(QDialog):
         self.accumap_status = QLabel()
         accumap_group.layout().addWidget(self.accumap_status)
         layout.addWidget(accumap_group)
-
-        # Info Group
-        info_group = self.create_group("Summary")
-        info_layout = QVBoxLayout()
-
-        info_text = QLabel()
-        info_text.setTextFormat(Qt.RichText)
-        info_text.setText(
-            "Merges Accumap into allocation factors, updates gas sales and CGR on PCE_CDA, "
-            "then syncs production from CDA (four columns).<br><br>"
-            "<b>Run PA for the same months first.</b>"
-        )
-        info_text.setWordWrap(True)
-        info_text.setStyleSheet("""
-            QLabel {
-                background-color: #e6f0fa;
-                border: 1px solid #d1d5db;
-                border-radius: 5px;
-                padding: 10px;
-            }
-        """)
-        info_layout.addWidget(info_text)
-        info_group.layout().addLayout(info_layout)
-        layout.addWidget(info_group)
 
         # Progress Bar
         self.progress_bar = QProgressBar()
@@ -237,20 +219,9 @@ class SalesRatiosDialog(QDialog):
         
         event.accept()
 
-    def create_group(self, title):
+    def create_group(self, title, info_text=None, info_title=None):
         """Create a styled group frame with title"""
-        group = QFrame()
-        group.setFrameShape(QFrame.StyledPanel)
-        group.setStyleSheet(card_style())
-
-        group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(8)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet(section_title_style())
-        group_layout.addWidget(title_label)
-
-        return group
+        return create_dialog_group(title, info_text, info_title, parent=self)
 
     def populate_months(self, combo_box):
         """Populate month combo box from Jan 2008 through the current month."""
