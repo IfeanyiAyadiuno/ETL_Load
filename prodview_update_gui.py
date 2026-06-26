@@ -821,6 +821,8 @@ def run_quick_update(
     total_wells = 0
     total_prod = 0
     total_cda = 0
+    window_cda_for_seq = None
+    window_well_names = []
 
     try:
         if aborted():
@@ -921,11 +923,17 @@ def run_quick_update(
             all_cda = apply_pad_name_from_well_master(all_cda, wm_lookups["pad_lookup"])
             all_cda = apply_uwi_from_well_master(all_cda, wm_lookups["uwi_lookup"])
             all_cda = filter_to_first_production(all_cda)
+        window_cda_for_seq = all_cda.copy() if not all_cda.empty else None
+        window_well_names = (
+            sorted(all_cda["Well Name"].astype(str).str.strip().unique().tolist())
+            if not all_cda.empty
+            else []
+        )
         if not all_cda.empty:
             log(
                 lf.detail(
-                    "Rolling-window insert: daily rates only; full-table sequence "
-                    "rebuild runs after post steps for all wells."
+                    "Rolling-window insert: daily rates only; optimized full-table "
+                    "sequence rebuild runs after post steps (CDA in memory for window wells)."
                 )
             )
             date_series = pd.to_datetime(all_cda["Date"], errors="coerce").dt.date
@@ -1005,6 +1013,8 @@ def run_quick_update(
             conn=conn,
             log=log,
             cancel_event=cancel_event,
+            window_cda_for_seq=window_cda_for_seq,
+            window_well_names=window_well_names,
         )
         if seq_result.get("cancelled"):
             return cancelled_summary()

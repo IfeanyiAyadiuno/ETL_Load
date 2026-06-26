@@ -9,6 +9,7 @@ from production_update import (
     PRODUCTION_SEQUENCE_RECALC_COLUMNS,
     _prepare_production_sequence_updates,
     _production_sequence_update_rows,
+    _production_sequence_select_sql,
     rebuild_all_production_sequences_from_scratch,
 )
 
@@ -50,7 +51,13 @@ def test_production_sequence_update_row_shape():
     assert len(rows[0]) == len(PRODUCTION_SEQUENCE_RECALC_COLUMNS) + 2
 
 
-def test_rebuild_all_production_sequences_from_scratch_calls_update():
+def test_production_sequence_select_excludes_window_wells():
+    sql, params = _production_sequence_select_sql(exclude_well_names=["A", "B"])
+    assert "NOT IN" in sql
+    assert params == ["A", "B"]
+
+
+def test_rebuild_all_production_sequences_uses_staging_bulk_update():
     conn = MagicMock()
     cursor = MagicMock()
     conn.cursor.return_value = cursor
@@ -59,14 +66,46 @@ def test_rebuild_all_production_sequences_from_scratch_calls_update():
         "production_update.fetch_pce_production_for_sequence_rebuild",
         return_value=_sample_production_df(),
     ) as mock_fetch, patch(
-        "pce_production_schema.batch_executemany",
-        side_effect=lambda cur, sql, rows, **kw: None,
-    ) as mock_batch:
+        "production_update._apply_sequence_updates_via_staging",
+        return_value=7,
+    ) as mock_apply:
         result = rebuild_all_production_sequences_from_scratch(conn=conn, log=lambda m: None)
 
     assert result["ok"] is True
     assert result["rows_updated"] == 7
     assert result["wells"] == 2
-    mock_fetch.assert_called_once_with(conn, log=mock_fetch.call_args.kwargs["log"])
-    mock_batch.assert_called_once()
+    mock_fetch.assert_called_once()
+    mock_apply.assert_called_once()
     conn.commit.assert_called_once()
+
+
+def test_routine_rebuild_skips_production_read_for_window_wells():
+    conn = MagicMock()
+    window_cda = _sample_production_df().loc[
+        _sample_production_df()["Well Name"] == "A"
+    ].copy()
+    other = _sample_production_df().loc[
+        _sample_production_df()["Well Name"] == "B"
+    ].copy()
+
+    with patch(
+        "production_update.fetch_pce_production_for_sequence_rebuild",
+        return_value=other,
+    ) as mock_fetch, patch(
+        "production_update._apply_sequence_updates_via_staging",
+        return_value=7,
+    ):
+        result = rebuild_all_production_sequences_from_scratch(
+            conn=conn,
+            log=lambda m: None,
+            window_cda_for_seq=window_cda,
+            window_well_names=["A"],
+        )
+
+    assert result["ok"] is True
+    assert result["wells"] == 2
+    mock_fetch.assert_called_once_with(
+        conn,
+        exclude_well_names=["A"],
+        log=mock_fetch.call_args.kwargs["log"],
+    )

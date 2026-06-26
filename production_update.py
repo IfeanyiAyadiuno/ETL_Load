@@ -1140,8 +1140,31 @@ _PRODUCTION_SEQUENCE_SOURCE_COLUMNS: Tuple[str, ...] = (
 _PRODUCTION_SEQUENCE_SELECT_SQL = (
     "SELECT "
     + ", ".join(f"[{c}]" for c in _PRODUCTION_SEQUENCE_SOURCE_COLUMNS)
-    + " FROM dbo.PCE_Production ORDER BY [Well Name], [Date]"
+    + " FROM dbo.PCE_Production"
 )
+
+_SEQ_STAGING_TABLE = "#PCE_Production_Seq_Staging"
+
+
+def _dataframe_for_sequence_source(df: pd.DataFrame) -> pd.DataFrame:
+    """Narrow to columns required for from-scratch sequence / cumulative calcs."""
+    out = df[list(_PRODUCTION_SEQUENCE_SOURCE_COLUMNS)].copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce").dt.date
+    return out
+
+
+def _production_sequence_select_sql(*, exclude_well_names: Optional[List[str]] = None) -> Tuple[str, List]:
+    """Build SELECT for sequence rebuild; optionally skip rolling-window wells."""
+    sql = _PRODUCTION_SEQUENCE_SELECT_SQL
+    params: List = []
+    if exclude_well_names:
+        names = sorted({str(w).strip() for w in exclude_well_names if str(w).strip()})
+        if names:
+            placeholders = ",".join("?" for _ in names)
+            sql += f" WHERE [Well Name] NOT IN ({placeholders})"
+            params.extend(names)
+    sql += " ORDER BY [Well Name], [Date]"
+    return sql, params
 
 
 def build_production_sequence_update_sql(table_name: str = "dbo.PCE_Production") -> str:
@@ -1202,17 +1225,127 @@ def stamp_production_sequence_placeholders(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def fetch_pce_production_for_sequence_rebuild(conn, *, log=None):
-    """Load all PCE_Production rows needed to recalculate sequences."""
-    log_fn = log or print
-    count_cur = conn.cursor()
-    count_cur.execute("SELECT COUNT(*) FROM dbo.PCE_Production")
-    row_count = count_cur.fetchone()[0] or 0
-    load_msg = (
-        f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild"
+def _seq_staging_column_defs() -> List[str]:
+    int_cols = {"Days Seq", "Day Seq UPRT", "On Production Year"}
+    defs = ["[Well Name] NVARCHAR(4000) NOT NULL", "[Date] DATE NOT NULL"]
+    for col in PRODUCTION_SEQUENCE_RECALC_COLUMNS:
+        sql_type = "INT NULL" if col in int_cols else "FLOAT NULL"
+        defs.append(f"[{col}] {sql_type}")
+    return defs
+
+
+def _create_seq_staging_table(cursor) -> None:
+    cursor.execute(
+        "IF OBJECT_ID('tempdb..#PCE_Production_Seq_Staging') IS NOT NULL "
+        "DROP TABLE #PCE_Production_Seq_Staging"
     )
+    cursor.execute(
+        f"CREATE TABLE {_SEQ_STAGING_TABLE} ({', '.join(_seq_staging_column_defs())})"
+    )
+
+
+def _seq_staging_insert_sql() -> str:
+    cols = ["Well Name", "Date", *PRODUCTION_SEQUENCE_RECALC_COLUMNS]
+    col_list = ", ".join(f"[{c}]" for c in cols)
+    placeholders = ", ".join("?" for _ in cols)
+    return f"INSERT INTO {_SEQ_STAGING_TABLE} ({col_list}) VALUES ({placeholders})"
+
+
+def _seq_bulk_update_from_staging_sql() -> str:
+    set_clause = ", ".join(
+        f"p.[{col}] = s.[{col}]" for col in PRODUCTION_SEQUENCE_RECALC_COLUMNS
+    )
+    return f"""
+UPDATE p
+SET {set_clause}
+FROM dbo.PCE_Production AS p
+INNER JOIN {_SEQ_STAGING_TABLE} AS s
+    ON p.[Well Name] = s.[Well Name]
+   AND CAST(p.[Date] AS DATE) = s.[Date]
+""".strip()
+
+
+def _sequence_staging_insert_rows(df: pd.DataFrame) -> List[Tuple]:
+    cols = ["Well Name", "Date", *PRODUCTION_SEQUENCE_RECALC_COLUMNS]
+    sub = df[cols].astype(object)
+    sub[sub.isna()] = None
+    return list(sub.itertuples(index=False, name=None))
+
+
+def _apply_sequence_updates_via_staging(
+    conn,
+    df: pd.DataFrame,
+    *,
+    log=None,
+    progress: Optional[Callable[[int], None]] = None,
+) -> int:
+    """Bulk INSERT into temp staging, then one UPDATE … JOIN (fast path vs row-wise UPDATE)."""
+    from pce_production_schema import batch_executemany
+
+    log_fn = log or print
+    if df.empty:
+        return 0
+
+    rows = _sequence_staging_insert_rows(df)
+    cursor = conn.cursor()
+    cursor.fast_executemany = True
+    _create_seq_staging_table(cursor)
+    insert_sql = _seq_staging_insert_sql()
+    batch_executemany(
+        cursor,
+        insert_sql,
+        rows,
+        log=log_fn,
+        label="Sequence staging load",
+        progress=progress,
+        progress_lo=0,
+        progress_hi=85,
+    )
+    log_fn(lf.detail("Applying staged sequence values to PCE_Production (single UPDATE … JOIN)…"))
+    cursor.execute(_seq_bulk_update_from_staging_sql())
+    updated = cursor.rowcount
+    if updated < 0:
+        cursor.execute("SELECT @@ROWCOUNT")
+        row = cursor.fetchone()
+        updated = int(row[0]) if row else len(rows)
+    if progress:
+        progress(100)
+    return int(updated)
+
+
+def fetch_pce_production_for_sequence_rebuild(
+    conn,
+    *,
+    exclude_well_names: Optional[List[str]] = None,
+    log=None,
+):
+    """Load PCE_Production rows needed to recalculate sequences."""
+    log_fn = log or print
+    count_sql = "SELECT COUNT(*) FROM dbo.PCE_Production"
+    count_params: List = []
+    excluded_names: List[str] = []
+    if exclude_well_names:
+        excluded_names = sorted(
+            {str(w).strip() for w in exclude_well_names if str(w).strip()}
+        )
+        if excluded_names:
+            placeholders = ",".join("?" for _ in excluded_names)
+            count_sql += f" WHERE [Well Name] NOT IN ({placeholders})"
+            count_params.extend(excluded_names)
+    count_cur = conn.cursor()
+    count_cur.execute(count_sql, count_params or None)
+    row_count = count_cur.fetchone()[0] or 0
+    scope = (
+        f"excluding {lf.num(len(excluded_names))} rolling-window well(s)"
+        if excluded_names
+        else "all wells"
+    )
+    load_msg = (
+        f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild ({scope})"
+    )
+    query, params = _production_sequence_select_sql(exclude_well_names=exclude_well_names)
     with lf.activity_log(log_fn, load_msg):
-        df = pd.read_sql(_PRODUCTION_SEQUENCE_SELECT_SQL, conn)
+        df = pd.read_sql(query, conn, params=params or None)
     if not df.empty:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
     log_fn(lf.detail(f"Loaded {lf.num(len(df))} production row(s)"))
@@ -1226,10 +1359,14 @@ def _prepare_production_sequence_updates(df: pd.DataFrame) -> pd.DataFrame:
 
 def _production_sequence_update_rows(df: pd.DataFrame) -> List[Tuple]:
     """Build UPDATE parameter tuples: recalc columns, then Well Name and Date."""
-    cols = list(PRODUCTION_SEQUENCE_RECALC_COLUMNS) + ["Well Name", "Date"]
-    sub = df[cols].astype(object)
-    sub[sub.isna()] = None
-    return list(sub.itertuples(index=False, name=None))
+    return _sequence_staging_insert_rows(df)
+
+
+def _combine_sequence_update_frames(frames: List[pd.DataFrame]) -> pd.DataFrame:
+    parts = [f for f in frames if f is not None and not f.empty]
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)
 
 
 def rebuild_all_production_sequences_from_scratch(
@@ -1238,18 +1375,21 @@ def rebuild_all_production_sequences_from_scratch(
     log=None,
     cancel_event=None,
     progress: Optional[Callable[[int], None]] = None,
+    window_cda_for_seq: Optional[pd.DataFrame] = None,
+    window_well_names: Optional[List[str]] = None,
 ) -> dict:
     """
     Recalculate Days Seq, Day Seq UPRT, cumulatives, monthly averages, and
-    On Production Year for **every** well in PCE_Production from existing rates.
+    On Production Year for **every** well in PCE_Production from scratch.
 
-    Used by routine update after the rolling-window insert and post steps so
-    sequencing is consistent across the full table (including rows before the
-    window). Full rebuild calculates sequences during the CDA → production build
-    and does not call this function.
+    Routine update passes ``window_cda_for_seq`` (full CDA history already in
+    memory for rolling-window wells) so those wells skip a production-table
+    read; all other wells load from PCE_Production. Updates use a temp staging
+    table and a single UPDATE … JOIN.
+
+    Full rebuild calculates sequences during the CDA → production build and does
+    not call this function.
     """
-    from pce_production_schema import batch_executemany
-
     log_fn = log or print
 
     def aborted():
@@ -1267,41 +1407,61 @@ def rebuild_all_production_sequences_from_scratch(
             "Recalculating Days Seq, Day Seq UPRT, cumulatives, and monthly "
             "averages for all wells in PCE_Production (from scratch)"
         )
-        df = fetch_pce_production_for_sequence_rebuild(conn, log=log_fn)
-        if df.empty:
+        log_fn(lf.step(activity_msg))
+        seq_frames: List[pd.DataFrame] = []
+        window_names = sorted(
+            {str(w).strip() for w in (window_well_names or []) if str(w).strip()}
+        )
+
+        if window_cda_for_seq is not None and not window_cda_for_seq.empty:
+            log_fn(
+                lf.detail(
+                    f"Rolling-window wells ({lf.num(len(window_names))}): "
+                    "sequence calcs from in-memory CDA (skip production read)"
+                )
+            )
+            with lf.activity_log(log_fn, "Calculating sequences for rolling-window wells"):
+                window_source = _dataframe_for_sequence_source(window_cda_for_seq)
+                window_seq = _prepare_production_sequence_updates(window_source)
+            if not window_seq.empty:
+                seq_frames.append(window_seq)
+
+        other_df = fetch_pce_production_for_sequence_rebuild(
+            conn,
+            exclude_well_names=window_names or None,
+            log=log_fn,
+        )
+        if not other_df.empty:
+            with lf.activity_log(log_fn, "Calculating sequences for remaining wells"):
+                other_seq = _prepare_production_sequence_updates(other_df)
+            if not other_seq.empty:
+                seq_frames.append(other_seq)
+        elif not window_names and other_df.empty:
             log_fn(lf.detail("PCE_Production empty; nothing to recalculate."))
             return {"ok": True, "rows_updated": 0, "wells": 0}
 
-        with lf.activity_log(log_fn, activity_msg):
-            df = _prepare_production_sequence_updates(df)
-        if df.empty:
+        combined = _combine_sequence_update_frames(seq_frames)
+
+        if combined.empty:
             log_fn(lf.warn("No production rows after first-production filter."))
             return {"ok": True, "rows_updated": 0, "wells": 0}
 
-        wells = int(df["Well Name"].nunique())
-        update_rows = _production_sequence_update_rows(df)
-        update_sql = build_production_sequence_update_sql()
-        cursor = conn.cursor()
-        cursor.fast_executemany = True
+        wells = int(combined["Well Name"].nunique())
         with lf.activity_log(log_fn, "Writing sequence updates to PCE_Production"):
-            batch_executemany(
-                cursor,
-                update_sql,
-                update_rows,
+            updated = _apply_sequence_updates_via_staging(
+                conn,
+                combined,
                 log=log_fn,
-                label="PCE_Production sequence update",
                 progress=progress,
-                progress_lo=0,
-                progress_hi=100,
             )
             conn.commit()
         log_fn(
             lf.success(
-                f"Sequence rebuild complete — {lf.num(len(update_rows))} row(s), "
+                f"Sequence rebuild complete — {lf.num(updated)} row(s) updated, "
                 f"{lf.num(wells)} well(s)"
             )
         )
-        return {"ok": True, "rows_updated": len(update_rows), "wells": wells}
+        return {"ok": True, "rows_updated": updated, "wells": wells}
     finally:
         if own_conn and conn is not None:
             conn.close()
