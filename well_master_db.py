@@ -25,6 +25,9 @@ ADDITIONAL_FIELD_COLUMNS = (
     ("outside_diameter_mm", "Outside Diameter (mm)", "float"),
     ("tubing_strength_mpa", "Tubing Strength (MPa)", "float"),
     ("tubing_linear_weight_kg_m", "Tubing Linear Weight (kg/m)", "float"),
+    ("fluid_pumped_m3", "Fluid Pumped (m³)", "float"),
+    ("proppant_pumped_t", "Proppant Pumped (t)", "float"),
+    ("initial_flow_date", "Initial flow date", "date"),
 )
 
 _ADDITIONAL_FIELD_SQL_LIST = ", ".join(
@@ -63,7 +66,8 @@ class WellMasterDB:
                 [Horizontal Distance Left],
                 [Vertical Distance Above],
                 [Vertical Distance Below],
-                [Exception]
+                [Exception],
+                [Bounded]
             FROM PCE_WM
             WHERE [Exception] IS NULL OR [Exception] = '' OR [Exception] = 'N'
             ORDER BY [Well Name]
@@ -81,6 +85,9 @@ class WellMasterDB:
                     exception_val = "N"
                 else:
                     exception_val = str(exception_val).strip().upper()
+
+                bounded_val = row[18]
+                bounded_val = str(bounded_val).strip() if bounded_val is not None else ""
 
                 well = {
                     'well_name': row[0],
@@ -101,6 +108,7 @@ class WellMasterDB:
                     'vertical_above': row[15],
                     'vertical_below': row[16],
                     'exception': exception_val,
+                    'bounded': bounded_val,
                 }
                 wells.append(well)
 
@@ -214,6 +222,7 @@ class WellMasterDB:
             "value_nav_uwi",
             "orient",
             "composite_name",
+            "bounded",
         )
         out = dict(update)
         for key in text_keys:
@@ -422,6 +431,7 @@ WHERE
                     'orient': '[Orient]',
                     'composite_name': '[Composite Name]',
                     'exception': '[Exception]',
+                    'bounded': '[Bounded]',
                 }
 
                 for key, db_field in field_mapping.items():

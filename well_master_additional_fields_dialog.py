@@ -39,6 +39,9 @@ _FIELD_LABELS = {
     "outside_diameter_mm": "Outside Diameter (mm)",
     "tubing_strength_mpa": "Tubing Strength (MPa)",
     "tubing_linear_weight_kg_m": "Tubing Linear Weight (kg/m)",
+    "fluid_pumped_m3": "Fluid Pumped (m³)",
+    "proppant_pumped_t": "Proppant Pumped (t)",
+    "initial_flow_date": "Initial flow date (YYYY-MM-DD)",
 }
 
 

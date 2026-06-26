@@ -30,13 +30,14 @@ class PlainTextDelegate(QStyledItemDelegate):
 class ComboBoxDelegate(QStyledItemDelegate):
     """Delegate for combo box cells in the staged table"""
 
-    def __init__(self, parent=None, options=None):
+    def __init__(self, parent=None, options=None, editable=True):
         super().__init__(parent)
         self.options = options or []
+        self.editable = editable
 
     def createEditor(self, parent, option, index):
         combo = QComboBox(parent)
-        combo.setEditable(True)
+        combo.setEditable(self.editable)
         combo.setInsertPolicy(QComboBox.NoInsert)
         combo.addItems(self.options)
         combo.setMinimumHeight(28)
@@ -52,7 +53,7 @@ class ComboBoxDelegate(QStyledItemDelegate):
             idx = editor.findText(value)
             if idx >= 0:
                 editor.setCurrentIndex(idx)
-            else:
+            elif editor.isEditable():
                 editor.setEditText(value)
         if editor.lineEdit():
             QTimer.singleShot(0, lambda: editor.lineEdit().home(False))

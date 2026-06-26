@@ -28,8 +28,10 @@ from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
 from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialog
 
-ADDITIONAL_FIELDS_COL = 19
+BOUNDED_COL = 19
+ADDITIONAL_FIELDS_COL = 20
 ADDITIONAL_FIELDS_COL_WIDTH = 130
+BOUNDED_OPTIONS = ["", "Bounded", "Unbounded"]
 
 
 class WellMasterLoadWorker(QThread):
@@ -339,6 +341,7 @@ class WellMasterDialog(QDialog):
             110, 80,  100, 100,
             100, 100, 130, 70,
             90, 220, 70,
+            110,
             ADDITIONAL_FIELDS_COL_WIDTH,
         ]
         self.headers = [
@@ -361,6 +364,7 @@ class WellMasterDialog(QDialog):
             "On Prod Year",
             "Composite Name",
             "Exception",
+            "Bounded",
             "Additional Fields",
         ]
 
@@ -636,6 +640,10 @@ class WellMasterDialog(QDialog):
                 delegate = ComboBoxDelegate(self.table, options)
                 self.table.setItemDelegateForColumn(col, delegate)
 
+        self.table.setItemDelegateForColumn(
+            BOUNDED_COL, ComboBoxDelegate(self.table, BOUNDED_OPTIONS, editable=False)
+        )
+
         self.table.itemChanged.connect(self.on_current_item_changed)
 
     def _sync_additional_fields_column_width(self, table):
@@ -716,6 +724,7 @@ class WellMasterDialog(QDialog):
             on_production_year = self.table.item(row, 16).text() if self.table.item(row, 16) else ""
             composite_name = self.table.item(row, 17).text() if self.table.item(row, 17) else ""
             exception_val = self.table.item(row, 18).text() if self.table.item(row, 18) else ""
+            bounded_val = self.table.item(row, BOUNDED_COL).text() if self.table.item(row, BOUNDED_COL) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -726,6 +735,7 @@ class WellMasterDialog(QDialog):
             orient = orient if orient.strip() else None
             composite_name = composite_name if composite_name.strip() else None
             exception_val = exception_val.strip().upper() if exception_val.strip() else "N"
+            bounded_val = bounded_val.strip() if bounded_val.strip() else None
 
             lateral_length_val = None
             if lateral_length.strip():
@@ -789,6 +799,7 @@ class WellMasterDialog(QDialog):
                 'on_production_year': on_production_year_val,
                 'composite_name': composite_name,
                 'exception': exception_val,
+                'bounded': bounded_val,
             }
 
             updates.append(update_data)
@@ -984,6 +995,7 @@ class WellMasterDialog(QDialog):
                     str(well.get('on_production_year', '') or ''),
                     well.get('composite_name', ''),
                     well.get('exception', 'N'),
+                    well.get('bounded', ''),
                 ]
 
                 is_pending = WellMasterDB.is_pending(well)
@@ -1075,6 +1087,7 @@ class WellMasterDialog(QDialog):
             15,  # Orient
             16,  # On Prod Year
             18,  # Exception (Y/N)
+            BOUNDED_COL,  # Bounded / Unbounded
         ]
 
         for col in editable_columns:
@@ -1715,6 +1728,11 @@ class WellMasterDialog(QDialog):
                     col, ComboBoxDelegate(self.staged_table, options)
                 )
 
+        self.staged_table.setItemDelegateForColumn(
+            BOUNDED_COL,
+            ComboBoxDelegate(self.staged_table, BOUNDED_OPTIONS, editable=False),
+        )
+
         for row, well in enumerate(self.staged_wells):
             row_widgets = {'checkbox': None, 'entries': {}, 'dropdowns': {}}
 
@@ -1787,6 +1805,12 @@ class WellMasterDialog(QDialog):
             self.staged_table.setItem(row, 17, comp_item)
             row_widgets['composite'] = comp_item
 
+            bounded_item = QTableWidgetItem("")
+            bounded_item.setFlags(bounded_item.flags() | Qt.ItemIsEditable)
+            bounded_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignCenter)
+            self.staged_table.setItem(row, BOUNDED_COL, bounded_item)
+            row_widgets['entries']['bounded'] = bounded_item
+
             self.row_widgets.append(row_widgets)
 
         self.staged_info.setText(f"{len(self.staged_wells)} well(s) staged for completion")
@@ -1835,6 +1859,7 @@ class WellMasterDialog(QDialog):
             on_production_year = self.staged_table.item(row, 16).text() if self.staged_table.item(row, 16) else ""
             composite_name = self.staged_table.item(row, 17).text() if self.staged_table.item(row, 17) else ""
             exception_val = self.staged_table.item(row, 18).text() if self.staged_table.item(row, 18) else ""
+            bounded_val = self.staged_table.item(row, BOUNDED_COL).text() if self.staged_table.item(row, BOUNDED_COL) else ""
 
             formation = formation if formation.strip() else None
             layer = layer if layer.strip() else None
@@ -1845,6 +1870,7 @@ class WellMasterDialog(QDialog):
             orient = orient if orient.strip() else None
             composite_name = composite_name if composite_name.strip() else None
             exception_val = exception_val.strip().upper() if exception_val.strip() else "N"
+            bounded_val = bounded_val.strip() if bounded_val.strip() else None
 
             lateral_length_val = None
             if lateral_length.strip():
@@ -1908,6 +1934,7 @@ class WellMasterDialog(QDialog):
                 'on_production_year': on_production_year_val,
                 'composite_name': composite_name,
                 'exception': exception_val,
+                'bounded': bounded_val,
             }
 
             updates.append(update_data)
