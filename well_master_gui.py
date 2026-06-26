@@ -671,6 +671,8 @@ class WellMasterDialog(QDialog):
         if not self.is_row_checked(row):
             return
 
+        self.pending_current_edits.add(row)
+
         if col in [4, 5, 8, 15]:
             well_name = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
             layer = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
@@ -682,8 +684,6 @@ class WellMasterDialog(QDialog):
                 self.table.blockSignals(True)
                 self.table.item(row, 17).setText(composite)
                 self.table.blockSignals(False)
-
-                self.pending_current_edits.add(row)
 
     def save_selected(self):
         """Save changes to selected (checked) wells in Current Wells tab"""
