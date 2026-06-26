@@ -27,8 +27,8 @@ _NATIVE_CREATE_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
-    "bothole_lat",
-    "bothole_long",
+    "bothole_lat_toe",
+    "bothole_long_toe",
     "fluid_pumped",
     "prop_pumped",
     "uwi_api",
@@ -41,8 +41,8 @@ _NATIVE_PATCH_KEYS = (
     "l_w",
     "surf_lat",
     "surf_long",
-    "bothole_lat",
-    "bothole_long",
+    "bothole_lat_toe",
+    "bothole_long_toe",
     "fluid_pumped",
     "prop_pumped",
 )
@@ -110,7 +110,7 @@ ATTRIBUTE_OPTIONS: Tuple[AttributeOption, ...] = (
     AttributeOption(
         "bottomhole_location",
         "Bottomhole Location (lat/long)",
-        ("bothole_lat", "bothole_long"),
+        ("bothole_lat_toe", "bothole_long_toe"),
     ),
     AttributeOption("fluid_pumped", "Fluid Pumped", ("fluid_pumped",)),
     AttributeOption("prop_pumped", "Proppant Pumped", ("prop_pumped",)),
@@ -232,10 +232,10 @@ def _native_fields_from_metadata(
         out["surf_lat"] = metadata.surf_lat
     if wants("surf_long") and metadata.surf_long is not None:
         out["surf_long"] = metadata.surf_long
-    if wants("bothole_lat") and metadata.toe_lat is not None:
-        out["bothole_lat"] = metadata.toe_lat
-    if wants("bothole_long") and metadata.toe_long is not None:
-        out["bothole_long"] = metadata.toe_long
+    if wants("bothole_lat_toe") and metadata.toe_lat is not None:
+        out["bothole_lat_toe"] = metadata.toe_lat
+    if wants("bothole_long_toe") and metadata.toe_long is not None:
+        out["bothole_long_toe"] = metadata.toe_long
     if wants("fluid_pumped") and metadata.fluid_pumped is not None:
         out["fluid_pumped"] = metadata.fluid_pumped * factors.fluid_pumped_m3_to_bbl
     if wants("prop_pumped") and metadata.prop_pumped is not None:
