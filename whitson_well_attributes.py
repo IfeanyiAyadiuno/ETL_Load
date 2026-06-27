@@ -8,6 +8,7 @@ bottomhole toe lat/long, and UWI on create.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
@@ -31,6 +32,7 @@ _NATIVE_CREATE_KEYS = (
     "bothole_long_toe",
     "fluid_pumped",
     "prop_pumped",
+    "first_prod_date",
     "uwi_api",
 )
 
@@ -45,6 +47,7 @@ _NATIVE_PATCH_KEYS = (
     "bothole_long_toe",
     "fluid_pumped",
     "prop_pumped",
+    "first_prod_date",
 )
 
 _FETCH_WM_METADATA_SQL = """
@@ -59,6 +62,7 @@ SELECT TOP 1
     , COALESCE(wm.[Bottom Hole Longitude], wm.[Bottom Location Longitude (NAD83)]) AS ToeLong
     , wm.[Fluid Pumped (m³)] AS FluidPumped
     , wm.[Proppant Pumped (t)] AS PropPumped
+    , wm.[Initial flow date] AS InitialFlowDate
     , NULLIF(LTRIM(RTRIM(CAST(wm.[Value Navigator UWI] AS NVARCHAR(4000)))), N'') AS UwiApi
 FROM dbo.PCE_WM AS wm
 WHERE (
@@ -84,6 +88,7 @@ class WellMetadata:
     toe_long: Optional[float] = None
     fluid_pumped: Optional[float] = None
     prop_pumped: Optional[float] = None
+    first_prod_date: Optional[str] = None
     uwi_api: Optional[str] = None
 
 
@@ -114,6 +119,7 @@ ATTRIBUTE_OPTIONS: Tuple[AttributeOption, ...] = (
     ),
     AttributeOption("fluid_pumped", "Fluid Pumped", ("fluid_pumped",)),
     AttributeOption("prop_pumped", "Proppant Pumped", ("prop_pumped",)),
+    AttributeOption("first_prod_date", "First Production Date", ("first_prod_date",)),
 )
 
 
@@ -167,6 +173,28 @@ def _coerce_optional_str(value: Any) -> Optional[str]:
     return s if s and s.lower() != "nan" else None
 
 
+def _coerce_optional_date_iso(value: Any) -> Optional[str]:
+    """Return a 'YYYY-MM-DD' string for a date-like value, else None."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(value).strip()
+    if not s or s.lower() in ("-", "nan", "none", "n/a", "na"):
+        return None
+    parsed = pd.to_datetime(s, errors="coerce")
+    if parsed is None or pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
+
+
 def fetch_well_metadata_for_whitson(
     conn,
     production_well_name: str,
@@ -193,7 +221,8 @@ def fetch_well_metadata_for_whitson(
         toe_long=_coerce_optional_float(row[7]),
         fluid_pumped=_coerce_optional_float(row[8]),
         prop_pumped=_coerce_optional_float(row[9]),
-        uwi_api=_coerce_optional_str(row[10]),
+        first_prod_date=_coerce_optional_date_iso(row[10]),
+        uwi_api=_coerce_optional_str(row[11]),
     )
 
 
@@ -240,6 +269,8 @@ def _native_fields_from_metadata(
         out["fluid_pumped"] = metadata.fluid_pumped * factors.fluid_pumped_m3_to_bbl
     if wants("prop_pumped") and metadata.prop_pumped is not None:
         out["prop_pumped"] = metadata.prop_pumped * factors.prop_pumped_tonnes_to_lb
+    if wants("first_prod_date") and metadata.first_prod_date:
+        out["first_prod_date"] = metadata.first_prod_date
     if include_uwi and wants("uwi_api") and metadata.uwi_api:
         out["uwi_api"] = metadata.uwi_api
     return out
