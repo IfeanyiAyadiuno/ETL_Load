@@ -104,16 +104,113 @@ def detect_columns(columns: Iterable[Any]) -> Tuple[str, str]:
     return gas_col, date_col
 
 
-def read_excel_rows(path: Path, *, sheet: Optional[str | int] = None) -> pd.DataFrame:
-    df = pd.read_excel(
-        path, sheet_name=0 if sheet is None else sheet, header=0, dtype=object
-    )
+def _normalize_dataframe(df: pd.DataFrame, path: Path) -> pd.DataFrame:
     if df.empty:
-        raise ValueError(f"Excel file is empty: {path}")
+        raise ValueError(f"File has no data rows: {path}")
     gas_col, date_col = detect_columns(df.columns)
     out = df[[gas_col, date_col]].copy()
     out.columns = ["gas_idrec", "initial_flow_date"]
     return out
+
+
+def _read_csv_rows(path: Path) -> pd.DataFrame:
+    last_err: Optional[Exception] = None
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            df = pd.read_csv(path, header=0, dtype=object, encoding=encoding)
+            return _normalize_dataframe(df, path)
+        except Exception as exc:
+            last_err = exc
+    raise ValueError(f"Could not read CSV {path.name}: {last_err}")
+
+
+def _resolve_sheet_name(
+    sheet_names: List[str], sheet: Optional[str | int]
+) -> str | int:
+    if not sheet_names:
+        raise ValueError("Workbook contains no worksheets.")
+    if sheet is None:
+        return sheet_names[0]
+    if isinstance(sheet, int):
+        if sheet < 0 or sheet >= len(sheet_names):
+            raise ValueError(
+                f"Sheet index {sheet} out of range. Available sheets: {sheet_names}"
+            )
+        return sheet_names[sheet]
+    if sheet not in sheet_names:
+        raise ValueError(
+            f"Sheet {sheet!r} not found. Available sheets: {sheet_names}"
+        )
+    return sheet
+
+
+def _read_excel_with_engine(
+    path: Path, *, sheet: Optional[str | int], engine: Optional[str]
+) -> pd.DataFrame:
+    xl = pd.ExcelFile(path, engine=engine)
+    sheet_name = _resolve_sheet_name(xl.sheet_names, sheet)
+    df = pd.read_excel(
+        xl,
+        sheet_name=sheet_name,
+        header=0,
+        dtype=object,
+    )
+    return _normalize_dataframe(df, path)
+
+
+def read_excel_rows(path: Path, *, sheet: Optional[str | int] = None) -> pd.DataFrame:
+    ext = path.suffix.lower()
+    if ext == ".csv":
+        return _read_csv_rows(path)
+
+    engines: List[Optional[str]] = []
+    if ext in (".xls",):
+        engines.extend(["xlrd", "calamine", None])
+    elif ext in (".xlsb",):
+        engines.extend(["pyxlsb", "calamine", None])
+    else:
+        engines.extend([None, "openpyxl", "calamine", "xlrd"])
+
+    errors: List[str] = []
+    for engine in engines:
+        label = engine or "auto"
+        try:
+            return _read_excel_with_engine(path, sheet=sheet, engine=engine)
+        except ImportError as exc:
+            errors.append(f"{label}: missing optional engine ({exc})")
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+
+    # Some ".xlsx" files on network shares are actually CSV/text exports.
+    try:
+        return _read_csv_rows(path)
+    except Exception as exc:
+        errors.append(f"csv-fallback: {exc}")
+
+    detail = "\n  ".join(errors)
+    raise ValueError(
+        f"Could not read {path.name} ({path.stat().st_size:,} bytes).\n"
+        f"  {detail}\n\n"
+        "Try one of these:\n"
+        "  1. Open the file in Excel → Save As → .xlsx (new workbook)\n"
+        "  2. Save As → CSV, then run this script on the .csv file\n"
+        "  3. pip install python-calamine   (often fixes broken xlsx metadata)\n"
+        "  4. Pass --sheet \"SheetName\" if data is on a non-first tab"
+    )
+
+
+def list_workbook_sheets(path: Path) -> List[str]:
+    """Return sheet names using the first engine that can open the file."""
+    if path.suffix.lower() == ".csv":
+        return ["(csv — single table)"]
+    for engine in (None, "openpyxl", "calamine", "xlrd"):
+        try:
+            xl = pd.ExcelFile(path, engine=engine)
+            if xl.sheet_names:
+                return xl.sheet_names
+        except Exception:
+            continue
+    return []
 
 
 @dataclass
@@ -254,11 +351,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="Skip confirmation prompt before updating",
     )
+    parser.add_argument(
+        "--list-sheets",
+        action="store_true",
+        help="Print worksheet names and exit (for debugging read errors)",
+    )
     args = parser.parse_args(argv)
 
     path = args.excel_path.expanduser().resolve()
     if not path.is_file():
         print(f"File not found: {path}", file=sys.stderr)
+        return 1
+
+    if args.list_sheets:
+        names = list_workbook_sheets(path)
+        if names:
+            print(f"Sheets in {path.name}:")
+            for name in names:
+                print(f"  - {name}")
+            return 0
+        print(f"No sheets found in {path.name}", file=sys.stderr)
         return 1
 
     sheet: Optional[str | int] = args.sheet
