@@ -263,8 +263,12 @@ class WhitsonMassUploadDialog(QDialog):
             "Whitson+ project to create/find wells and upload production into."
         )
         project_row.addWidget(self.project_id_spin)
-        main_project_hint = QLabel("(main project is 2)")
+        main_project_hint = QLabel("Default project ID: 2")
         main_project_hint.setStyleSheet(muted_body_label_style())
+        main_project_hint.setToolTip(
+            "Standard Whitson+ production project. "
+            "Change only when targeting a different project."
+        )
         project_row.addWidget(main_project_hint)
         project_row.addStretch(1)
         project_group.layout().addLayout(project_row)
