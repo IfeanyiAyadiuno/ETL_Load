@@ -220,9 +220,12 @@ class ParsedRow:
     excel_row: int
 
 
-def parse_rows(df: pd.DataFrame) -> Tuple[List[ParsedRow], List[str]]:
+def parse_rows(
+    df: pd.DataFrame,
+) -> Tuple[List[ParsedRow], List[str], List[str]]:
+    """Return (valid rows, skipped-row warnings, fatal errors)."""
     parsed: List[ParsedRow] = []
-    errors: List[str] = []
+    skipped: List[str] = []
     seen: Counter[str] = Counter()
 
     for idx, row in df.iterrows():
@@ -231,28 +234,29 @@ def parse_rows(df: pd.DataFrame) -> Tuple[List[ParsedRow], List[str]]:
         flow_date = parse_initial_flow_date(row.get("initial_flow_date"))
 
         if not gas_key:
-            errors.append(f"Row {excel_row}: missing GasIDREC")
+            skipped.append(f"Row {excel_row}: missing Gas ID — skipped")
             continue
         if flow_date is None:
-            errors.append(
-                f"Row {excel_row} (GasIDREC {gas_key!r}): invalid or empty Initial flow date"
+            skipped.append(
+                f"Row {excel_row} (Gas ID {gas_key!r}): invalid or empty Initial flow date — skipped"
             )
             continue
 
         seen[gas_key] += 1
         parsed.append(ParsedRow(gas_key, flow_date, excel_row))
 
+    fatal: List[str] = []
     dupes = [k for k, n in seen.items() if n > 1]
     if dupes:
         sample = ", ".join(dupes[:5])
         more = f" (+{len(dupes) - 5} more)" if len(dupes) > 5 else ""
-        errors.append(
-            f"Duplicate GasIDREC in Excel ({len(dupes)}): {sample}{more}. "
+        fatal.append(
+            f"Duplicate Gas ID in file ({len(dupes)}): {sample}{more}. "
             "Resolve duplicates before running."
         )
-        return [], errors
+        return [], skipped, fatal
 
-    return parsed, errors
+    return parsed, skipped, fatal
 
 
 def load_wm_gas_index(conn) -> Dict[str, List[str]]:
@@ -383,14 +387,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Failed to read Excel: {exc}", file=sys.stderr)
         return 1
 
-    rows, parse_errors = parse_rows(df)
-    if parse_errors:
-        for msg in parse_errors:
+    rows, skipped, fatal = parse_rows(df)
+    if fatal:
+        for msg in fatal:
             print(msg, file=sys.stderr)
         return 1
 
+    if skipped:
+        print(f"Skipped {len(skipped)} row(s) with missing Gas ID or Initial flow date:")
+        for msg in skipped:
+            print(f"  {msg}")
+
     if not rows:
-        print("No valid rows to process.", file=sys.stderr)
+        print("No valid rows to process after skipping invalid rows.", file=sys.stderr)
         return 1
 
     print(f"Target: {sql_target_label()}")
