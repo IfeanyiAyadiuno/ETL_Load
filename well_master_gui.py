@@ -27,6 +27,15 @@ from styles import (
 from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
 from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialog
+from dialog_widgets import add_title_with_info
+
+_EXCEPTION_COLUMN_INFO = (
+    "The Exception column marks whether a well is active in the database loads.\n\n"
+    "N — Normal (default). The well is included in Prodview/ETL loads and daily production.\n\n"
+    "Y — Exception. When you save a well with Exception = Y, all related data is removed "
+    "from PCE_CDA, PCE_Production, Allocation_Factors, and PCE_Surveys. The PCE_WM row "
+    "is kept, but the well is treated as inactive and no longer appears in this list."
+)
 
 BOUNDED_COL = 19
 ADDITIONAL_FIELDS_COL = 20
@@ -391,10 +400,14 @@ class WellMasterDialog(QDialog):
         main_layout.setSpacing(10)
         main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # Header
-        header = QLabel("📋 Well Master List")
-        header.setStyleSheet(dialog_title_style())
-        main_layout.addWidget(header)
+        # Header (title left, Exception-column info on the right)
+        add_title_with_info(
+            main_layout,
+            "📋 Well Master List",
+            _EXCEPTION_COLUMN_INFO,
+            info_title="Exception column",
+            parent=self,
+        )
 
         # Tabs
         self.tabs = QTabWidget()
