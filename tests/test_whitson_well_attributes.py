@@ -4,6 +4,7 @@ import unittest
 import unittest.mock
 from unittest.mock import MagicMock
 
+from whitson_imperial_units import WhitsonImperialFactors
 from whitson_well_attributes import (
     WellMetadata,
     _FETCH_WM_METADATA_SQL,
@@ -11,6 +12,19 @@ from whitson_well_attributes import (
     build_whitson_well_patch_payload,
     fetch_well_metadata_for_whitson,
     sync_whitson_well_attributes,
+)
+
+# Identity conversions so tests assert raw values, independent of the shipped INI.
+_IDENTITY_FACTORS = WhitsonImperialFactors(
+    gas_e3m3_to_mcf=1.0,
+    cond_m3_to_bbl=1.0,
+    water_m3_to_bbl=1.0,
+    tubing_kpa_to_psi=1.0,
+    casing_kpa_to_psi=1.0,
+    choke_multiplier=1.0,
+    fluid_pumped_m3_to_bbl=1.0,
+    prop_pumped_tonnes_to_lb=1.0,
+    lateral_length_m_to_ft=1.0,
 )
 
 
@@ -34,14 +48,23 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
     def test_null_pad_name_omitted_from_create_and_patch(self):
         meta = WellMetadata(formation="Doe Creek", l_w=2500.0)
         create = build_whitson_well_create_payload(
-            meta, project_id=5, name="WELL-1", uwi_api="UWI-1"
+            meta, project_id=5, name="WELL-1", uwi_api="UWI-1",
+            factors=_IDENTITY_FACTORS,
         )
         self.assertNotIn("pad_name", create)
         self.assertEqual(create["l_w"], 2500.0)
 
-        patch = build_whitson_well_patch_payload(9, meta)
+        patch = build_whitson_well_patch_payload(9, meta, _IDENTITY_FACTORS)
         self.assertNotIn("pad_name", patch)
         self.assertEqual(patch["l_w"], 2500.0)
+
+    def test_lateral_length_converted_metres_to_feet(self):
+        meta = WellMetadata(l_w=1000.0)
+        create = build_whitson_well_create_payload(
+            meta, project_id=1, name="WELL-L", uwi_api=None
+        )
+        # Shipped factor is 3.28084 m -> ft.
+        self.assertAlmostEqual(create["l_w"], 1000.0 * 3.28084, places=3)
 
     def test_surface_coordinates_on_create(self):
         meta = WellMetadata(surf_lat=55.123, surf_long=-120.456, pad_name="PAD-9")
@@ -62,13 +85,13 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
         create = build_whitson_well_create_payload(
             meta, project_id=1, name="WELL-TOE", uwi_api="UWI-1"
         )
-        self.assertAlmostEqual(create["bothole_lat"], 55.09)
-        self.assertAlmostEqual(create["bothole_long"], -120.11)
+        self.assertAlmostEqual(create["bothole_lat_toe"], 55.09)
+        self.assertAlmostEqual(create["bothole_long_toe"], -120.11)
 
         patch = build_whitson_well_patch_payload(7, meta)
         self.assertEqual(patch["id"], 7)
-        self.assertAlmostEqual(patch["bothole_lat"], 55.09)
-        self.assertAlmostEqual(patch["bothole_long"], -120.11)
+        self.assertAlmostEqual(patch["bothole_lat_toe"], 55.09)
+        self.assertAlmostEqual(patch["bothole_long_toe"], -120.11)
 
     def test_fetch_sql_prefers_new_coordinate_columns(self):
         self.assertIn(
@@ -92,6 +115,9 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
             -120.5,
             55.4,
             -120.6,
+            1500.0,
+            450.0,
+            "2024-01-15",
             "100/01-01-001-01W6/0",
         )
         meta = fetch_well_metadata_for_whitson(conn, "WELL-1")
@@ -99,6 +125,10 @@ class TestWhitsonWellAttributePayloads(unittest.TestCase):
         self.assertAlmostEqual(meta.surf_long, -120.5)
         self.assertAlmostEqual(meta.toe_lat, 55.4)
         self.assertAlmostEqual(meta.toe_long, -120.6)
+        self.assertAlmostEqual(meta.fluid_pumped, 1500.0)
+        self.assertAlmostEqual(meta.prop_pumped, 450.0)
+        self.assertEqual(meta.first_prod_date, "2024-01-15")
+        self.assertEqual(meta.uwi_api, "100/01-01-001-01W6/0")
 
 
 class TestSyncWhitsonWellAttributes(unittest.TestCase):
@@ -119,8 +149,8 @@ class TestSyncWhitsonWellAttributes(unittest.TestCase):
         self.assertEqual(patch_arg[0]["id"], 100)
         self.assertEqual(patch_arg[0]["pad_name"], "PAD-A")
         self.assertEqual(patch_arg[0]["sub_field"], "Block 1")
-        self.assertAlmostEqual(patch_arg[0]["bothole_lat"], 55.2)
-        self.assertAlmostEqual(patch_arg[0]["bothole_long"], -120.3)
+        self.assertAlmostEqual(patch_arg[0]["bothole_lat_toe"], 55.2)
+        self.assertAlmostEqual(patch_arg[0]["bothole_long_toe"], -120.3)
         whitson.edit_custom_attribute_bulk.assert_not_called()
 
     def test_sync_skips_patch_when_no_native_fields(self):

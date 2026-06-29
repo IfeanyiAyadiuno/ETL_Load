@@ -35,10 +35,15 @@ from styles import (
 )
 
 _WHITSON_INFO = (
-    "Uploads all daily production from PCE_Production to Whitson+. "
-    "New wells are created automatically; existing wells receive new "
-    "data only (append). Well name = production [Well Name]; UWI from "
-    "PCE_WM. API credentials: settings.ini [WHITSON] or scripts/whitson_upload.py. "
+    "Two actions:\n"
+    "• Push Production — uploads all daily production from PCE_Production. "
+    "New wells are created automatically and all attributes are synced; "
+    "existing wells receive new data only (append).\n"
+    "• Push Attributes — updates only the selected well attributes on wells "
+    "that already exist in Whitson+ (no wells are created, no production is "
+    "uploaded).\n"
+    "Well name = production [Well Name]; UWI from PCE_WM. "
+    "API credentials: settings.ini [WHITSON]. "
     "Imperial conversion uses whitson_imperial.ini."
 )
 from whitson_imperial_units import (

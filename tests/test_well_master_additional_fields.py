@@ -45,8 +45,8 @@ class TestAdditionalFieldCoercion(unittest.TestCase):
 
 
 class TestAdditionalFieldColumnMap(unittest.TestCase):
-    def test_nineteen_columns_defined(self):
-        self.assertEqual(len(ADDITIONAL_FIELD_COLUMNS), 19)
+    def test_columns_defined(self):
+        self.assertEqual(len(ADDITIONAL_FIELD_COLUMNS), 22)
 
     def test_excel_header_aliases_cover_wm_keys(self):
         wm_keys = {key for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
