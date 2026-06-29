@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QComboBox,
     QPushButton,
     QScrollArea,
     QWidget,
@@ -79,7 +80,7 @@ class WellMasterAdditionalFieldsDialog(QDialog):
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(10)
 
-        for i, (key, _sql, _typ) in enumerate(ADDITIONAL_FIELD_COLUMNS):
+        for i, (key, _sql, _typ) in enumerate(WellMasterDB.all_additional_field_columns()):
             label = QLabel(_FIELD_LABELS.get(key, key))
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             edit = QLineEdit()
@@ -116,4 +117,75 @@ class WellMasterAdditionalFieldsDialog(QDialog):
             QMessageBox.critical(self, "Save failed", err or "Unknown error")
             return
         QMessageBox.information(self, "Saved", f"Additional fields saved for {self.well_name}.")
+        self.accept()
+
+
+class AddCustomColumnDialog(QDialog):
+    """Collect a new custom column's name and type to add to PCE_WM."""
+
+    # Display label -> field_type key understood by WellMasterDB.add_custom_field
+    _TYPE_CHOICES = (
+        ("Text", "text"),
+        ("Number (decimal)", "float"),
+        ("Whole number", "int"),
+        ("Date", "date"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.column_name = None
+        self.field_type = None
+        self.setWindowTitle("Add Column to Well Master")
+        self.setModal(True)
+        self.setMinimumWidth(460)
+        self.setStyleSheet(DIALOG_BASE)
+        configure_dialog_window_mode(self)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(18, 18, 18, 18)
+
+        add_title_with_info(
+            layout,
+            "Add a new column",
+            "Creates the column directly on the PCE_WM table and adds it to the "
+            "Additional Fields dialog for every well. Existing wells get an empty "
+            "value until you fill it in.",
+        )
+
+        form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g. Frac Stages")
+        form.addRow(QLabel("Column name:"), self.name_edit)
+
+        self.type_combo = QComboBox()
+        for label, _key in self._TYPE_CHOICES:
+            self.type_combo.addItem(label)
+        form.addRow(QLabel("Type:"), self.type_combo)
+        layout.addLayout(form)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet(btn_neutral())
+        cancel_btn.clicked.connect(self.reject)
+        add_btn = QPushButton("Add Column")
+        add_btn.setStyleSheet(btn_primary())
+        add_btn.clicked.connect(self._accept_if_valid)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(add_btn)
+        layout.addLayout(btn_row)
+
+    def _accept_if_valid(self):
+        clean, err = WellMasterDB.validate_custom_field_name(self.name_edit.text())
+        if err:
+            QMessageBox.warning(self, "Invalid column name", err)
+            return
+        self.column_name = clean
+        self.field_type = self._TYPE_CHOICES[self.type_combo.currentIndex()][1]
         self.accept()

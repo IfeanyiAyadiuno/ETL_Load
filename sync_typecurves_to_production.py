@@ -27,52 +27,59 @@ _INSERT_SQL = build_production_insert_sql(
     extra_columns=PCE_PRODUCTION_TC_EXTRA_COLUMNS,
 )
 
-_TC_SELECT_LEGACY = """
-SELECT
-    [Well Name], [ImportDate],
-    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
-    [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
-    [Cum Gas (e³m³)], [Cum Condy (m³)],
-    [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
-    [Layer Producer], [Pad Name], [SourceFileName],
-    [Formation Producer], [Fault Block], [Remarks],
-    [Lateral Length], [On Production Year], [Orientation]
-FROM dbo.PCE_TC
-"""
+# Always-present PCE_TC columns read by the materializer.
+_TC_BASE_COLUMNS = (
+    "Well Name", "ImportDate",
+    "Gas S2 Production (10³m³)", "Gas Sales Production (10³m³)",
+    "Condensate Sales (m³/d)", "Sales CGR (m³/e³m³)", "CGR (m³/e³m³)",
+    "Gas WH Production (e³m³/d)", "Condensate WH (m³/d)",
+    "Cum Gas (e³m³)", "Cum Condy (m³)",
+    "Gas WH Cumulative Production (10³m³)", "Condensate WH Cumulative Production (m³)",
+    "Layer Producer", "Pad Name", "SourceFileName",
+    "Formation Producer", "Fault Block", "Remarks",
+    "Lateral Length", "On Production Year", "Orientation",
+)
 
-_TC_SELECT = """
-SELECT
-    [Well Name], [ImportDate],
-    [Gas S2 Production (10³m³)], [Gas Sales Production (10³m³)],
-    [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
-    [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
-    [Gathered Gas (e³m³/d)], [Gas Gathered Cumulative (e³m³)],
-    [Cum Gas (e³m³)], [Cum Condy (m³)],
-    [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
-    [Layer Producer], [Pad Name], [SourceFileName],
-    [Formation Producer], [Fault Block], [Remarks],
-    [Lateral Length], [On Production Year], [Orientation]
-FROM dbo.PCE_TC
-"""
+# Gathered columns added by later migrations; read only when present, else NaN.
+_TC_OPTIONAL_GATHERED_COLUMNS = (
+    "Gathered Gas (e³m³/d)",
+    "Gas Gathered Cumulative (e³m³)",
+    "Gathered Condensate (m³/d)",
+    "Condensate Gathered Cumulative (m³)",
+)
 
 
-def _pce_tc_has_gathered_columns(cursor) -> bool:
-    cursor.execute("SELECT COL_LENGTH('dbo.PCE_TC', 'Gathered Gas (e³m³/d)')")
+def _pce_tc_column_exists(cursor, column_name: str) -> bool:
+    cursor.execute("SELECT COL_LENGTH('dbo.PCE_TC', ?)", column_name)
     row = cursor.fetchone()
     return row is not None and row[0] is not None
 
 
+def _pce_tc_has_gathered_columns(cursor) -> bool:
+    return _pce_tc_column_exists(cursor, "Gathered Gas (e³m³/d)")
+
+
+def _pce_tc_has_gathered_condensate_columns(cursor) -> bool:
+    return _pce_tc_column_exists(cursor, "Gathered Condensate (m³/d)")
+
+
 def _read_pce_tc_dataframe(conn) -> pd.DataFrame:
-    """Load PCE_TC; tolerate DBs that have not run gathered-gas migration yet."""
+    """Load PCE_TC; tolerate DBs that have not run gathered-column migrations yet."""
     cur = conn.cursor()
-    if _pce_tc_has_gathered_columns(cur):
-        df = pd.read_sql(_TC_SELECT, conn)
-    else:
-        df = pd.read_sql(_TC_SELECT_LEGACY, conn)
-        if not df.empty:
-            df["Gathered Gas (e³m³/d)"] = np.nan
-            df["Gas Gathered Cumulative (e³m³)"] = np.nan
+    present_optional = [
+        c for c in _TC_OPTIONAL_GATHERED_COLUMNS if _pce_tc_column_exists(cur, c)
+    ]
+    select_cols = list(_TC_BASE_COLUMNS) + present_optional
+    select_sql = (
+        "SELECT\n    "
+        + ", ".join(f"[{c}]" for c in select_cols)
+        + "\nFROM dbo.PCE_TC"
+    )
+    df = pd.read_sql(select_sql, conn)
+    if not df.empty:
+        for c in _TC_OPTIONAL_GATHERED_COLUMNS:
+            if c not in df.columns:
+                df[c] = np.nan
     return df
 
 
@@ -140,6 +147,13 @@ def _tc_row_to_production_tuple(
     gathered_cum = _num(row.get("Gas Gathered Cumulative (e³m³)"))
     if gathered_cum is None:
         gathered_cum = cum_gas_wh
+    # Gathered condensate mirrors gathered gas; cumulative mirrors condensate WH cumulative.
+    gathered_cond = _num(row.get("Gathered Condensate (m³/d)"))
+    if gathered_cond is None:
+        gathered_cond = gathered_gas
+    gathered_cond_cum = _num(row.get("Condensate Gathered Cumulative (m³)"))
+    if gathered_cond_cum is None:
+        gathered_cond_cum = cum_cond_wh
     layer = row.get("Layer Producer")
     pad = row.get("Pad Name")
     formation = row.get("Formation Producer")
@@ -180,7 +194,7 @@ def _tc_row_to_production_tuple(
         gas_sales,
         cond_sales,
         gathered_gas,
-        None,
+        gathered_cond,
         None,
         sales_cgr,
         cgr_tc,
@@ -196,7 +210,7 @@ def _tc_row_to_production_tuple(
         cum_condy,
         cum_cond_wh,
         gathered_cum,
-        None,
+        gathered_cond_cum,
         None,
         formation_s,
         layer_s,
@@ -243,6 +257,7 @@ def sync_tc_to_production(
 
         cursor = conn.cursor()
         has_gathered = _pce_tc_has_gathered_columns(cursor)
+        has_gathered_cond = _pce_tc_has_gathered_condensate_columns(cursor)
         # Backfill dbo.PCE_TC.[Pad Name] when legacy rows lack the PCE-TC- prefix (same rules as import).
         pad_fixes: List[Tuple] = []
         for _, row in df.iterrows():
@@ -279,6 +294,19 @@ def sync_tc_to_production(
                     [Gas Gathered Cumulative (e³m³)] = [Gas WH Cumulative Production (10³m³)]
                 WHERE [Gathered Gas (e³m³/d)] IS NULL
                    OR [Gas Gathered Cumulative (e³m³)] IS NULL
+                """
+            )
+            if cursor.rowcount:
+                conn.commit()
+                df = _read_pce_tc_dataframe(conn)
+        if has_gathered and has_gathered_cond:
+            cursor.execute(
+                """
+                UPDATE dbo.PCE_TC
+                SET [Gathered Condensate (m³/d)] = [Gathered Gas (e³m³/d)],
+                    [Condensate Gathered Cumulative (m³)] = [Condensate WH Cumulative Production (m³)]
+                WHERE [Gathered Condensate (m³/d)] IS NULL
+                   OR [Condensate Gathered Cumulative (m³)] IS NULL
                 """
             )
             if cursor.rowcount:

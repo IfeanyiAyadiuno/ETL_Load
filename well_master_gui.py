@@ -26,7 +26,10 @@ from styles import (
 )
 from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
-from well_master_additional_fields_dialog import WellMasterAdditionalFieldsDialog
+from well_master_additional_fields_dialog import (
+    WellMasterAdditionalFieldsDialog,
+    AddCustomColumnDialog,
+)
 from dialog_widgets import add_title_with_info
 
 _EXCEPTION_COLUMN_INFO = (
@@ -526,6 +529,13 @@ class WellMasterDialog(QDialog):
         self.import_btn.setToolTip("Query Snowflake for new wells")
         self.import_btn.clicked.connect(self.import_new_wells)
 
+        self.add_column_btn = QPushButton("➕  Add Column")
+        self.add_column_btn.setStyleSheet(btn_toolbar(_NEUTRAL))
+        self.add_column_btn.setToolTip(
+            "Create a new column on PCE_WM and show it in the Additional Fields dialog"
+        )
+        self.add_column_btn.clicked.connect(self.add_column)
+
         # Danger
         self.remove_well_btn = QPushButton("🗑  Remove")
         self.remove_well_btn.setStyleSheet(btn_toolbar(_DANGER))
@@ -541,6 +551,7 @@ class WellMasterDialog(QDialog):
         toolbar.addWidget(self.refresh_btn)
         toolbar.addWidget(self.export_btn)
         toolbar.addWidget(self.import_btn)
+        toolbar.addWidget(self.add_column_btn)
         toolbar.addStretch()
         toolbar.addWidget(_sep())
         toolbar.addWidget(self.remove_well_btn)
@@ -1257,6 +1268,28 @@ class WellMasterDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Error exporting data:\n{str(e)}")
+
+    def add_column(self):
+        """Add a new custom column to PCE_WM and surface it in Additional Fields."""
+        dlg = AddCustomColumnDialog(parent=self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        ok, err = WellMasterDB.add_custom_field(dlg.column_name, dlg.field_type)
+        if not ok:
+            QMessageBox.critical(
+                self, "Add Column Failed", err or "Unknown error"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Column Added",
+            f"Added column '{dlg.column_name}' to PCE_WM.\n\n"
+            "It is now available in the Additional Fields (Fields…) dialog for each well.",
+        )
+        self.load_data()
+        self.status_label.setText(f"Added column '{dlg.column_name}'")
 
     def import_new_wells(self):
         """Import new wells from Snowflake (Daily + Tester query)."""

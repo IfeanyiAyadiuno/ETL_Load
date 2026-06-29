@@ -36,6 +36,8 @@ def _base_row(**overrides) -> pd.Series:
         "Condensate WH Cumulative Production (m³)": 50.0,
         "Gathered Gas (e³m³/d)": 10.0,
         "Gas Gathered Cumulative (e³m³)": 1000.0,
+        "Gathered Condensate (m³/d)": 10.0,
+        "Condensate Gathered Cumulative (m³)": 50.0,
         "Layer Producer": "Montney",
         "Pad Name": "PCE-TC-7-01",
         "Formation Producer": "Montney",
@@ -54,6 +56,24 @@ def test_tc_row_populates_gathered_from_tc_columns():
     assert tup is not None
     assert tup[_col_index("Gathered Gas (e³m³/d)")] == 10.0
     assert tup[_col_index("Gas Gathered Cumulative (e³m³)")] == 1000.0
+    assert tup[_col_index("Gathered Condensate (m³/d)")] == 10.0
+    assert tup[_col_index("Condensate Gathered Cumulative (m³)")] == 50.0
+
+
+def test_tc_row_gathered_condensate_falls_back_to_gathered_gas_and_cond_wh_cum():
+    """When condensate gathered columns are null, mirror gathered gas / condensate WH cum."""
+    row = _base_row(
+        **{
+            "Gathered Condensate (m³/d)": None,
+            "Condensate Gathered Cumulative (m³)": None,
+            "Gathered Gas (e³m³/d)": 11.0,
+            "Condensate WH Cumulative Production (m³)": 77.0,
+        }
+    )
+    tup = _tc_row_to_production_tuple(row)
+    assert tup is not None
+    assert tup[_col_index("Gathered Condensate (m³/d)")] == 11.0
+    assert tup[_col_index("Condensate Gathered Cumulative (m³)")] == 77.0
 
 
 def test_tc_row_falls_back_to_wh_when_gathered_columns_null():

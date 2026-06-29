@@ -40,12 +40,13 @@ INSERT INTO dbo.PCE_TC (
     [Condensate Sales (m³/d)], [Sales CGR (m³/e³m³)], [CGR (m³/e³m³)],
     [Gas WH Production (e³m³/d)], [Condensate WH (m³/d)],
     [Gathered Gas (e³m³/d)], [Gas Gathered Cumulative (e³m³)],
+    [Gathered Condensate (m³/d)], [Condensate Gathered Cumulative (m³)],
     [Cum Gas (e³m³)], [Cum Condy (m³)],
     [Gas WH Cumulative Production (10³m³)], [Condensate WH Cumulative Production (m³)],
     [Layer Producer], [Pad Name], [SourceFileName],
     [Formation Producer], [Fault Block], [Remarks],
     [Lateral Length], [On Production Year], [Orientation]
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -805,6 +806,9 @@ def append_typecurves_from_excel(
 
         gathered_gas_e3 = gas_wh_e3
         gathered_gas_cum = cum_gas_e3
+        # Duplicate gathered gas / condensate WH cumulative into the condensate gathered columns.
+        gathered_cond_m3 = gathered_gas_e3
+        gathered_cond_cum = cum_cond_m3
 
         rows_out.append(
             (
@@ -819,6 +823,8 @@ def append_typecurves_from_excel(
                 cond_wh_m3,
                 gathered_gas_e3,
                 gathered_gas_cum,
+                gathered_cond_m3,
+                gathered_cond_cum,
                 cum_gas_e3,
                 cum_cond_m3,
                 cum_gas_e3,
@@ -1061,6 +1067,9 @@ def ye2_append_rows_to_pce_tc(
 
         gathered_gas_e3 = gas_wh_e3
         gathered_gas_cum = cum_gas_e3
+        # Duplicate gathered gas / condensate WH cumulative into the condensate gathered columns.
+        gathered_cond_m3 = gathered_gas_e3
+        gathered_cond_cum = cum_cond_m3
 
         rows_out.append(
             (
@@ -1075,6 +1084,8 @@ def ye2_append_rows_to_pce_tc(
                 cond_wh_m3,
                 gathered_gas_e3,
                 gathered_gas_cum,
+                gathered_cond_m3,
+                gathered_cond_cum,
                 cum_gas_e3,
                 cum_cond_m3,
                 cum_gas_e3,

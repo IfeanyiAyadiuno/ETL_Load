@@ -34,6 +34,53 @@ _ADDITIONAL_FIELD_SQL_LIST = ", ".join(
     f"[{sql_name}]" for _key, sql_name, _typ in ADDITIONAL_FIELD_COLUMNS
 )
 
+# Main-grid / core PCE_WM columns that must never appear in the Additional Fields
+# dialog. Everything else on the table that is not a built-in additional field is
+# auto-discovered as a custom additional field.
+_CORE_PCE_WM_COLUMNS = frozenset(
+    {
+        "Well Name",
+        "GasIDREC",
+        "PressuresIDREC",
+        "Formation Producer",
+        "Layer Producer",
+        "Fault Block",
+        "Pad Name",
+        "Completions Technology",
+        "Lateral Length",
+        "Value Navigator UWI",
+        "Orient",
+        "On Production Year",
+        "Composite Name",
+        "Horizontal Distance Right",
+        "Horizontal Distance Left",
+        "Vertical Distance Above",
+        "Vertical Distance Below",
+        "Exception",
+        "Bounded",
+    }
+)
+
+# User-selectable custom column types -> (SQL type for ALTER TABLE, coercion type)
+CUSTOM_FIELD_TYPES = {
+    "text": ("NVARCHAR(255)", "text"),
+    "float": ("FLOAT", "float"),
+    "int": ("INT", "int"),
+    "date": ("DATE", "date"),
+}
+
+
+def _coercion_type_from_sql(data_type) -> str:
+    """Map a SQL Server DATA_TYPE to one of: float / int / date / text."""
+    dt = (data_type or "").strip().lower()
+    if dt in ("float", "real", "decimal", "numeric", "money", "smallmoney"):
+        return "float"
+    if dt in ("int", "bigint", "smallint", "tinyint"):
+        return "int"
+    if dt in ("date", "datetime", "datetime2", "smalldatetime", "datetimeoffset"):
+        return "date"
+    return "text"
+
 
 class WellMasterDB:
     """Handles all database operations for Well Master List"""
@@ -539,16 +586,18 @@ WHERE
         """Load additional-field columns for one PCE_WM row keyed by [Well Name]."""
         from db_connection import sql_connection
 
+        columns = WellMasterDB.all_additional_field_columns()
         wn = WellMasterDB.sanitize_text_field(well_name)
         if not wn:
-            return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+            return {key: "" for key, _sql, _typ in columns}
 
         try:
+            select_list = ", ".join(f"[{sql_name}]" for _key, sql_name, _typ in columns)
             with sql_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     f"""
-                SELECT {_ADDITIONAL_FIELD_SQL_LIST}
+                SELECT {select_list}
                 FROM PCE_WM
                 WHERE [Well Name] = ?
                 """,
@@ -556,15 +605,15 @@ WHERE
                 )
                 row = cursor.fetchone()
             if not row:
-                return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+                return {key: "" for key, _sql, _typ in columns}
 
             out = {}
-            for i, (key, _sql, typ) in enumerate(ADDITIONAL_FIELD_COLUMNS):
+            for i, (key, _sql, typ) in enumerate(columns):
                 out[key] = WellMasterDB._format_additional_value_for_ui(row[i], typ)
             return out
         except Exception as e:
             print(lf.error(f"Error loading additional fields: {e}"))
-            return {key: "" for key, _sql, _typ in ADDITIONAL_FIELD_COLUMNS}
+            return {key: "" for key, _sql, _typ in columns}
 
     @staticmethod
     def save_additional_fields(well_name, fields_dict):
@@ -577,7 +626,7 @@ WHERE
 
         set_parts = []
         params = []
-        for key, sql_name, typ in ADDITIONAL_FIELD_COLUMNS:
+        for key, sql_name, typ in WellMasterDB.all_additional_field_columns():
             if key not in fields_dict:
                 continue
             raw = fields_dict[key]
@@ -616,6 +665,122 @@ WHERE
         except Exception as e:
             if conn:
                 conn.rollback()
+            return False, str(e)
+        finally:
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def get_custom_field_columns():
+        """Auto-discover custom additional-field columns from the PCE_WM schema.
+
+        Returns a list of (key, sql_name, coercion_type) for every PCE_WM column
+        that is neither a core/main-grid column nor a built-in additional field.
+        The python key for a custom field is its SQL column name.
+        """
+        from db_connection import sql_connection
+
+        builtin_sql_names = {sql_name for _key, sql_name, _typ in ADDITIONAL_FIELD_COLUMNS}
+        try:
+            with sql_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT COLUMN_NAME, DATA_TYPE
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'PCE_WM'
+                    ORDER BY ORDINAL_POSITION
+                    """
+                )
+                rows = cursor.fetchall()
+            extras = []
+            for col_name, data_type in rows:
+                name = (col_name or "").strip()
+                if not name:
+                    continue
+                if name in _CORE_PCE_WM_COLUMNS or name in builtin_sql_names:
+                    continue
+                extras.append((name, name, _coercion_type_from_sql(data_type)))
+            return extras
+        except Exception as e:
+            print(lf.error(f"Error discovering custom fields: {e}"))
+            return []
+
+    @staticmethod
+    def all_additional_field_columns():
+        """Built-in additional fields followed by auto-discovered custom columns."""
+        columns = list(ADDITIONAL_FIELD_COLUMNS)
+        seen = {sql_name for _key, sql_name, _typ in columns}
+        for key, sql_name, typ in WellMasterDB.get_custom_field_columns():
+            if sql_name in seen:
+                continue
+            seen.add(sql_name)
+            columns.append((key, sql_name, typ))
+        return columns
+
+    @staticmethod
+    def validate_custom_field_name(name):
+        """Return (clean_name, error). Clean name is safe to use as a SQL identifier."""
+        import re
+
+        clean = (name or "").strip()
+        if not clean:
+            return None, "Column name cannot be empty."
+        if len(clean) > 100:
+            return None, "Column name must be 100 characters or fewer."
+        if not re.match(r"^[A-Za-z]", clean):
+            return None, "Column name must start with a letter."
+        # Brackets break bracket-quoted identifiers; disallow other risky characters.
+        if not re.match(r"^[A-Za-z0-9 _()/%³.\-]+$", clean):
+            return None, (
+                "Column name may only contain letters, numbers, spaces, and "
+                "_ ( ) / % . - characters."
+            )
+        return clean, None
+
+    @staticmethod
+    def add_custom_field(name, field_type):
+        """Create a new column on PCE_WM via ALTER TABLE. Returns (ok, error)."""
+        from db_connection import get_sql_conn
+
+        clean, err = WellMasterDB.validate_custom_field_name(name)
+        if err:
+            return False, err
+
+        type_entry = CUSTOM_FIELD_TYPES.get(field_type)
+        if not type_entry:
+            return False, f"Unsupported field type: {field_type!r}"
+        sql_type, _coercion = type_entry
+
+        if clean in _CORE_PCE_WM_COLUMNS:
+            return False, f"'{clean}' is a core Well Master column."
+        if clean in {sql_name for _key, sql_name, _typ in ADDITIONAL_FIELD_COLUMNS}:
+            return False, f"'{clean}' is already a built-in additional field."
+
+        conn = None
+        try:
+            conn = get_sql_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT 1
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'PCE_WM' AND COLUMN_NAME = ?
+                """,
+                clean,
+            )
+            if cursor.fetchone():
+                return False, f"Column '{clean}' already exists in PCE_WM."
+
+            cursor.execute(f"ALTER TABLE PCE_WM ADD [{clean}] {sql_type} NULL")
+            conn.commit()
+            return True, None
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             return False, str(e)
         finally:
             if conn:

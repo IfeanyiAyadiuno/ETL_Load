@@ -217,7 +217,7 @@ class TypeCurvesImportDialog(QDialog):
         al.addWidget(self.append_list)
 
         ab = QHBoxLayout()
-        self.scan_append_btn = QPushButton("Load from file")
+        self.scan_append_btn = QPushButton("Load from DB")
         self.scan_append_btn.setStyleSheet(btn_neutral())
         self.scan_append_btn.clicked.connect(self.scan_append_wells)
         ab.addWidget(self.scan_append_btn)
