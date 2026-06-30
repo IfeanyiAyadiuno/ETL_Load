@@ -840,7 +840,6 @@ def run_quick_update(
             apply_gathered_prd_month_labels,
             apply_uwi_from_well_master,
             fetch_cda_data,
-            fetch_well_mapping,
             fetch_well_master_lookups,
             apply_well_names,
             filter_to_first_production,
@@ -849,8 +848,6 @@ def run_quick_update(
             query_wells_with_cda_in_range,
             rebuild_all_production_sequences_from_scratch,
             stamp_production_sequence_placeholders,
-            sync_production_wm_metadata_from_wm_sql,
-            sync_wm_uwi_to_downstream_sql,
             _refresh_cda_sales_from_allocation_factors,
         )
 
@@ -904,6 +901,7 @@ def run_quick_update(
             cancel_event=cancel_event,
             update_production=False,
             date_window=(cda_load_start, end_last),
+            conn=conn,
         ):
             return cancelled_summary()
         timer.mark("PCE_CDA sales refresh from Allocation_Factors")

@@ -51,6 +51,24 @@ DEFAULT_GAS_HURDLE_MULTIPLIER = 5
 DEFAULT_GAS_ROLLING_MONTHS = 3
 
 
+def _month_start_n_months_before(month_start: date, months: int) -> date:
+    """First day of the calendar month *months* before *month_start* (day ignored)."""
+    y, m = month_start.year, month_start.month - months
+    while m <= 0:
+        m += 12
+        y -= 1
+    return date(y, m, 1)
+
+
+def _ngl_month_overlaps_window(
+    month_start: date,
+    range_start: date,
+    range_end: date,
+) -> bool:
+    first, last, _ = calendar_month_bounds(month_start)
+    return first <= range_end and last >= range_start
+
+
 def _format_elapsed(seconds: float) -> str:
     total = max(0, int(seconds))
     minutes, secs = divmod(total, 60)
@@ -699,10 +717,15 @@ def run_ngl_bulk_from_allocation_factors(
     *,
     log: Optional[Callable[[str], None]] = None,
     cancel_event=None,
+    date_window: Optional[Tuple[date, date]] = None,
 ) -> NglMonthlySummary:
     """
-    Compute and apply NGL ratios for every AF month in one production load +
+    Compute and apply NGL ratios for AF months in one production load +
     one staging UPDATE … JOIN (replaces per-month loops on full rebuild).
+
+    When ``date_window`` is set, only months overlapping that inclusive range are
+    processed (routine update). Production is loaded from a few months before the
+    window so rolling gathered-gas averages remain correct.
     """
     def _log(msg: str) -> None:
         if log:
@@ -718,6 +741,24 @@ def run_ngl_bulk_from_allocation_factors(
         summary.skip_reason = "No NGL volumes in Allocation_Factors."
         _log(f"NGL update skipped: {summary.skip_reason}")
         return summary
+
+    if date_window is not None:
+        range_start, range_end = date_window
+        monthly = monthly[
+            monthly.apply(
+                lambda r: _ngl_month_overlaps_window(
+                    date(int(r["Year"]), int(r["Month"]), 1),
+                    range_start,
+                    range_end,
+                ),
+                axis=1,
+            )
+        ].copy()
+        if monthly.empty:
+            summary.skipped = True
+            summary.skip_reason = "No NGL volumes overlap the rolling window."
+            _log(f"NGL update skipped: {summary.skip_reason}")
+            return summary
 
     cur = conn.cursor()
     wm_to_prod = fetch_pce_wm_well_to_production_name(cur)
@@ -740,8 +781,20 @@ def run_ngl_bulk_from_allocation_factors(
         lambda r: date(int(r["Year"]), int(r["Month"]), 1),
         axis=1,
     )
-    range_start = month_starts.min()
-    _, range_end, _ = calendar_month_bounds(month_starts.max())
+    apply_start = month_starts.min()
+    _, apply_end, _ = calendar_month_bounds(month_starts.max())
+    load_start = apply_start
+    if date_window is not None:
+        window_first = date_window[0].replace(day=1)
+        _, max_month_end, _ = calendar_month_bounds(month_starts.max())
+        apply_start = max(apply_start, date_window[0])
+        apply_end = min(max_month_end, date_window[1])
+        load_start = _month_start_n_months_before(
+            window_first,
+            DEFAULT_GAS_ROLLING_MONTHS,
+        )
+    range_start = load_start
+    range_end = apply_end
 
     if aborted():
         summary.skipped = True
@@ -763,11 +816,20 @@ def run_ngl_bulk_from_allocation_factors(
         summary.skip_reason = "Cancelled before NGL ratio calculation."
         return summary
 
-    _log("Computing daily NGL ratio columns from Allocation_Factors (all months)…")
+    _log(
+        "Computing daily NGL ratio columns from Allocation_Factors"
+        + (" (rolling window)…" if date_window is not None else " (all months)…")
+    )
     computed = compute_daily_ngl_ratio_columns(prod, monthly, log=_log)
     ngl_cols = _ngl_ratio_columns()
     has_ngl = computed[ngl_cols].notna().any(axis=1)
     summary.rows_with_ngl = int(has_ngl.sum())
+
+    if date_window is not None:
+        prod_dates = pd.to_datetime(computed["ProdDate"], errors="coerce").dt.date
+        computed = computed.loc[
+            (prod_dates >= apply_start) & (prod_dates <= apply_end)
+        ].copy()
 
     if aborted():
         summary.skipped = True
@@ -778,8 +840,8 @@ def run_ngl_bulk_from_allocation_factors(
         conn,
         computed,
         well_names,
-        range_start,
-        range_end,
+        apply_start,
+        apply_end,
         log=_log,
     )
     return summary

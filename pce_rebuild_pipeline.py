@@ -69,6 +69,7 @@ def run_post_production_rebuild_steps(
             log=log,
             cancel_event=cancel_event,
             conn=conn,
+            date_window=date_window,
         ):
             log(lf.warn("Cancelled during NGL ratio refresh."))
             return False

@@ -366,12 +366,15 @@ def _refresh_ngl_from_allocation_factors(
     log=print,
     cancel_event=None,
     conn=None,
+    date_window: Optional[Tuple[date, date]] = None,
 ):
     """
     Repaint NGL ratio columns on PCE_Production from Allocation_Factors monthly volumes.
 
-    Runs every distinct month in AF that has any NGL volume. Returns False if cancelled
-    mid-loop; True otherwise (including when no NGL months exist).
+    When ``date_window`` is set, only months overlapping that inclusive range are
+    processed (routine update). Otherwise all AF NGL months run (full rebuild).
+
+    Returns False if cancelled mid-loop; True otherwise (including when no NGL months exist).
     """
     from ngl_monthly_update import run_ngl_bulk_from_allocation_factors
 
@@ -383,27 +386,62 @@ def _refresh_ngl_from_allocation_factors(
         conn = get_sql_conn()
     try:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT COUNT(DISTINCT MonthStartDate)
-            FROM Allocation_Factors
-            WHERE [NGL_C2] IS NOT NULL
-               OR [NGL_C3] IS NOT NULL
-               OR [NGL_C4] IS NOT NULL
-               OR [NGL_C5] IS NOT NULL
-               OR [PA_NGLs] IS NOT NULL
-            """
-        )
-        n = int(cursor.fetchone()[0] or 0)
+        if date_window is not None:
+            from sales_allocation_updates import calendar_month_bounds
+
+            cursor.execute(
+                """
+                SELECT DISTINCT MonthStartDate
+                FROM Allocation_Factors
+                WHERE [NGL_C2] IS NOT NULL
+                   OR [NGL_C3] IS NOT NULL
+                   OR [NGL_C4] IS NOT NULL
+                   OR [NGL_C5] IS NOT NULL
+                   OR [PA_NGLs] IS NOT NULL
+                ORDER BY MonthStartDate
+                """
+            )
+            range_start, range_end = date_window
+            n = 0
+            for (month_start,) in cursor.fetchall():
+                first, last, _ = calendar_month_bounds(month_start)
+                if first <= range_end and last >= range_start:
+                    n += 1
+            if n == 0:
+                log(
+                    lf.warn(
+                        "No Allocation_Factors NGL rows overlap the rolling window; "
+                        "PCE_Production NGL ratios unchanged."
+                    )
+                )
+                return True
+        else:
+            cursor.execute(
+                """
+                SELECT COUNT(DISTINCT MonthStartDate)
+                FROM Allocation_Factors
+                WHERE [NGL_C2] IS NOT NULL
+                   OR [NGL_C3] IS NOT NULL
+                   OR [NGL_C4] IS NOT NULL
+                   OR [NGL_C5] IS NOT NULL
+                   OR [PA_NGLs] IS NOT NULL
+                """
+            )
+            n = int(cursor.fetchone()[0] or 0)
 
         if n == 0:
             log(lf.warn("No Allocation_Factors NGL rows; PCE_Production NGL ratios unchanged."))
             return True
 
+        scope = (
+            f"{date_window[0]} through {date_window[1]}"
+            if date_window is not None
+            else "all months"
+        )
         log(
             lf.step(
                 f"Refreshing PCE_Production NGL ratios from Allocation_Factors "
-                f"({lf.num(n)} months, batched)…"
+                f"({lf.num(n)} month(s), {scope}, batched)…"
             )
         )
 
@@ -412,7 +450,10 @@ def _refresh_ngl_from_allocation_factors(
             return False
 
         summary = run_ngl_bulk_from_allocation_factors(
-            conn, log=log, cancel_event=cancel_event
+            conn,
+            log=log,
+            cancel_event=cancel_event,
+            date_window=date_window,
         )
         if summary.skipped and (summary.skip_reason or "").startswith("Cancelled"):
             return False
