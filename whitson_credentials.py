@@ -90,3 +90,47 @@ def load_whitson_credentials() -> Tuple[str, str, str, int]:
 def get_default_project_id() -> int:
     """Default Whitson+ project_id from settings.ini or environment."""
     return load_whitson_credentials()[3]
+
+
+def get_whitson_project_source() -> Tuple[int, str]:
+    """Return (default_project_id, short source label for UI)."""
+    try:
+        return get_default_project_id(), "settings.ini [WHITSON]"
+    except WhitsonCredentialsError:
+        return 2, "built-in fallback — add [WHITSON] to settings.ini"
+
+
+def _optional_project_label_from_ini() -> str:
+    path = get_settings_path()
+    if not path or not os.path.isfile(path):
+        return ""
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(path, encoding="utf-8")
+    if not cfg.has_section("WHITSON"):
+        return ""
+    return cfg.get("WHITSON", "project_label", fallback="").strip()
+
+
+def format_whitson_project_hint(*, selected_id: int | None = None) -> str:
+    """
+    Human-readable hint for the Whitson+ project picker.
+
+    Optional settings.ini ``[WHITSON] project_label`` adds a friendly name
+    (e.g. ``Montney base case``).
+    """
+    default_id, source = get_whitson_project_source()
+    label = _optional_project_label_from_ini()
+    purpose = (
+        "Whitson+ project where PCE daily production is posted and well "
+        "attributes are synced"
+    )
+    if label:
+        purpose = f"{label} — {purpose}"
+
+    active_id = default_id if selected_id is None else selected_id
+    if selected_id is not None and selected_id != default_id:
+        return (
+            f"{purpose} · using project ID {active_id} "
+            f"(default {default_id} from {source})"
+        )
+    return f"{purpose} · default project ID {default_id} ({source})"

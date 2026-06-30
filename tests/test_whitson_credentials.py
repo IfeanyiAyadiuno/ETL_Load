@@ -8,6 +8,8 @@ from unittest.mock import patch
 from whitson_credentials import (
     WhitsonCredentialsError,
     _load_credentials_from_env,
+    format_whitson_project_hint,
+    get_whitson_project_source,
     load_whitson_credentials,
 )
 
@@ -81,6 +83,55 @@ class TestWhitsonCredentials(unittest.TestCase):
                 with patch.dict(os.environ, {}, clear=True):
                     with self.assertRaises(WhitsonCredentialsError):
                         load_whitson_credentials()
+
+    def test_format_whitson_project_hint_from_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ini = Path(tmp) / "settings.ini"
+            cfg = configparser.ConfigParser()
+            cfg["WHITSON"] = {
+                "client": "c",
+                "client_id": "id",
+                "client_secret": "sec",
+                "project_id": "2",
+                "project_label": "Montney base case",
+            }
+            with ini.open("w", encoding="utf-8") as fh:
+                cfg.write(fh)
+
+            with patch("whitson_credentials.get_settings_path", return_value=str(ini)):
+                hint = format_whitson_project_hint()
+
+        self.assertIn("Montney base case", hint)
+        self.assertIn("default project ID 2", hint)
+        self.assertIn("settings.ini [WHITSON]", hint)
+
+    def test_format_whitson_project_hint_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ini = Path(tmp) / "settings.ini"
+            cfg = configparser.ConfigParser()
+            cfg["WHITSON"] = {
+                "client": "c",
+                "client_id": "id",
+                "client_secret": "sec",
+                "project_id": "2",
+            }
+            with ini.open("w", encoding="utf-8") as fh:
+                cfg.write(fh)
+
+            with patch("whitson_credentials.get_settings_path", return_value=str(ini)):
+                hint = format_whitson_project_hint(selected_id=5)
+
+        self.assertIn("using project ID 5", hint)
+        self.assertIn("default 2", hint)
+
+    def test_get_whitson_project_source_fallback(self):
+        with patch(
+            "whitson_credentials.get_default_project_id",
+            side_effect=WhitsonCredentialsError("missing"),
+        ):
+            project_id, source = get_whitson_project_source()
+        self.assertEqual(project_id, 2)
+        self.assertIn("settings.ini", source)
 
 
 if __name__ == "__main__":

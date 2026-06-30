@@ -50,7 +50,12 @@ from whitson_imperial_units import (
     WhitsonImperialConfigError,
     load_whitson_imperial_factors,
 )
-from whitson_credentials import WhitsonCredentialsError, get_default_project_id, load_whitson_credentials
+from whitson_credentials import (
+    WhitsonCredentialsError,
+    format_whitson_project_hint,
+    get_default_project_id,
+    load_whitson_credentials,
+)
 from whitson_production_push import push_all_attributes, push_all_wells
 from whitson_well_attributes import ATTRIBUTE_OPTIONS
 
@@ -268,14 +273,18 @@ class WhitsonMassUploadDialog(QDialog):
             "Whitson+ project to create/find wells and upload production into."
         )
         project_row.addWidget(self.project_id_spin)
-        main_project_hint = QLabel("Default project ID: 2")
-        main_project_hint.setStyleSheet(muted_body_label_style())
-        main_project_hint.setToolTip(
-            "Standard Whitson+ production project. "
-            "Change only when targeting a different project."
+        self.main_project_hint = QLabel(format_whitson_project_hint())
+        self.main_project_hint.setStyleSheet(muted_body_label_style())
+        self.main_project_hint.setWordWrap(True)
+        self.main_project_hint.setToolTip(
+            "Whitson+ reservoir-modelling project that receives gathered production "
+            "from PCE_Production (imperial units). New wells are created on "
+            "Push Production; Push Attributes updates existing wells only. "
+            "Default ID comes from settings.ini [WHITSON] project_id; optional "
+            "project_label adds a friendly name beside the ID."
         )
-        project_row.addWidget(main_project_hint)
-        project_row.addStretch(1)
+        self.project_id_spin.valueChanged.connect(self._update_project_hint)
+        project_row.addWidget(self.main_project_hint, 1)
         project_group.layout().addLayout(project_row)
         layout.addWidget(project_group)
 
@@ -321,6 +330,11 @@ class WhitsonMassUploadDialog(QDialog):
 
     def create_group(self, title, info_text=None, info_title=None):
         return create_dialog_group(title, info_text, info_title, parent=self)
+
+    def _update_project_hint(self, selected_id: int) -> None:
+        self.main_project_hint.setText(
+            format_whitson_project_hint(selected_id=selected_id)
+        )
 
     def _preflight(self) -> bool:
         try:
