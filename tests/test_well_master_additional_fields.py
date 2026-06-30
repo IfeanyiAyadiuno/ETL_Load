@@ -44,6 +44,46 @@ class TestAdditionalFieldCoercion(unittest.TestCase):
         )
 
 
+class TestAdditionalValueValidation(unittest.TestCase):
+    def test_blank_is_valid_and_null(self):
+        for typ in ("float", "int", "date", "text"):
+            val, err = WellMasterDB.validate_additional_value("", typ)
+            self.assertIsNone(err)
+            self.assertIsNone(val if typ != "text" else None)
+
+    def test_valid_number(self):
+        val, err = WellMasterDB.validate_additional_value("1,234.5", "float")
+        self.assertIsNone(err)
+        self.assertAlmostEqual(val, 1234.5)
+
+    def test_invalid_number_errors(self):
+        val, err = WellMasterDB.validate_additional_value("abc", "float")
+        self.assertIsNone(val)
+        self.assertIsNotNone(err)
+        self.assertIn("number", err)
+
+    def test_invalid_int_errors(self):
+        val, err = WellMasterDB.validate_additional_value("12.x", "int")
+        self.assertIsNone(val)
+        self.assertIsNotNone(err)
+
+    def test_invalid_date_errors(self):
+        val, err = WellMasterDB.validate_additional_value("not-a-date", "date")
+        self.assertIsNone(val)
+        self.assertIsNotNone(err)
+        self.assertIn("date", err)
+
+    def test_valid_date(self):
+        val, err = WellMasterDB.validate_additional_value("2024-03-15", "date")
+        self.assertIsNone(err)
+        self.assertEqual(val, date(2024, 3, 15))
+
+    def test_text_never_errors(self):
+        val, err = WellMasterDB.validate_additional_value("anything", "text")
+        self.assertIsNone(err)
+        self.assertEqual(val, "anything")
+
+
 class TestAdditionalFieldColumnMap(unittest.TestCase):
     def test_columns_defined(self):
         self.assertEqual(len(ADDITIONAL_FIELD_COLUMNS), 22)

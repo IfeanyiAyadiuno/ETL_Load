@@ -40,7 +40,7 @@ def run_post_production_rebuild_steps(
     from db_connection import get_sql_conn
     from production_update import (
         _refresh_ngl_from_allocation_factors,
-        sync_production_wm_metadata_from_wm_sql,
+        sync_production_wm_metadata_combined_sql,
         sync_wm_uwi_to_downstream_sql,
     )
     from sync_typecurves_to_production import sync_tc_to_production
@@ -68,6 +68,7 @@ def run_post_production_rebuild_steps(
         if not _refresh_ngl_from_allocation_factors(
             log=log,
             cancel_event=cancel_event,
+            conn=conn,
         ):
             log(lf.warn("Cancelled during NGL ratio refresh."))
             return False
@@ -76,21 +77,7 @@ def run_post_production_rebuild_steps(
         log(lf.step("Syncing WM metadata (pad, enersight, month) to Production…"))
 
         def _run_metadata(cur, window: Optional[Tuple[date, date]]) -> None:
-            sync_production_wm_metadata_from_wm_sql(
-                cur,
-                update_pad=False,
-                update_enersight=True,
-                update_month=True,
-            )
-            if window is not None:
-                sync_production_wm_metadata_from_wm_sql(
-                    cur,
-                    window[0],
-                    window[1],
-                    update_pad=True,
-                    update_enersight=False,
-                    update_month=False,
-                )
+            sync_production_wm_metadata_combined_sql(cur, pad_date_window=window)
 
         if conn is not None:
             cur = conn.cursor()

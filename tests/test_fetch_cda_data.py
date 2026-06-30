@@ -1,10 +1,27 @@
 """Tests for PCE_CDA load helpers (sort order, no SQL)."""
 
 import unittest
+from datetime import date
 
 import pandas as pd
 
-from production_update import _sort_cda_dataframe
+from production_update import _cda_select_sql, _sort_cda_dataframe
+
+
+class TestCdaSelectSql(unittest.TestCase):
+    def test_end_cap_pushed_to_sql(self):
+        sql, params = _cda_select_sql(end_cap=date(2026, 4, 17))
+        self.assertIn("ProdDate <= ?", sql)
+        self.assertEqual(params, [date(2026, 4, 17)])
+
+    def test_start_and_end_cap(self):
+        sql, params = _cda_select_sql(
+            start_date=date(2020, 1, 1),
+            end_cap=date(2026, 4, 17),
+        )
+        self.assertIn("ProdDate >= ?", sql)
+        self.assertIn("ProdDate <= ?", sql)
+        self.assertEqual(params, [date(2020, 1, 1), date(2026, 4, 17)])
 
 
 class TestSortCdaDataframe(unittest.TestCase):

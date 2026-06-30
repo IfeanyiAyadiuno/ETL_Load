@@ -564,6 +564,47 @@ WHERE
                 continue
         return None
 
+    # Tokens treated as "no value" (saved as NULL) rather than invalid input.
+    _ADDITIONAL_BLANK_TOKENS = ("", "-", "nan", "none", "n/a", "na")
+
+    @staticmethod
+    def validate_additional_value(raw, field_type):
+        """Coerce one additional-field value, reporting type errors.
+
+        Returns ``(value, error)`` where ``error`` is ``None`` on success.
+        Blank/placeholder input is valid and yields ``(None, None)``. Non-blank
+        input that cannot be parsed to ``field_type`` yields ``(None, message)``.
+        """
+        if field_type not in ("float", "int", "date"):
+            return WellMasterDB.sanitize_text_field(raw), None
+
+        if raw is None:
+            return None, None
+        if field_type == "date" and isinstance(raw, (date, datetime)):
+            return WellMasterDB._coerce_additional_date(raw), None
+
+        s = str(raw).strip()
+        if s.lower() in WellMasterDB._ADDITIONAL_BLANK_TOKENS:
+            return None, None
+
+        if field_type == "float":
+            val = WellMasterDB._coerce_additional_float(s)
+            if val is None:
+                return None, f"'{s}' is not a valid number"
+            return val, None
+        if field_type == "int":
+            cleaned = s.replace(",", "")
+            try:
+                val = int(float(cleaned))
+            except (TypeError, ValueError):
+                return None, f"'{s}' is not a valid whole number"
+            return val, None
+        # date
+        val = WellMasterDB._coerce_additional_date(s)
+        if val is None:
+            return None, f"'{s}' is not a valid date (use YYYY-MM-DD)"
+        return val, None
+
     @staticmethod
     def _format_additional_value_for_ui(value, field_type):
         if value is None:

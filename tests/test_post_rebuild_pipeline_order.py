@@ -26,7 +26,7 @@ def test_post_rebuild_pipeline_step_order():
         "production_update._refresh_ngl_from_allocation_factors",
         return_value=True,
     ) as mock_ngl, patch(
-        "production_update.sync_production_wm_metadata_from_wm_sql",
+        "production_update.sync_production_wm_metadata_combined_sql",
         side_effect=lambda *a, **kw: calls.append("metadata"),
     ) as mock_meta, patch(
         "pce_frcst_prd_rebuild.rebuild_pce_frcst_prd",

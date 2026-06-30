@@ -45,12 +45,21 @@ _FIELD_LABELS = {
     "initial_flow_date": "Initial flow date (YYYY-MM-DD)",
 }
 
+# Placeholder hint per coercion type so users know the expected input format.
+_TYPE_PLACEHOLDERS = {
+    "float": "number",
+    "int": "whole number",
+    "date": "YYYY-MM-DD",
+    "text": "—",
+}
+
 
 class WellMasterAdditionalFieldsDialog(QDialog):
     def __init__(self, well_name: str, parent=None):
         super().__init__(parent)
         self.well_name = well_name
         self._inputs = {}
+        self._field_types = {}
         self.setWindowTitle(f"Additional Fields — {well_name}")
         self.setModal(True)
         self.setMinimumWidth(720)
@@ -84,8 +93,9 @@ class WellMasterAdditionalFieldsDialog(QDialog):
             label = QLabel(_FIELD_LABELS.get(key, key))
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             edit = QLineEdit()
-            edit.setPlaceholderText("—")
+            edit.setPlaceholderText(_TYPE_PLACEHOLDERS.get(_typ, "—"))
             self._inputs[key] = edit
+            self._field_types[key] = _typ
             row = i // 2
             col_pair = (i % 2) * 2
             grid.addWidget(label, row, col_pair)
@@ -112,6 +122,23 @@ class WellMasterAdditionalFieldsDialog(QDialog):
 
     def _save(self):
         fields = {key: edit.text().strip() for key, edit in self._inputs.items()}
+
+        errors = []
+        for key, value in fields.items():
+            _val, err = WellMasterDB.validate_additional_value(
+                value, self._field_types.get(key, "text")
+            )
+            if err:
+                label = _FIELD_LABELS.get(key, key)
+                errors.append(f"• {label}: {err}")
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Invalid value",
+                "Please fix the following before saving:\n\n" + "\n".join(errors),
+            )
+            return
+
         ok, err = WellMasterDB.save_additional_fields(self.well_name, fields)
         if not ok:
             QMessageBox.critical(self, "Save failed", err or "Unknown error")

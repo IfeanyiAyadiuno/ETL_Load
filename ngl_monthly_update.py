@@ -163,6 +163,67 @@ def read_ngl_monthly_from_allocation_factors(
     )
 
 
+def read_all_ngl_monthly_from_allocation_factors(conn) -> pd.DataFrame:
+    """All monthly NGL rows from Allocation_Factors (every month with NGL volumes)."""
+    sql = """
+    SELECT
+          CAST(MonthStartDate AS DATE) AS MonthStartDate
+        , [Well Name] AS WellName
+        , [NGL_C2]
+        , [NGL_C3]
+        , [NGL_C4]
+        , [NGL_C5]
+        , [PA_NGLs]
+    FROM Allocation_Factors
+    WHERE [NGL_C2] IS NOT NULL
+       OR [NGL_C3] IS NOT NULL
+       OR [NGL_C4] IS NOT NULL
+       OR [NGL_C5] IS NOT NULL
+       OR [PA_NGLs] IS NOT NULL
+    ORDER BY MonthStartDate, [Well Name]
+    """
+    df = pd.read_sql(sql, conn)
+    if df.empty:
+        return pd.DataFrame(
+            columns=["WellName", "Year", "Month"] + [k for k, _ in NGL_FIELDS]
+        )
+
+    rows: List[dict] = []
+    for _, row in df.iterrows():
+        well_name = row.get("WellName")
+        if well_name is None or (isinstance(well_name, float) and pd.isna(well_name)):
+            continue
+        wn = str(well_name).strip()
+        if not wn:
+            continue
+        ms = row.get("MonthStartDate")
+        if ms is None or pd.isna(ms):
+            continue
+        ts = pd.to_datetime(ms, errors="coerce")
+        if pd.isna(ts):
+            continue
+        entry: Dict[str, Any] = {
+            "WellName": wn,
+            "Year": int(ts.year),
+            "Month": int(ts.month),
+        }
+        for af_col, monthly_key in AF_NGL_TO_MONTHLY:
+            val = row.get(af_col)
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                entry[monthly_key] = None
+            else:
+                entry[monthly_key] = float(val)
+        rows.append(entry)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=["WellName", "Year", "Month"] + [k for k, _ in NGL_FIELDS]
+        )
+    return pd.DataFrame(rows).drop_duplicates(
+        subset=["WellName", "Year", "Month"], keep="last"
+    )
+
+
 def read_ngl_monthly_from_valnav(
     df_valnav: pd.DataFrame,
     *,
@@ -628,6 +689,97 @@ def run_ngl_monthly_from_allocation_factors(
         well_names,
         month_first,
         month_last,
+        log=_log,
+    )
+    return summary
+
+
+def run_ngl_bulk_from_allocation_factors(
+    conn,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+    cancel_event=None,
+) -> NglMonthlySummary:
+    """
+    Compute and apply NGL ratios for every AF month in one production load +
+    one staging UPDATE … JOIN (replaces per-month loops on full rebuild).
+    """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    def aborted():
+        return cancel_event is not None and cancel_event.is_set()
+
+    summary = NglMonthlySummary()
+    monthly = read_all_ngl_monthly_from_allocation_factors(conn)
+    if monthly.empty:
+        summary.skipped = True
+        summary.skip_reason = "No NGL volumes in Allocation_Factors."
+        _log(f"NGL update skipped: {summary.skip_reason}")
+        return summary
+
+    cur = conn.cursor()
+    wm_to_prod = fetch_pce_wm_well_to_production_name(cur)
+    monthly = monthly.copy()
+    monthly["WellName"] = monthly["WellName"].map(
+        lambda w: wm_to_prod.get(str(w).strip(), str(w).strip())
+    )
+    summary.monthly_rows = len(monthly)
+
+    well_names = sorted(monthly["WellName"].astype(str).str.strip().unique().tolist())
+    well_names = [w for w in well_names if w]
+    summary.wells_matched = len(well_names)
+    if not well_names:
+        summary.skipped = True
+        summary.skip_reason = "No wells with NGL volumes after WM name mapping."
+        _log(f"NGL update skipped: {summary.skip_reason}")
+        return summary
+
+    month_starts = monthly.apply(
+        lambda r: date(int(r["Year"]), int(r["Month"]), 1),
+        axis=1,
+    )
+    range_start = month_starts.min()
+    _, range_end, _ = calendar_month_bounds(month_starts.max())
+
+    if aborted():
+        summary.skipped = True
+        summary.skip_reason = "Cancelled before NGL production load."
+        return summary
+
+    prod = load_production_for_ngl_month(
+        conn, well_names, range_start, range_end, log=_log
+    )
+    summary.prod_rows = len(prod)
+    if prod.empty:
+        summary.skipped = True
+        summary.skip_reason = "No PCE_Production rows for matched wells in NGL date span."
+        _log(f"NGL update skipped: {summary.skip_reason}")
+        return summary
+
+    if aborted():
+        summary.skipped = True
+        summary.skip_reason = "Cancelled before NGL ratio calculation."
+        return summary
+
+    _log("Computing daily NGL ratio columns from Allocation_Factors (all months)…")
+    computed = compute_daily_ngl_ratio_columns(prod, monthly, log=_log)
+    ngl_cols = _ngl_ratio_columns()
+    has_ngl = computed[ngl_cols].notna().any(axis=1)
+    summary.rows_with_ngl = int(has_ngl.sum())
+
+    if aborted():
+        summary.skipped = True
+        summary.skip_reason = "Cancelled before NGL staging apply."
+        return summary
+
+    summary.rows_updated = apply_ngl_monthly_updates(
+        conn,
+        computed,
+        well_names,
+        range_start,
+        range_end,
         log=_log,
     )
     return summary

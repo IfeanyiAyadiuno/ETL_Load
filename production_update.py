@@ -236,7 +236,11 @@ def apply_gathered_prd_month_labels(df, enersight_lookup=None):
     )
     out = df.copy()
     keys = out["Well Name"].astype(str).str.strip()
-    out["Month"] = keys.map(lambda k: gathered_prd_month_label(lookup.get(k)))
+    label_map = {
+        wn: gathered_prd_month_label(lookup.get(wn))
+        for wn in keys.unique()
+    }
+    out["Month"] = keys.map(label_map)
     return out
 
 
@@ -265,6 +269,7 @@ def _refresh_cda_sales_from_allocation_factors(
     update_production=True,
     progress: Optional[_RebuildProgress] = None,
     date_window: Optional[Tuple[date, date]] = None,
+    conn=None,
 ):
     """
     Repaint Gas S2, gas sales, condensate sales, and Sales CGR on PCE_CDA using
@@ -276,78 +281,91 @@ def _refresh_cda_sales_from_allocation_factors(
     Returns False if cancelled mid-loop; True otherwise (including when AF is empty).
     """
     from sales_allocation_updates import (
-        apply_full_sales_ratios_for_month,
-        apply_valnav_allocation_to_cda_and_production,
+        apply_full_sales_ratios_bulk,
+        apply_valnav_allocation_bulk,
     )
 
     def aborted():
         return cancel_event is not None and cancel_event.is_set()
 
-    with get_sql_conn() as conn:
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
         cursor = conn.cursor()
         if date_window is not None:
             months = _allocation_factor_months_overlapping(
                 cursor, date_window[0], date_window[1]
             )
+            n = len(months)
+            if not months:
+                log(
+                    lf.warn(
+                        "No Allocation_Factors rows overlap the rolling window; "
+                        "PCE_CDA Gas S2 / sales columns are unchanged."
+                    )
+                )
+                return True
         else:
             cursor.execute(
-                "SELECT DISTINCT MonthStartDate FROM Allocation_Factors ORDER BY MonthStartDate"
+                "SELECT COUNT(DISTINCT MonthStartDate) FROM Allocation_Factors"
             )
-            months = [row[0] for row in cursor.fetchall()]
-
-    if not months:
-        if date_window is not None:
-            log(
-                lf.warn(
-                    "No Allocation_Factors rows overlap the rolling window; "
-                    "PCE_CDA Gas S2 / sales columns are unchanged."
+            n = int(cursor.fetchone()[0] or 0)
+            if n == 0:
+                log(
+                    lf.warn(
+                        "No Allocation_Factors rows; PCE_CDA Gas S2 / sales columns are unchanged."
+                    )
                 )
-            )
-        else:
-            log(
-                lf.warn(
-                    "No Allocation_Factors rows; PCE_CDA Gas S2 / sales columns are unchanged."
-                )
-            )
-        return True
+                return True
 
-    scope = (
-        f"{date_window[0]} through {date_window[1]}"
-        if date_window is not None
-        else "all months"
-    )
-    log(
-        lf.step(
-            f"Refreshing PCE_CDA from Allocation_Factors ({lf.num(len(months))} month(s), "
-            f"{scope}: Gas S2, gas sales, condensate sales, Sales CGR)…"
+        scope = (
+            f"{date_window[0]} through {date_window[1]}"
+            if date_window is not None
+            else "all months"
         )
-    )
-
-    n = len(months)
-    with get_sql_conn() as conn:
-        for i, month_start in enumerate(months):
-            if aborted():
-                log(lf.warn("Cancelled during PCE_CDA sales refresh."))
-                return False
-            apply_valnav_allocation_to_cda_and_production(
-                conn, month_start, log=log, update_production=update_production
+        log(
+            lf.step(
+                f"Refreshing PCE_CDA from Allocation_Factors ({lf.num(n)} month(s), "
+                f"{scope}: Gas S2, gas sales, condensate sales, Sales CGR)…"
             )
-            apply_full_sales_ratios_for_month(
-                conn, month_start, log=log, update_production=update_production
-            )
-            if progress is not None:
-                progress.phase_part("cda_sales", i + 1, n)
-            if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
-                log(lf.detail(f"CDA sales refresh progress: {i + 1}/{n} months"))
+        )
 
-    if progress is not None:
-        progress.phase_done("cda_sales")
-    return True
+        if aborted():
+            log(lf.warn("Cancelled during PCE_CDA sales refresh."))
+            return False
+
+        apply_valnav_allocation_bulk(
+            conn,
+            log=log,
+            update_production=update_production,
+            date_window=date_window,
+        )
+        if progress is not None:
+            progress.phase_part("cda_sales", max(1, n // 2), max(1, n))
+
+        if aborted():
+            log(lf.warn("Cancelled during PCE_CDA sales refresh."))
+            return False
+
+        apply_full_sales_ratios_bulk(
+            conn,
+            log=log,
+            update_production=update_production,
+            date_window=date_window,
+        )
+        if progress is not None:
+            progress.phase_done("cda_sales")
+        return True
+    finally:
+        if own_conn and conn is not None and hasattr(conn, "close"):
+            conn.close()
 
 
 def _refresh_ngl_from_allocation_factors(
     log=print,
     cancel_event=None,
+    conn=None,
 ):
     """
     Repaint NGL ratio columns on PCE_Production from Allocation_Factors monthly volumes.
@@ -355,75 +373,96 @@ def _refresh_ngl_from_allocation_factors(
     Runs every distinct month in AF that has any NGL volume. Returns False if cancelled
     mid-loop; True otherwise (including when no NGL months exist).
     """
-    from ngl_monthly_update import run_ngl_monthly_from_allocation_factors
+    from ngl_monthly_update import run_ngl_bulk_from_allocation_factors
 
     def aborted():
         return cancel_event is not None and cancel_event.is_set()
 
-    with get_sql_conn() as conn:
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT DISTINCT MonthStartDate
+            SELECT COUNT(DISTINCT MonthStartDate)
             FROM Allocation_Factors
             WHERE [NGL_C2] IS NOT NULL
                OR [NGL_C3] IS NOT NULL
                OR [NGL_C4] IS NOT NULL
                OR [NGL_C5] IS NOT NULL
                OR [PA_NGLs] IS NOT NULL
-            ORDER BY MonthStartDate
             """
         )
-        months = [row[0] for row in cursor.fetchall()]
+        n = int(cursor.fetchone()[0] or 0)
 
-    if not months:
-        log(lf.warn("No Allocation_Factors NGL rows; PCE_Production NGL ratios unchanged."))
-        return True
+        if n == 0:
+            log(lf.warn("No Allocation_Factors NGL rows; PCE_Production NGL ratios unchanged."))
+            return True
 
-    log(
-        lf.step(
-            f"Refreshing PCE_Production NGL ratios from Allocation_Factors "
-            f"({lf.num(len(months))} months)…"
+        log(
+            lf.step(
+                f"Refreshing PCE_Production NGL ratios from Allocation_Factors "
+                f"({lf.num(n)} months, batched)…"
+            )
         )
-    )
 
-    n = len(months)
-    with get_sql_conn() as conn:
-        for i, month_start in enumerate(months):
-            if aborted():
-                log(lf.warn("Cancelled during NGL ratio refresh."))
-                return False
-            run_ngl_monthly_from_allocation_factors(conn, month_start, log=log)
-            if n <= 24 or (i + 1) % 12 == 0 or (i + 1) == n:
-                log(lf.detail(f"NGL refresh progress: {i + 1}/{n} months"))
+        if aborted():
+            log(lf.warn("Cancelled during NGL ratio refresh."))
+            return False
 
-    return True
+        summary = run_ngl_bulk_from_allocation_factors(
+            conn, log=log, cancel_event=cancel_event
+        )
+        if summary.skipped and (summary.skip_reason or "").startswith("Cancelled"):
+            return False
+        return True
+    finally:
+        if own_conn and conn is not None and hasattr(conn, "close"):
+            conn.close()
 
 
-def clear_pce_production():
-    """Clear all data from PCE_Production table"""
-    with get_sql_conn() as conn:
+def clear_pce_production(conn=None):
+    """Clear all rows from PCE_Production (TRUNCATE when permitted, else DELETE)."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
         cursor = conn.cursor()
+        print(lf.step("Clearing PCE_Production…"))
+        deleted = 0
+        try:
+            cursor.execute("TRUNCATE TABLE dbo.PCE_Production")
+            conn.commit()
+            print(lf.success("Cleared PCE_Production (truncate)"))
+            return deleted
+        except Exception:
+            pass
         cursor.execute("SELECT COUNT(*) FROM PCE_Production")
         existing = cursor.fetchone()[0] or 0
         print(
-            lf.step(
-                f"Clearing PCE_Production ({lf.num(existing)} row(s); "
-                "this may take several minutes)…"
+            lf.detail(
+                f"Truncate unavailable; deleting {lf.num(existing)} row(s) "
+                "(this may take several minutes)…"
             )
         )
-        # Delete all rows
         cursor.execute("DELETE FROM PCE_Production")
-        deleted = cursor.rowcount
-        # Reset identity/ID column so new rows start from 1 again (if table has an IDENTITY)
+        deleted = cursor.rowcount or 0
         try:
             cursor.execute("DBCC CHECKIDENT('PCE_Production', RESEED, 0)")
         except Exception:
-            # If the table has no IDENTITY or permissions are limited, ignore the error
             pass
         conn.commit()
-        print(lf.success(f"Cleared PCE_Production: {lf.num(deleted)} records deleted (identity reseeded where applicable)"))
+        print(
+            lf.success(
+                f"Cleared PCE_Production: {lf.num(deleted)} records deleted "
+                "(identity reseeded where applicable)"
+            )
+        )
         return deleted
+    finally:
+        if own_conn and conn is not None and hasattr(conn, "close"):
+            conn.close()
 
 
 _CDA_SELECT_SQL = """
@@ -456,6 +495,22 @@ _CDA_SELECT_SQL = """
         [Orient] as [Orientation]
     FROM PCE_CDA
 """
+
+
+def _cda_select_sql(start_date=None, end_cap=None) -> Tuple[str, List]:
+    """Build CDA SELECT with optional ProdDate bounds pushed to SQL."""
+    clauses: List[str] = []
+    params: List = []
+    if start_date is not None:
+        clauses.append("ProdDate >= ?")
+        params.append(start_date)
+    if end_cap is not None:
+        clauses.append("ProdDate <= ?")
+        params.append(end_cap)
+    sql = _CDA_SELECT_SQL.strip()
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    return sql, params
 
 
 def _sort_cda_dataframe(df):
@@ -553,16 +608,31 @@ def fetch_cda_data(
         if well_names is not None and len(well_names) == 0:
             df = pd.DataFrame()
         elif well_names is None:
+            count_sql = "SELECT COUNT(*) FROM PCE_CDA"
+            count_params: List = []
+            count_clauses: List[str] = []
+            if start_date is not None:
+                count_clauses.append("ProdDate >= ?")
+                count_params.append(start_date)
+            if end_cap is not None:
+                count_clauses.append("ProdDate <= ?")
+                count_params.append(end_cap)
+            if count_clauses:
+                count_sql += " WHERE " + " AND ".join(count_clauses)
             count_cur = conn.cursor()
-            count_cur.execute("SELECT COUNT(*) FROM PCE_CDA")
+            count_cur.execute(count_sql, count_params or None)
             cda_rows = count_cur.fetchone()[0] or 0
+            bounds = ""
+            if start_date is not None or end_cap is not None:
+                bounds = f" ({start_date or '…'} through {end_cap or '…'})"
             log_fn(
                 lf.step(
-                    f"Loading {lf.num(cda_rows)} PCE_CDA row(s) from SQL Server "
-                    "(full table read; this may take several minutes)…"
+                    f"Loading {lf.num(cda_rows)} PCE_CDA row(s) from SQL Server{bounds} "
+                    "(this may take several minutes)…"
                 )
             )
-            df = pd.read_sql(_CDA_SELECT_SQL, conn)
+            query, params = _cda_select_sql(start_date, end_cap)
+            df = pd.read_sql(query, conn, params=params or None)
         else:
             frames = []
             chunk_size = 500
@@ -580,22 +650,6 @@ def fetch_cda_data(
                 query = f"{_CDA_SELECT_SQL} WHERE {' AND '.join(clauses)}"
                 frames.append(pd.read_sql(query, conn, params=params))
             df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
-        if well_names is None and start_date is not None and not df.empty:
-            start_series = pd.to_datetime(df["Date"], errors="coerce").dt.date
-            before = len(df)
-            df = df.loc[start_series >= start_date].copy()
-            dropped = before - len(df)
-            if dropped:
-                log_fn(lf.detail(f"Excluded {lf.num(dropped)} CDA row(s) before {start_date}"))
-
-        if well_names is None and end_cap is not None and not df.empty:
-            cap_series = pd.to_datetime(df["Date"], errors="coerce").dt.date
-            before = len(df)
-            df = df.loc[cap_series <= end_cap].copy()
-            dropped = before - len(df)
-            if dropped:
-                log_fn(lf.detail(f"Excluded {lf.num(dropped)} CDA row(s) after {end_cap}"))
 
         if not df.empty:
             df = _sort_cda_dataframe(df)
@@ -783,18 +837,22 @@ def sync_production_wm_metadata_from_wm_sql(
     update_pad=True,
     update_enersight=True,
     update_month=True,
+    pad_date_start=None,
+    pad_date_end=None,
 ):
     """
     Set ``PCE_Production`` WM-backed metadata in one table scan.
 
-    Optional ``date_start``/``date_end`` restrict which rows are updated (same
-    semantics as the legacy per-field sync helpers).
+    Optional ``date_start``/``date_end`` restrict which rows are updated (legacy pad-only
+    pass). When ``pad_date_start``/``pad_date_end`` are set, pad is updated only on rows
+    in that inclusive range (others keep existing pad); enersight/month apply to all rows
+    matched by the WHERE clause.
     """
     if not any((update_pad, update_enersight, update_month)):
         return
 
     date_filter = ""
-    params = []
+    params: List = []
     if date_start is not None and date_end is not None:
         date_filter = " AND p.[Date] BETWEEN ? AND ?"
         params = [date_start, date_end]
@@ -804,7 +862,15 @@ def sync_production_wm_metadata_from_wm_sql(
 
     set_parts = []
     if update_pad:
-        set_parts.append(f"p.[Pad Name] = {production_pad_sql_from_wm('ca.pad')}")
+        pad_sql = production_pad_sql_from_wm("ca.pad")
+        if pad_date_start is not None and pad_date_end is not None:
+            set_parts.append(
+                f"p.[Pad Name] = CASE WHEN p.[Date] BETWEEN ? AND ? "
+                f"THEN {pad_sql} ELSE p.[Pad Name] END"
+            )
+            params = [pad_date_start, pad_date_end] + params
+        else:
+            set_parts.append(f"p.[Pad Name] = {pad_sql}")
     if update_enersight:
         set_parts.append(
             f"p.[Enersight Well Name] = COALESCE({enersight_val}, p.[Enersight Well Name])"
@@ -825,6 +891,25 @@ WHERE p.[Well Name] NOT LIKE N'%% - TC'
         cursor.execute(sql, params)
     else:
         cursor.execute(sql)
+
+
+def sync_production_wm_metadata_combined_sql(
+    cursor,
+    *,
+    pad_date_window: Optional[Tuple[date, date]] = None,
+):
+    """
+    One-pass WM metadata sync: enersight + month on all gathered rows; pad only inside
+    ``pad_date_window`` when provided (post-rebuild full rebuild path).
+    """
+    sync_production_wm_metadata_from_wm_sql(
+        cursor,
+        update_pad=pad_date_window is not None,
+        update_enersight=True,
+        update_month=True,
+        pad_date_start=pad_date_window[0] if pad_date_window else None,
+        pad_date_end=pad_date_window[1] if pad_date_window else None,
+    )
 
 
 def sync_production_pad_names_from_wm_sql(cursor, date_start=None, date_end=None):
@@ -1020,7 +1105,11 @@ def calculate_sequences(
     day_seq_uprt_seed = day_seq_uprt_seed or {}
     df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
 
-    seq_off = df["Well Name"].map(lambda w: days_seq_seed.get(str(w).strip(), 0))
+    if days_seq_seed:
+        wn_key = df["Well Name"].astype(str).str.strip()
+        seq_off = wn_key.map(days_seq_seed).fillna(0).astype(int)
+    else:
+        seq_off = 0
     df["Days Seq"] = df.groupby("Well Name").cumcount() + 1 + seq_off
 
     gas_positive = (
@@ -1029,7 +1118,11 @@ def calculate_sequences(
         .gt(0)
         .astype(int)
     )
-    uprt_off = df["Well Name"].map(lambda w: day_seq_uprt_seed.get(str(w).strip(), 0))
+    if day_seq_uprt_seed:
+        wn_key = df["Well Name"].astype(str).str.strip()
+        uprt_off = wn_key.map(day_seq_uprt_seed).fillna(0).astype(int)
+    else:
+        uprt_off = 0
     df["Day Seq UPRT"] = (
         gas_positive.groupby(df["Well Name"]).cumsum() + uprt_off
     ).clip(lower=1)
@@ -1054,10 +1147,15 @@ def calculate_cumulatives(df, *, cum_seeds: Optional[Dict[str, Dict[str, float]]
 
     for source_col, target_col in _CUMULATIVE_PAIRS:
         values = pd.to_numeric(df[source_col], errors="coerce").fillna(0.0)
-        seed = df["Well Name"].map(
-            lambda w: cum_seeds.get(str(w).strip(), {}).get(target_col, 0.0)
-        )
-        df[target_col] = values.groupby(df["Well Name"]).cumsum() + seed
+        running = values.groupby(df["Well Name"]).cumsum()
+        if cum_seeds:
+            wn_key = df["Well Name"].astype(str).str.strip()
+            seed = wn_key.map(
+                lambda w: cum_seeds.get(w, {}).get(target_col, 0.0)
+            ).fillna(0.0)
+            df[target_col] = running + seed
+        else:
+            df[target_col] = running
 
     return df
 
@@ -1470,7 +1568,14 @@ def rebuild_all_production_sequences_from_scratch(
 _INSERT_COLS = list(PCE_PRODUCTION_INSERT_COLUMNS)
 
 
-def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
+def insert_pce_production(
+    df,
+    *,
+    progress: Optional[_RebuildProgress] = None,
+    uwi_lookup=None,
+    enersight_lookup=None,
+    conn=None,
+):
     """
     Insert dataframe into PCE_Production table.
     Vectorized NaN->None conversion + executemany batches.
@@ -1484,9 +1589,8 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     # Ensure int columns are cast properly before NaN->None conversion
     df = df.copy()
     if "UWI" not in df.columns:
-        df = apply_uwi_from_well_master(df)
-    enersight_lookup = fetch_well_master_enersight_lookup()
-    df = apply_gathered_prd_month_labels(df, enersight_lookup)
+        df = apply_uwi_from_well_master(df, uwi_lookup=uwi_lookup)
+    df = apply_gathered_prd_month_labels(df, enersight_lookup=enersight_lookup)
     df['Days Seq'] = pd.to_numeric(df['Days Seq'], errors='coerce').fillna(0).astype(int)
     df['Day Seq UPRT'] = pd.to_numeric(df['Day Seq UPRT'], errors='coerce').fillna(0).astype(int)
     df['On Production Year'] = pd.to_numeric(df['On Production Year'], errors='coerce')
@@ -1500,7 +1604,10 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
     total_inserted = 0
     duplicate_skipped = 0
 
-    with get_sql_conn() as conn:
+    own_conn = conn is None
+    if own_conn:
+        conn = get_sql_conn()
+    try:
         cursor = conn.cursor()
         cursor.fast_executemany = True
 
@@ -1537,6 +1644,9 @@ def insert_pce_production(df, *, progress: Optional[_RebuildProgress] = None):
                         f"{lf.num(rows_done)}/{lf.num(total_rows)} ({pct}%)"
                     )
                 )
+    finally:
+        if own_conn and conn is not None and hasattr(conn, "close"):
+            conn.close()
 
     if progress is not None:
         progress.phase_done("insert")
@@ -1590,193 +1700,155 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None, log_call
     log(lf.detail(f"PCE_CDA date span before Snowflake: {cda_min_before or '—'} → {cda_max_before or '—'}"))
     log(lf.detail(f"Automatic end date (today − {lag_days} day(s)): {end_cap}"))
 
-    sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(
-        log_callback=print,
-        progress_callback=progress.snowflake_substep,
-        data_lag_days=data_lag_days,
-    )
-    progress.phase_done("snowflake")
-    cda_max_after = query_pce_cda_max_date()
-    log(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
-    timer.mark("Snowflake → PCE_CDA full lifespan refresh")
-
-    if aborted():
-        log(lf.warn("Cancelled after Snowflake CDA refresh."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    # Step 1: Ensure CDA sales / S2 columns match Allocation_Factors before copying to Production
-    if not _refresh_cda_sales_from_allocation_factors(
-        log=print,
-        cancel_event=cancel_event,
-        update_production=False,
-        progress=progress,
-    ):
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-    timer.mark("PCE_CDA sales refresh from Allocation_Factors")
-
-    if aborted():
-        log(lf.warn("Cancelled after PCE_CDA sales refresh."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+    window_start = window_end = end_cap
+    rows_inserted = 0
+    df = None
 
     with get_sql_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_cap,))
-        n_trim = cur.rowcount or 0
-        conn.commit()
-    if n_trim:
-        log(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
-    else:
-        log(lf.detail(f"No future PCE_CDA rows after {end_cap}"))
-    timer.mark("Trim future CDA rows")
-
-    if aborted():
-        log(lf.warn("Cancelled after trimming future CDA."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    log(lf.step("Rebuilding PCE_Production from PCE_CDA…"))
-    progress.emit(65)
-
-    window_start, window_end = sf_start, sf_end
-    log(lf.step(f"Trimming future PCE_Production rows after {end_cap}…"))
-    with get_sql_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            DELETE FROM PCE_Production
-            WHERE [Date] > ?
-              AND [Well Name] NOT LIKE '% - TC'
-              AND [Well Name] NOT LIKE 'YE2%'
-            """,
-            (end_cap,),
+        sf_start, sf_end, _cda_rows = refresh_full_rebuild_cda(
+            log_callback=log,
+            progress_callback=progress.snowflake_substep,
+            data_lag_days=data_lag_days,
+            conn=conn,
         )
-        n_prod_trim = cur.rowcount or 0
-        conn.commit()
-    if n_prod_trim:
+        window_start, window_end = sf_start, sf_end
+        progress.phase_done("snowflake")
+        cda_max_after = query_pce_cda_max_date()
+        log(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+        timer.mark("Snowflake → PCE_CDA full lifespan refresh")
+
+        if aborted():
+            log(lf.warn("Cancelled after Snowflake CDA refresh."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+        if not _refresh_cda_sales_from_allocation_factors(
+            log=log,
+            cancel_event=cancel_event,
+            update_production=False,
+            progress=progress,
+            conn=conn,
+        ):
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+        timer.mark("PCE_CDA sales refresh from Allocation_Factors")
+
+        if aborted():
+            log(lf.warn("Cancelled after PCE_CDA sales refresh."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+        if sf_end > end_cap:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM PCE_CDA WHERE ProdDate > ?", (end_cap,))
+            n_trim = cur.rowcount or 0
+            conn.commit()
+            if n_trim:
+                log(lf.detail(f"Trimmed {lf.num(n_trim)} PCE_CDA row(s) after {end_cap} (automatic end)"))
+            else:
+                log(lf.detail(f"No future PCE_CDA rows after {end_cap}"))
+        else:
+            log(lf.detail(f"Skipping CDA future trim (Snowflake already capped at {sf_end})"))
+        timer.mark("Trim future CDA rows")
+
+        if aborted():
+            log(lf.warn("Cancelled after trimming future CDA."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+        log(lf.step("Rebuilding PCE_Production from PCE_CDA…"))
+        progress.emit(65)
+        progress.emit(66)
+
+        clear_pce_production(conn=conn)
+        timer.mark("Clear PCE_Production")
+        if aborted():
+            log(lf.warn("Cancelled after clearing PCE_Production."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+        progress.emit(67)
+
+        log(lf.step("Loading well mappings from PCE_WM…"))
+        wm_lookups = fetch_well_master_lookups(conn)
+        composite_map = wm_lookups["composite_map"]
+        fallback_map = wm_lookups["fallback_map"]
+        log(lf.detail(f"Loaded {lf.num(len(fallback_map))} well name mappings"))
+        timer.mark("Load well mappings")
+        if aborted():
+            log(lf.warn("Cancelled after loading well mappings."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
+        progress.emit(68)
+
+        df = fetch_cda_data(end_cap=end_cap, log=log, conn=conn)
+        timer.mark("Load PCE_CDA into pandas")
+        progress.emit(70)
+
+        if df.empty:
+            log(lf.warn("No data to process. Exiting."))
+            return {
+                **base_meta,
+                "skipped": True,
+                "reason": "No rows in PCE_CDA",
+                "duration_seconds": _duration(),
+            }
+
+        log(lf.step("Applying well name, pad, and UWI mappings…"))
+        df = apply_well_names(df, composite_map, fallback_map)
+        df = apply_pad_name_from_well_master(df, wm_lookups["pad_lookup"])
+        df = apply_uwi_from_well_master(df, wm_lookups["uwi_lookup"])
+        timer.mark("Well name / pad / UWI mapping")
+        progress.emit(71)
+
+        if df.empty:
+            log(lf.warn("No data after well name mapping. Exiting."))
+            return {
+                **base_meta,
+                "skipped": True,
+                "reason": "No data after well name mapping",
+                "duration_seconds": _duration(),
+            }
+
+        if aborted():
+            log(lf.warn("Cancelled before sequence calculations."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+
         log(
-            lf.detail(
-                f"Trimmed {lf.num(n_prod_trim)} PCE_Production row(s) after {end_cap}"
+            lf.step(
+                f"Calculating sequences, cumulatives, and monthly averages "
+                f"({lf.num(len(df))} row(s))…"
             )
         )
-    else:
-        log(lf.detail(f"No future PCE_Production rows after {end_cap}"))
-    timer.mark("Trim future PCE_Production rows")
-
-    if aborted():
-        log(lf.warn("Cancelled after trimming future production."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    progress.emit(66)
-
-    # Step 2: Clear existing data
-    clear_pce_production()
-    timer.mark("Clear PCE_Production")
-    if aborted():
-        log(lf.warn("Cancelled after clearing PCE_Production."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    progress.emit(67)
-
-    # Step 3: Fetch well name mappings
-    log(lf.step("Loading well name mappings from PCE_WM…"))
-    composite_map, fallback_map = fetch_well_mapping()
-    timer.mark("Load well mappings")
-    if aborted():
-        log(lf.warn("Cancelled after loading well mappings."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    progress.emit(68)
-
-    # Step 4: Fetch CDA data
-    df = fetch_cda_data(end_cap=end_cap, log=print)
-    timer.mark("Load PCE_CDA into pandas")
-    progress.emit(70)
-
-    if df.empty:
-        log(lf.warn("No data to process. Exiting."))
-        return {
-            **base_meta,
-            "skipped": True,
-            "reason": "No rows in PCE_CDA",
-            "duration_seconds": _duration(),
-        }
-
-    # Step 5: Apply well name mappings (composite name with fallback to well name)
-    log(lf.step("Applying well name, pad, and UWI mappings…"))
-    df = apply_well_names(df, composite_map, fallback_map)
-    df = apply_pad_name_from_well_master(df)
-    df = apply_uwi_from_well_master(df)
-    timer.mark("Well name / pad / UWI mapping")
-    progress.emit(71)
-
-    if df.empty:
-        log(lf.warn("No data after well name mapping. Exiting."))
-        return {
-            **base_meta,
-            "skipped": True,
-            "reason": "No data after well name mapping",
-            "duration_seconds": _duration(),
-        }
-
-    # Step 6: Filter to first production date for each well
-    before_first_prod = len(df)
-    log(lf.step("Filtering to each well's first production date…"))
-    df = filter_to_first_production(df)
-    log(
-        lf.detail(
-            f"First-production filter: {lf.num(len(df))} row(s) "
-            f"({lf.num(before_first_prod - len(df))} trimmed)"
+        calc_msg = (
+            f"Calculating sequences and cumulatives for {lf.num(len(df))} row(s)"
         )
-    )
-    timer.mark("Filter to first production")
-    progress.emit(72)
+        with lf.activity_log(log, calc_msg):
+            df = apply_production_sequences_from_scratch(df, for_persist=True)
+        progress.emit(74)
+        timer.mark("Sequences, cumulatives, monthly avgs")
+        progress.phase_done("prep")
 
-    if df.empty:
-        log(lf.warn("No data after filtering. Exiting."))
-        return {
-            **base_meta,
-            "skipped": True,
-            "reason": "No data after first-production filter",
-            "duration_seconds": _duration(),
-        }
+        if aborted():
+            log(lf.warn("Cancelled before inserting into PCE_Production."))
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
 
-    if aborted():
-        log(lf.warn("Cancelled before sequence calculations."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-
-    # Step 7–10: Sequences, cumulatives, monthly averages, On Production Year
-    log(
-        lf.step(
-            f"Calculating sequences, cumulatives, and monthly averages "
-            f"({lf.num(len(df))} row(s))…"
+        log(lf.step(f"Inserting {lf.num(len(df))} row(s) into PCE_Production…"))
+        rows_inserted = insert_pce_production(
+            df,
+            progress=progress,
+            uwi_lookup=wm_lookups["uwi_lookup"],
+            enersight_lookup=wm_lookups["enersight_lookup"],
+            conn=conn,
         )
-    )
-    calc_msg = (
-        f"Calculating sequences and cumulatives for {lf.num(len(df))} row(s)"
-    )
-    with lf.activity_log(log, calc_msg):
-        df = apply_production_sequences_from_scratch(df, for_persist=True)
-    progress.emit(74)
-    timer.mark("Sequences, cumulatives, monthly avgs")
-    progress.phase_done("prep")
+        timer.mark("Insert PCE_Production")
 
-    if aborted():
-        log(lf.warn("Cancelled before inserting into PCE_Production."))
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+        from pce_rebuild_pipeline import run_post_production_rebuild_steps
 
-    # Step 11: Insert into PCE_Production
-    log(lf.step(f"Inserting {lf.num(len(df))} row(s) into PCE_Production…"))
-    rows_inserted = insert_pce_production(df, progress=progress)
-    timer.mark("Insert PCE_Production")
+        if not run_post_production_rebuild_steps(
+            log,
+            conn=conn,
+            date_window=(window_start, window_end),
+            cancel_event=cancel_event,
+        ):
+            return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
+        timer.mark("Post-production rebuild steps")
 
-    from pce_rebuild_pipeline import run_post_production_rebuild_steps
-
-    if not run_post_production_rebuild_steps(
-        log,
-        date_window=(window_start, window_end),
-        cancel_event=cancel_event,
-    ):
-        return {**base_meta, "cancelled": True, "duration_seconds": _duration()}
-    timer.mark("Post-production rebuild steps")
     progress.phase_done("finalize")
 
     wells_processed = len(df["Well Name"].unique())

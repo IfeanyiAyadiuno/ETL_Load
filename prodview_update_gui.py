@@ -636,8 +636,14 @@ def refresh_pce_cda_from_snowflake(
 
         if replace_entire_cda:
             log(lf.step("Replacing all PCE_CDA rows (full rebuild)…"))
-            log(lf.detail("Deleting all existing PCE_CDA rows…"))
-            cursor.execute("DELETE FROM PCE_CDA")
+            log(lf.detail("Truncating PCE_CDA…"))
+            try:
+                cursor.execute("TRUNCATE TABLE dbo.PCE_CDA")
+                deleted = 0
+            except Exception:
+                log(lf.detail("Truncate unavailable; deleting all PCE_CDA rows…"))
+                cursor.execute("DELETE FROM PCE_CDA")
+                deleted = cursor.rowcount
         else:
             log(lf.step(f"Replacing PCE_CDA rows ({start_date} to {end_date})…"))
             log(lf.detail("Deleting existing PCE_CDA rows in range…"))
@@ -646,10 +652,12 @@ def refresh_pce_cda_from_snowflake(
                 start_date,
                 end_date,
             )
-        deleted = cursor.rowcount
+            deleted = cursor.rowcount
         conn.commit()
-        if deleted is not None and deleted >= 0:
+        if deleted is not None and deleted >= 0 and not replace_entire_cda:
             log(lf.detail(f"Deleted {lf.num(deleted)} PCE_CDA row(s)"))
+        elif replace_entire_cda:
+            log(lf.detail("PCE_CDA cleared (truncate)"))
 
         rows = _df_to_insert_rows(result_df, _CDA_COLUMNS)
         log(lf.detail(f"Inserting {lf.num(len(rows))} PCE_CDA row(s)…"))

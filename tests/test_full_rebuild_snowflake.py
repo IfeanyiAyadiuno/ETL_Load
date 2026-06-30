@@ -67,15 +67,23 @@ def test_main_always_calls_full_lifespan_snowflake_refresh():
                         with patch.object(
                             production_update, "clear_pce_production", return_value=0
                         ):
+                            mock_cm = MagicMock()
                             mock_conn = MagicMock()
-                            mock_conn.__enter__.return_value.cursor.return_value.rowcount = 0
+                            mock_cm.__enter__.return_value = mock_conn
+                            mock_cm.__exit__.return_value = None
                             with patch.object(
-                                production_update, "get_sql_conn", return_value=mock_conn
+                                production_update, "get_sql_conn", return_value=mock_cm
                             ):
                                 with patch.object(
                                     production_update,
-                                    "fetch_well_mapping",
-                                    return_value=({}, {}),
+                                    "fetch_well_master_lookups",
+                                    return_value={
+                                        "composite_map": {},
+                                        "fallback_map": {},
+                                        "uwi_lookup": {},
+                                        "pad_lookup": {},
+                                        "enersight_lookup": {},
+                                    },
                                 ):
                                     with patch.object(
                                         production_update,

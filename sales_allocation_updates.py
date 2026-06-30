@@ -34,6 +34,221 @@ def calendar_month_bounds(month_start: MonthStart) -> Tuple[date, date, int]:
     return first, last, days
 
 
+# PCE_CDA row falls in the Allocation_Factors calendar month for ``a``.
+_CDA_AF_MONTH_MATCH = """
+    c.ProdDate >= DATEFROMPARTS(YEAR(a.MonthStartDate), MONTH(a.MonthStartDate), 1)
+    AND c.ProdDate <= EOMONTH(a.MonthStartDate)
+"""
+
+# AF month row for a CDA production day (MonthStartDate is first of month).
+_CDA_AF_MONTH_FROM_PRODDATE = """
+    a.MonthStartDate = DATEFROMPARTS(YEAR(c.ProdDate), MONTH(c.ProdDate), 1)
+"""
+
+_PRODUCTION_TC_EXCLUDE = """
+    (w.[Exception] IS NULL OR w.[Exception] = '' OR w.[Exception] = 'N')
+    AND p.[Well Name] NOT LIKE '% - TC'
+    AND p.[Well Name] NOT LIKE 'YE2%'
+"""
+
+
+def _af_month_window_sql(
+    date_window: Optional[Tuple[date, date]],
+) -> Tuple[str, List]:
+    """Optional overlap filter for batched AF passes (routine rolling window)."""
+    if date_window is None:
+        return "", []
+    range_start, range_end = date_window
+    return (
+        " AND a.MonthStartDate <= ? AND EOMONTH(a.MonthStartDate) >= ?",
+        [range_end, range_start],
+    )
+
+
+def apply_valnav_allocation_bulk(
+    conn,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+    update_production: bool = True,
+    date_window: Optional[Tuple[date, date]] = None,
+) -> Tuple[int, int]:
+    """
+    ValNav allocation on PCE_CDA (and optionally PCE_Production) for all AF months
+    in one pass per target table (replaces per-month loops on full rebuild).
+    """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    window_sql, window_params = _af_month_window_sql(date_window)
+    cursor = conn.cursor()
+
+    _log(lf.detail("Applying ValNav allocation to PCE_CDA (all months, batched)…"))
+    cursor.execute(
+        f"""
+        UPDATE c SET
+            c.[Gas - S2 Production] = a.WH_to_S2_AllocFactor
+                * ISNULL(c.[Gathered_Gas_Production], 0)
+        FROM PCE_CDA c
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+        WHERE {_CDA_AF_MONTH_MATCH}
+          AND a.WH_to_S2_AllocFactor IS NOT NULL
+          {window_sql}
+        """,
+        window_params,
+    )
+    s2_cda_n = cursor.rowcount
+    cursor.execute(
+        f"""
+        UPDATE c SET
+            c.[Condensate - Sales Production] = a.WH_to_Sales_Cond_AllocFactor
+                                                * c.[Condensate_WH_Production]
+        FROM PCE_CDA c
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+        WHERE {_CDA_AF_MONTH_MATCH}
+          AND a.WH_to_Sales_Cond_AllocFactor IS NOT NULL
+          {window_sql}
+        """,
+        window_params,
+    )
+    cond_cda_n = cursor.rowcount
+    conn.commit()
+    _log(
+        lf.detail(
+            f"PCE_CDA rows touched — S2: {lf.num(s2_cda_n)}, "
+            f"condensate sales: {lf.num(cond_cda_n)}"
+        )
+    )
+
+    if not update_production:
+        return s2_cda_n, cond_cda_n
+
+    _log(lf.detail("Syncing PCE_Production (Gas S2, condensate sales only, batched)…"))
+    cursor.execute(
+        f"""
+        UPDATE p SET
+            p.[Gas S2 Production (10³m³)] = c.[Gas - S2 Production]
+        FROM PCE_Production p
+        INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
+        INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+           AND {_CDA_AF_MONTH_FROM_PRODDATE}
+        WHERE {_PRODUCTION_TC_EXCLUDE}
+          AND a.WH_to_S2_AllocFactor IS NOT NULL
+          {window_sql}
+        """,
+        window_params,
+    )
+    s2_prod_n = cursor.rowcount
+    cursor.execute(
+        f"""
+        UPDATE p SET
+            p.[Condensate Sales (m³/d)] = c.[Condensate - Sales Production]
+        FROM PCE_Production p
+        INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
+        INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+           AND {_CDA_AF_MONTH_FROM_PRODDATE}
+        WHERE {_PRODUCTION_TC_EXCLUDE}
+          AND a.WH_to_Sales_Cond_AllocFactor IS NOT NULL
+          {window_sql}
+        """,
+        window_params,
+    )
+    cond_prod_n = cursor.rowcount
+    conn.commit()
+    _log(
+        lf.detail(
+            f"PCE_Production rows touched — S2: {lf.num(s2_prod_n)}, "
+            f"condensate sales: {lf.num(cond_prod_n)}"
+        )
+    )
+    return s2_cda_n, cond_cda_n
+
+
+def apply_full_sales_ratios_bulk(
+    conn,
+    *,
+    log: Optional[Callable[[str], None]] = None,
+    update_production: bool = True,
+    date_window: Optional[Tuple[date, date]] = None,
+) -> Tuple[int, int]:
+    """
+    Public Sales pass for all AF months in one batched pass per target table.
+    """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+
+    window_sql, window_params = _af_month_window_sql(date_window)
+    cursor = conn.cursor()
+
+    _log(lf.detail("Updating PCE_CDA ([Gas - Sales Production] from Accumap, batched)…"))
+    cursor.execute(
+        f"""
+        UPDATE c SET
+            c.[Gas - Sales Production] = CASE
+                WHEN ISNULL(a.Sales_Gas, 0) > 0
+                THEN ISNULL(a.WH_to_Sales_AllocFactor, 1.0) * c.[GasWH_Production]
+                ELSE ISNULL(a.Sales_Gas, 0) / CAST(DAY(EOMONTH(a.MonthStartDate)) AS FLOAT)
+            END
+        FROM PCE_CDA c
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+        WHERE {_CDA_AF_MONTH_MATCH}
+          {window_sql}
+        """,
+        window_params,
+    )
+    cda_gas_rows = cursor.rowcount
+
+    _log(lf.detail("Recalculating PCE_CDA [Sales CGR Ratio] (batched)…"))
+    cursor.execute(
+        f"""
+        UPDATE c SET
+            c.[Sales CGR Ratio] = IIF(c.[Gas - Sales Production] > 0,
+                c.[Condensate - Sales Production] / c.[Gas - Sales Production],
+                0)
+        FROM PCE_CDA c
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+        WHERE {_CDA_AF_MONTH_MATCH}
+          {window_sql}
+        """,
+        window_params,
+    )
+    conn.commit()
+
+    if not update_production:
+        return cda_gas_rows, 0
+
+    cursor.execute(
+        f"""
+        UPDATE p SET
+            p.[Gas S2 Production (10³m³)] = c.[Gas - S2 Production],
+            p.[Gas Sales Production (10³m³)] = c.[Gas - Sales Production],
+            p.[Condensate Sales (m³/d)] = c.[Condensate - Sales Production],
+            p.[Sales CGR (m³/e³m³)] = c.[Sales CGR Ratio]
+        FROM PCE_Production p
+        INNER JOIN PCE_WM w ON p.[Well Name] = w.[Composite Name]
+        INNER JOIN PCE_CDA c ON w.[Well Name] = c.[Well Name] AND p.[Date] = c.ProdDate
+        INNER JOIN Allocation_Factors a
+            ON c.[Well Name] = a.[Well Name]
+           AND {_CDA_AF_MONTH_FROM_PRODDATE}
+        WHERE {_PRODUCTION_TC_EXCLUDE}
+          {window_sql}
+        """,
+        window_params,
+    )
+    production_rows = cursor.rowcount
+    conn.commit()
+    return cda_gas_rows, production_rows
+
+
 def production_well_name_from_wm(composite: Any, well_name: Any) -> Optional[str]:
     """
     Key stored on PCE_Production.[Well Name] — Composite Name when set, else Well Name.
