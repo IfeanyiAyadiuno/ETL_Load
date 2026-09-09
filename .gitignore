@@ -1,0 +1,49 @@
+# Python build / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller / build outputs
+build/
+dist/
+*.spec.bak
+
+# IDE / editor settings
+.vscode/
+.idea/
+.cursor/
+*.swp
+
+# OS / Office artifacts
+.DS_Store
+Thumbs.db
+~$*.xlsx
+~$*.xlsm
+~$*.docx
+
+# Secrets and local config
+.env
+*.env.local
+secrets.*
+settings.ini
+access_token.txt
+*.p8
+rsa_key.pub
+
+# Local scratch / log files
+output.txt
+*.log
+
+# Runtime CSVs produced by the app
+unmatched_*.csv
+accumap_unmatched_*.csv
+*_unmatched_*.csv
