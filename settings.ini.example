@@ -1,0 +1,19 @@
+[SQL]
+server = YOUR_SQL_SERVER_HOST
+database = YOUR_DATABASE_NAME
+
+[WHITSON]
+client = your_whitson_client
+client_id = your_client_id
+client_secret = your_client_secret
+project_id = 2
+; Optional: path to corporate proxy/root CA PEM if SSL verify fails on some PCs
+; ca_bundle = C:/Company/certs/corp-root-ca.pem
+
+[PATHS]
+valnav_template = C:/Company/Data/ValNav/Production-Accounting-Template.xlsx
+accumap_template = C:/Company/Data/Accumap/Public-Data-Accumap.xlsx
+survey_file = C:/Company/Data/Survey/Survey.xlsx
+type_curves_file = C:/Company/Data/TypeCurves/PCE_TCs.xlsx
+whitson_file = C:/Company/Data/Whitson/Whitson_Mass_Upload.xlsx
+monthly_forecasts_template = C:/Company/Data/Forecasts/Monthly_Forecasts_Template.xlsx
