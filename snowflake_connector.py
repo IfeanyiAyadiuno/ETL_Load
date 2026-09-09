@@ -21,6 +21,47 @@ def _resolve_private_key_path(raw_path: str) -> Path:
     return path.resolve()
 
 
+def _load_snowflake_env() -> None:
+    env_path = _app_dir() / ".env"
+    load_dotenv(dotenv_path=env_path)
+
+
+def snowflake_target_label() -> str:
+    """Human-readable Snowflake account/user/database from ``.env``."""
+    _load_snowflake_env()
+    account = os.getenv("SNOWFLAKE_ACCOUNT") or "?"
+    user = os.getenv("SNOWFLAKE_USER") or "?"
+    database = os.getenv("SNOWFLAKE_DATABASE") or "?"
+    warehouse = os.getenv("SNOWFLAKE_WAREHOUSE") or "?"
+    return f"{user}@{account} / {database} (warehouse: {warehouse})"
+
+
+def probe_snowflake_connection() -> tuple[bool, str]:
+    """
+    Open a Snowflake connection and verify the session context.
+
+    Returns (success, message) for GUI status labels.
+    """
+    try:
+        sf = SnowflakeConnector()
+        conn = sf.connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_DATABASE()"
+            )
+            row = cur.fetchone()
+            user, role, wh, db = row if row else ("?", "?", "?", "?")
+            return (
+                True,
+                f"Connected to Snowflake as {user} (role: {role}, warehouse: {wh}, database: {db})",
+            )
+        finally:
+            sf.close()
+    except Exception as exc:
+        return False, f"Cannot connect to Snowflake ({snowflake_target_label()}): {exc}"
+
+
 class SnowflakeConnector:
     def __init__(self):
         env_path = _app_dir() / ".env"

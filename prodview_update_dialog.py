@@ -48,6 +48,18 @@ _QUICK_UPDATE_INFO = (
 from prodview_date_bounds import PRODVIEW_DATA_LAG_DAYS, prodview_effective_end_date
 
 
+class SnowflakeProbeWorker(QThread):
+    """Background Snowflake connectivity check (avoids blocking dialog open)."""
+
+    finished_signal = pyqtSignal(bool, str)
+
+    def run(self):
+        from snowflake_connector import probe_snowflake_connection
+
+        ok, msg = probe_snowflake_connection()
+        self.finished_signal.emit(ok, msg)
+
+
 class ProdviewUpdateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,6 +68,7 @@ class ProdviewUpdateDialog(QDialog):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
         self.worker = None
+        self._snowflake_probe_worker = None
         self._heartbeat_timer = None
         self._run_start_ts = None
         self.setStyleSheet(DIALOG_BASE)
@@ -102,6 +115,18 @@ class ProdviewUpdateDialog(QDialog):
         sql_layout.addWidget(self.sql_status)
         sql_group.layout().addLayout(sql_layout)
         layout.addWidget(sql_group)
+
+        snowflake_group = self.create_group("Snowflake source")
+        snowflake_layout = QVBoxLayout()
+        self.snowflake_target_label = QLabel()
+        self.snowflake_target_label.setWordWrap(True)
+        self.snowflake_target_label.setStyleSheet("color: #334155; font-size: 13px;")
+        snowflake_layout.addWidget(self.snowflake_target_label)
+        self.snowflake_status = QLabel("⏳ Checking Snowflake connection…")
+        self.snowflake_status.setWordWrap(True)
+        snowflake_layout.addWidget(self.snowflake_status)
+        snowflake_group.layout().addLayout(snowflake_layout)
+        layout.addWidget(snowflake_group)
 
         options_group = self.create_group("Options", show_info=True)
         self.options_info_btn = options_group.info_button
@@ -195,8 +220,14 @@ class ProdviewUpdateDialog(QDialog):
         attach_dialog_scroll_and_actions(main_layout, scroll, button_layout)
 
         self._sql_ok = False
+        self._snowflake_ok = False
+        self.run_btn.setEnabled(False)
         self.update_info_text()
         QTimer.singleShot(0, self.refresh_sql_status)
+        QTimer.singleShot(0, self.refresh_snowflake_status)
+
+    def _update_run_button_state(self):
+        self.run_btn.setEnabled(self._sql_ok and self._snowflake_ok)
 
     def refresh_sql_status(self):
         """Reload Settings SQL target and verify connectivity."""
@@ -217,7 +248,40 @@ class ProdviewUpdateDialog(QDialog):
             self.sql_status.setText(f"❌ {msg}")
             self.sql_status.setStyleSheet("color: #dc3545; font-size: 13px;")
             self._sql_ok = False
-        self.run_btn.setEnabled(self._sql_ok)
+        self._update_run_button_state()
+
+    def refresh_snowflake_status(self):
+        """Load Snowflake target from .env and verify connectivity."""
+        from snowflake_connector import snowflake_target_label
+
+        self.snowflake_target_label.setText(f"Target: {snowflake_target_label()}")
+        self.snowflake_status.setText("⏳ Checking Snowflake connection…")
+        self.snowflake_status.setStyleSheet("color: #64748b; font-size: 13px;")
+        self._snowflake_ok = False
+        self._update_run_button_state()
+
+        if (
+            self._snowflake_probe_worker is not None
+            and self._snowflake_probe_worker.isRunning()
+        ):
+            return
+
+        self._snowflake_probe_worker = SnowflakeProbeWorker()
+        self._snowflake_probe_worker.finished_signal.connect(
+            self._on_snowflake_probe_finished
+        )
+        self._snowflake_probe_worker.start()
+
+    def _on_snowflake_probe_finished(self, ok: bool, msg: str):
+        if ok:
+            self.snowflake_status.setText(f"✅ {msg}")
+            self.snowflake_status.setStyleSheet("color: #1a4d3e; font-size: 13px;")
+            self._snowflake_ok = True
+        else:
+            self.snowflake_status.setText(f"❌ {msg}")
+            self.snowflake_status.setStyleSheet("color: #dc3545; font-size: 13px;")
+            self._snowflake_ok = False
+        self._update_run_button_state()
 
     def handle_close(self):
         """
@@ -238,7 +302,7 @@ class ProdviewUpdateDialog(QDialog):
                 self.worker.wait(5000)
                 self.log_result("\n⚠️ Operation cancelled by user")
                 self.progress_bar.setVisible(False)
-                self.run_btn.setEnabled(self._sql_ok)
+                self._update_run_button_state()
                 self.close_btn.setEnabled(True)
                 self.status_label.setText("Cancelled")
             else:
@@ -316,6 +380,18 @@ class ProdviewUpdateDialog(QDialog):
                 self,
                 "SQL connection failed",
                 self.sql_status.text().replace("❌ ", ""),
+            )
+            return
+
+        from snowflake_connector import probe_snowflake_connection
+
+        ok, snowflake_msg = probe_snowflake_connection()
+        self._on_snowflake_probe_finished(ok, snowflake_msg)
+        if not ok:
+            QMessageBox.critical(
+                self,
+                "Snowflake connection failed",
+                self.snowflake_status.text().replace("❌ ", ""),
             )
             return
 
@@ -450,7 +526,7 @@ class ProdviewUpdateDialog(QDialog):
         set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(100)
         self.progress_bar.setVisible(False)
-        self.run_btn.setEnabled(self._sql_ok)
+        self._update_run_button_state()
         self._reset_close_button()
         self.lag_spin.setEnabled(True)
 
@@ -491,7 +567,7 @@ class ProdviewUpdateDialog(QDialog):
         set_progress_bar_percent_mode(self.progress_bar)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
-        self.run_btn.setEnabled(self._sql_ok)
+        self._update_run_button_state()
         self._reset_close_button()
         self.lag_spin.setEnabled(True)
         self.status_label.setText("Error")
