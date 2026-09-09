@@ -529,11 +529,7 @@ class WellMasterDialog(QDialog):
         self.import_btn.setToolTip("Query Snowflake for new wells")
         self.import_btn.clicked.connect(self.import_new_wells)
 
-<<<<<<< HEAD
-        self.add_column_btn = QPushButton("➕  Add Attribute")
-=======
         self.add_column_btn = QPushButton("➕  Add Column")
->>>>>>> 7836e4dd58780a7e81d7c476cde1ec01ffb1baca
         self.add_column_btn.setStyleSheet(btn_toolbar(_NEUTRAL))
         self.add_column_btn.setToolTip(
             "Create a new column on PCE_WM and show it in the Additional Fields dialog"

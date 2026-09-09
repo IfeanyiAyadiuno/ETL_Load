@@ -5,9 +5,6 @@
 **Last updated:** June 2026  
 **Audience:** Developers maintaining the Production Update System  
 
-<<<<<<< HEAD
-
-=======
 **Related docs**
 
 | Document | Purpose |
@@ -15,7 +12,6 @@
 | [PRODUCTION_UPDATE_GUIDE.md](./PRODUCTION_UPDATE_GUIDE.md) | Operator runbook (screenshots, monthly checklist) |
 | [HANDOFF_FILE_INVENTORY.md](./HANDOFF_FILE_INVENTORY.md) | Which files ship with the app |
 | [DATABASE_INDEXES.md](./DATABASE_INDEXES.md) | Recommended SQL Server indexes |
->>>>>>> 7836e4dd58780a7e81d7c476cde1ec01ffb1baca
 
 ---
 
