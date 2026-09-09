@@ -1,3 +1,7 @@
+# PyInstaller output — never normalize line endings (avoids LF/CRLF warnings on Windows)
+dist/** -text
+build/** -text
+
 dist/ProductionUpdate.exe filter=lfs diff=lfs merge=lfs -text
 build/ProductionUpdate/ProductionUpdate.pkg filter=lfs diff=lfs merge=lfs -text
 *.exe filter=lfs diff=lfs merge=lfs -text

@@ -36,6 +36,8 @@ Thumbs.db
 secrets.*
 settings.ini
 access_token.txt
+*.p8
+rsa_key.pub
 
 # Local scratch / log files
 output.txt
