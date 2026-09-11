@@ -1754,8 +1754,9 @@ def main(cancel_event=None, progress_callback=None, data_lag_days=None, log_call
         )
         window_start, window_end = sf_start, sf_end
         progress.phase_done("snowflake")
-        cda_max_after = query_pce_cda_max_date()
-        log(lf.detail(f"PCE_CDA max date after Snowflake refresh: {cda_max_after or '—'}"))
+        from prodview_update_gui import _log_cda_end_date_check
+
+        _log_cda_end_date_check(log, conn, end_cap)
         timer.mark("Snowflake → PCE_CDA full lifespan refresh")
 
         if aborted():
