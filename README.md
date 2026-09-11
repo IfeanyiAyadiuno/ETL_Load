@@ -93,10 +93,10 @@ python -m pytest -q
 
 ```bash
 pip install -r requirements-dev.txt
-pyinstaller --clean "PCE_RE_Production_Update V2.4.spec"
+pyinstaller --clean "PCE_RE_Production_Update V3.0.spec"
 ```
 
-Output: `dist/PCE_RE_Production_Update V2.4/PCE_RE_Production_Update V2.4.exe` plus `_internal/`. Ship the full folder with `settings.ini` (include `[WHITSON]` API credentials), `whitson_imperial.ini`, `survey_mapping_presets.json`, `.env`, and `images/`.
+Output: `dist/PCE_RE_Production_Update V3.0/PCE_RE_Production_Update V3.0.exe` plus `_internal/`. Ship the full folder with `settings.ini` (include `[WHITSON]` API credentials), `whitson_imperial.ini`, `survey_mapping_presets.json`, `.env`, and `images/`.
 
 ## Project layout
 

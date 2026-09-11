@@ -75,8 +75,10 @@ class SnowflakeConnector:
 
         account = os.getenv("SNOWFLAKE_ACCOUNT")
         user = os.getenv("SNOWFLAKE_USER")
-        private_key_path_raw = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH")
-        private_key_passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
+        private_key_path_raw = (os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH") or "").strip()
+        private_key_passphrase = (
+            os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE") or ""
+        ).strip()
         warehouse = os.getenv("SNOWFLAKE_WAREHOUSE")
         database = os.getenv("SNOWFLAKE_DATABASE")
         schema = os.getenv("SNOWFLAKE_SCHEMA")
@@ -126,17 +128,25 @@ class SnowflakeConnector:
             self.conn = snowflake.connector.connect(**conn_params)
             return self.conn
         except Exception as e:
+            err_text = str(e)
+            hint = ""
+            if "private key is not encrypted" in err_text.lower():
+                hint = (
+                    "\n  Hint: your .p8 key is unencrypted — remove "
+                    "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE from .env (or leave it blank).\n"
+                )
             error_msg = (
                 f"Failed to connect to Snowflake:\n"
                 f"  Account: {account}\n"
                 f"  User: {user}\n"
                 f"  Private key: {private_key_file}\n"
-                f"  Error: {str(e)}\n\n"
+                f"  Error: {err_text}\n\n"
                 f"Please check:\n"
                 f"  1. Snowflake key-pair credentials are correct\n"
                 f"  2. The public key is registered for this user in Snowflake\n"
                 f"  3. Network connectivity\n"
                 f"  4. Snowflake account is accessible"
+                f"{hint}"
             )
             raise ConnectionError(error_msg) from e
 

@@ -11,7 +11,7 @@ import time
 from functools import partial
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import log_format as lf
 from db_connection import get_sql_conn
@@ -23,6 +23,7 @@ from pce_production_schema import (
     df_to_insert_rows,
 )
 from prodview_date_bounds import (
+    PRODVIEW_DATA_LAG_DAYS,
     full_rebuild_snowflake_range,
     prodview_effective_end_date,
     rolling_window_snowflake_range,
@@ -39,6 +40,36 @@ def _emit_log(log_callback, msg):
 # Snowflake query definitions  (cgr+water combined into one query)
 # ---------------------------------------------------------------------------
 
+# Compare on calendar date — ``DTTM <= end_date`` alone can drop the last day when
+# DTTM carries a time component.
+_SF_DATE_RANGE_WHERE = "CAST(DTTM AS DATE) >= %s AND CAST(DTTM AS DATE) <= %s"
+
+
+def _log_cda_end_date_check(log, conn, expected_end: date, *, label: str = "PCE_CDA"):
+    """Warn when CDA max ProdDate is short of the configured Snowflake end date."""
+    cda_max = query_pce_cda_max_date(conn)
+    cda_min = query_pce_cda_min_date(conn)
+    log(lf.detail(f"{label} ProdDate span: {cda_min or '—'} → {cda_max or '—'}"))
+    if cda_max is None:
+        log(lf.warn(f"{label} is empty after Snowflake refresh (expected through {expected_end})."))
+        return
+    if cda_max < expected_end:
+        log(
+            lf.warn(
+                f"{label} max date {cda_max} is before expected end {expected_end}. "
+                "Confirm Prodview/Snowflake source has newer days, or check the PC "
+                "calendar date and end-date lag in the dialog."
+            )
+        )
+    elif cda_max > expected_end:
+        log(
+            lf.warn(
+                f"{label} max date {cda_max} is after expected end {expected_end}; "
+                "future rows will be trimmed on routine update."
+            )
+        )
+
+
 _SF_QUERIES = {
     "ecf": (
         "GASIDREC",
@@ -48,7 +79,7 @@ _SF_QUERIES = {
             CAST(DTTM AS DATE) AS ProdDate,
                 EFFLUENTFACTOR AS ECF_Ratio
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEcf
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
     "gaswh": (
@@ -60,7 +91,7 @@ _SF_QUERIES = {
                 VOLENTERGAS AS GasWH_Production,
                 DURONOR AS OnProdHours
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitMeterOrificeEntry
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
     "cgr_water": (
@@ -75,7 +106,7 @@ _SF_QUERIES = {
             END AS CGR_Ratio,
             VOLWATER AS AllocatedWater_Rate
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompGathMonthDayCalc
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
     "wgr": (
@@ -86,7 +117,7 @@ _SF_QUERIES = {
                 CAST(DTTM AS DATE) AS ProdDate,
                 WGR AS WGR_Ratio
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompRatios
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
     "pressures": (
@@ -99,7 +130,7 @@ _SF_QUERIES = {
                 PRESCAS AS CasingPressure,
                 SZCHOKE AS ChokeSize
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvUnitCompParam
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
     "alloc": (
@@ -113,7 +144,7 @@ _SF_QUERIES = {
                 VOLPRODGATHWATER AS Gathered_Water_Production,
                 VOLNEWPRODALLOCNGL AS NGL_Production
             FROM PACIFICCANBRIAM_PV30.UNITSMETRIC.pvunitallocmonthday
-        WHERE DTTM >= %s AND DTTM <= %s
+        WHERE """ + _SF_DATE_RANGE_WHERE + """
         """,
     ),
 }
@@ -823,6 +854,13 @@ def run_quick_update(
         "SNOWFLAKE → CDA + PRODUCTION — PRODVIEW/SNOWFLAKE DAILY PRODUCTION RETRIEVE",
         Range=f"{start_first} through {end_last} (rolling 12 months)",
     ))
+    lag_days = PRODVIEW_DATA_LAG_DAYS if data_lag_days is None else int(data_lag_days)
+    log(
+        lf.detail(
+            f"Local calendar today: {date.today()}; "
+            f"effective end: {end_last} (today − {lag_days} day(s))"
+        )
+    )
     total_start = time.time()
     timer = lf.StepTimer(log_fn=log)
     conn = None
@@ -888,6 +926,7 @@ def run_quick_update(
             progress_callback=progress_callback,
             data_lag_days=data_lag_days,
         )
+        _log_cda_end_date_check(log, conn, end_last)
         progress(55)
         timer.mark("Snowflake → PCE_CDA refresh")
 
