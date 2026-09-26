@@ -17,7 +17,7 @@ from pce_production_schema import (
     build_production_insert_sql,
     executemany_with_row_fallback,
 )
-from db_connection import get_sql_conn, SQL_DATABASE, SQL_SERVER
+from db_connection import ensure_sql_conn, get_sql_conn, SQL_DATABASE, SQL_SERVER
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -1292,17 +1292,31 @@ def _dataframe_for_sequence_source(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _production_sequence_select_sql(*, exclude_well_names: Optional[List[str]] = None) -> Tuple[str, List]:
-    """Build SELECT for sequence rebuild; optionally skip rolling-window wells."""
-    sql = _PRODUCTION_SEQUENCE_SELECT_SQL
+def _production_sequence_where_sql(
+    *,
+    exclude_well_names: Optional[List[str]] = None,
+    table_alias: Optional[str] = None,
+) -> Tuple[str, List]:
+    """WHERE clause for sequence rebuild reads (excludes type-curve wells)."""
+    wn_col = f"{table_alias}.[Well Name]" if table_alias else "[Well Name]"
+    clauses = [
+        f"{wn_col} NOT LIKE N'% - TC'",
+        f"{wn_col} NOT LIKE N'YE2%'",
+    ]
     params: List = []
     if exclude_well_names:
         names = sorted({str(w).strip() for w in exclude_well_names if str(w).strip()})
         if names:
             placeholders = ",".join("?" for _ in names)
-            sql += f" WHERE [Well Name] NOT IN ({placeholders})"
+            clauses.append(f"{wn_col} NOT IN ({placeholders})")
             params.extend(names)
-    sql += " ORDER BY [Well Name], [Date]"
+    return " WHERE " + " AND ".join(clauses), params
+
+
+def _production_sequence_select_sql(*, exclude_well_names: Optional[List[str]] = None) -> Tuple[str, List]:
+    """Build SELECT for sequence rebuild; optionally skip rolling-window wells."""
+    where_sql, params = _production_sequence_where_sql(exclude_well_names=exclude_well_names)
+    sql = _PRODUCTION_SEQUENCE_SELECT_SQL + where_sql + " ORDER BY [Well Name], [Date]"
     return sql, params
 
 
@@ -1460,17 +1474,15 @@ def fetch_pce_production_for_sequence_rebuild(
 ):
     """Load PCE_Production rows needed to recalculate sequences."""
     log_fn = log or print
-    count_sql = "SELECT COUNT(*) FROM dbo.PCE_Production"
-    count_params: List = []
     excluded_names: List[str] = []
     if exclude_well_names:
         excluded_names = sorted(
             {str(w).strip() for w in exclude_well_names if str(w).strip()}
         )
-        if excluded_names:
-            placeholders = ",".join("?" for _ in excluded_names)
-            count_sql += f" WHERE [Well Name] NOT IN ({placeholders})"
-            count_params.extend(excluded_names)
+    where_sql, count_params = _production_sequence_where_sql(
+        exclude_well_names=excluded_names or None,
+    )
+    count_sql = "SELECT COUNT(*) FROM dbo.PCE_Production" + where_sql
     count_cur = conn.cursor()
     count_cur.execute(count_sql, count_params or None)
     row_count = count_cur.fetchone()[0] or 0
@@ -1534,9 +1546,14 @@ def rebuild_all_production_sequences_from_scratch(
     def aborted():
         return cancel_event is not None and cancel_event.is_set()
 
-    own_conn = conn is None
-    if own_conn:
+    close_conn = conn is None
+    if conn is None:
         conn = get_sql_conn()
+    else:
+        refreshed = ensure_sql_conn(conn)
+        if refreshed is not conn:
+            close_conn = True
+            conn = refreshed
 
     try:
         if aborted():
@@ -1544,7 +1561,8 @@ def rebuild_all_production_sequences_from_scratch(
 
         activity_msg = (
             "Recalculating Days Seq, Day Seq UPRT, cumulatives, and monthly "
-            "averages for all wells in PCE_Production (from scratch)"
+            "averages for gathered wells in PCE_Production (from scratch; "
+            "type-curve rows excluded)"
         )
         log_fn(lf.step(activity_msg))
         seq_frames: List[pd.DataFrame] = []
@@ -1602,7 +1620,7 @@ def rebuild_all_production_sequences_from_scratch(
         )
         return {"ok": True, "rows_updated": updated, "wells": wells}
     finally:
-        if own_conn and conn is not None:
+        if close_conn and conn is not None:
             conn.close()
 
 

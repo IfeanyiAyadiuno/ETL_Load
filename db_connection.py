@@ -167,6 +167,27 @@ def probe_sql_connection() -> tuple[bool, str]:
         return False, f"Cannot connect to {sql_target_label()}: {exc}"
 
 
+def ensure_sql_conn(conn=None):
+    """
+    Return a live pyodbc connection.
+
+    Reuses *conn* when ``SELECT 1`` succeeds; otherwise closes a dead *conn* (if any)
+    and opens a new one. Used after long-running jobs that may exceed idle timeouts.
+    """
+    if conn is not None:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            return conn
+        except pyodbc.Error:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return get_sql_conn()
+
+
 def get_sql_conn():
     """Create connection to SQL Server with error handling"""
     conn_str = (

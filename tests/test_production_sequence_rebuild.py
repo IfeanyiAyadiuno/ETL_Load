@@ -55,6 +55,8 @@ def test_production_sequence_select_excludes_window_wells():
     sql, params = _production_sequence_select_sql(exclude_well_names=["A", "B"])
     assert "NOT IN" in sql
     assert params == ["A", "B"]
+    assert "NOT LIKE N'% - TC'" in sql
+    assert "NOT LIKE N'YE2%'" in sql
 
 
 def test_rebuild_all_production_sequences_uses_staging_bulk_update():
