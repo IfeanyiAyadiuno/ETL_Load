@@ -542,9 +542,11 @@ class WellMasterDialog(QDialog):
         self.save_btn.setToolTip("Save edits on checked wells")
         self.save_btn.clicked.connect(self.save_selected)
 
-        self.stage_btn = QPushButton("➕  Stage")
+        self.stage_btn = QPushButton("↪️  Transfer New Wells")
         self.stage_btn.setStyleSheet(btn_toolbar(_PRIMARY))
-        self.stage_btn.setToolTip("Move checked pending wells to the Add New Wells tab")
+        self.stage_btn.setToolTip(
+            "Move checked pending wells to the Add New Wells tab for completion"
+        )
         self.stage_btn.clicked.connect(self.stage_selected_wells)
 
         self.refresh_btn = QPushButton("🔄  Refresh")
@@ -1347,7 +1349,8 @@ class WellMasterDialog(QDialog):
             wn = (well.get('well_name') or '').strip()
             if wn not in self._staged_well_names():
                 self.status_label.setText(
-                    f"{well.get('well_name', 'Well')} selected — click  Stage Selected  to add to completion queue"
+                    f"{well.get('well_name', 'Well')} selected — click Transfer New Wells "
+                    "to add to the completion queue"
                 )
 
     def filter_wells(self):
