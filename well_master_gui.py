@@ -10,19 +10,21 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
     QLineEdit, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QCheckBox, QFileDialog, QMessageBox, QWidget, QComboBox, QTextEdit,
-    QAbstractItemView,
+    QAbstractItemView, QButtonGroup,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtWidgets import QProgressBar, QScrollArea
 from PyQt5.QtGui import QColor, QKeySequence
 from PyQt5.QtWidgets import QApplication
+import time
+
 import log_format as lf
 from styles import (
     DIALOG_BASE, card_style, dialog_title_style, section_title_style,
     tab_widget_style, table_style, btn_style, btn_toolbar, btn_neutral, btn_primary,
     btn_success, btn_brand, btn_danger, search_input_style, progress_bar_style,
     _BRAND, _PRIMARY, _SUCCESS, _NEUTRAL, _DANGER,
-    configure_dialog_window_mode,
+    configure_dialog_window_mode, set_progress_bar_busy,
 )
 from well_master_db import WellMasterDB
 from well_master_delegates import PlainTextDelegate, ComboBoxDelegate
@@ -44,6 +46,37 @@ BOUNDED_COL = 19
 ADDITIONAL_FIELDS_COL = 20
 ADDITIONAL_FIELDS_COL_WIDTH = 130
 BOUNDED_OPTIONS = ["", "Bounded", "Unbounded"]
+
+_WELL_FILTER_CHIP_STYLE = """
+QPushButton {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 5px 14px;
+    background-color: #f8fafc;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 28px;
+}
+QPushButton:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+}
+QPushButton:checked {
+    background-color: #002654;
+    color: #ffffff;
+    border-color: #002654;
+}
+QPushButton:disabled {
+    color: #94a3b8;
+    background-color: #f1f5f9;
+}
+"""
+
+_TOOLBAR_GROUP_LABEL_STYLE = (
+    "color: #64748b; font-size: 10px; font-weight: 700; "
+    "letter-spacing: 0.04em; text-transform: uppercase;"
+)
 
 
 class WellMasterLoadWorker(QThread):
@@ -114,7 +147,7 @@ class WellMasterSnowflakeImportWorker(QThread):
                 normalized = re.sub(r'\s+', ' ', normalized).strip()
                 return normalized.upper()
 
-            self.status_signal.emit("Querying Snowflake for new wells...")
+            self.status_signal.emit("Connecting to Snowflake…")
             query = """
             SELECT DISTINCT
                 u.NAME         AS Unit_Name,
@@ -134,6 +167,7 @@ class WellMasterSnowflakeImportWorker(QThread):
             ORDER BY u.NAME, c.IDREC;
             """
             sf = SnowflakeConnector()
+            self.status_signal.emit("Running Snowflake query (this may take several minutes)…")
             df = sf.query(query)
             sf.close()
 
@@ -141,6 +175,9 @@ class WellMasterSnowflakeImportWorker(QThread):
                 self.finished_signal.emit({"new_daily_wells": [], "new_tester_wells": []})
                 return
 
+            self.status_signal.emit(
+                f"Processing {len(df)} Snowflake row(s) for new wells…"
+            )
             df.columns = [c.upper() for c in df.columns]
             existing_names = set()
             existing_gas = set()
@@ -340,6 +377,15 @@ class WellMasterDialog(QDialog):
         self._save_worker = None
         self._import_worker = None
         self._insert_worker = None
+        self._pending_filter = "all"
+        self._import_started_at = None
+        self._import_elapsed_timer = QTimer(self)
+        self._import_elapsed_timer.timeout.connect(self._tick_snowflake_import_elapsed)
+        self._filter_chip_group = None
+        self.filter_chip_all = None
+        self.filter_chip_complete = None
+        self.filter_chip_pending = None
+        self.snowflake_progress = None
         # Column widths (used in both tabs)
         # Index: 0    1            2           3               4          5       6            7
         #        ""   Well Name    GasIDREC    PressuresIDREC  Formation  Layer   Fault Block  Pad Name
@@ -445,7 +491,7 @@ class WellMasterDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # ── Toolbar (single row, compact) ──
+        # ── Toolbar (grouped actions) ──
         toolbar_frame = QFrame()
         toolbar_frame.setStyleSheet("""
             QFrame {
@@ -456,12 +502,11 @@ class WellMasterDialog(QDialog):
             }
         """)
         toolbar = QHBoxLayout(toolbar_frame)
-        toolbar.setSpacing(6)
-        toolbar.setContentsMargins(10, 6, 10, 6)
+        toolbar.setSpacing(10)
+        toolbar.setContentsMargins(10, 8, 10, 8)
 
-        # Search
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍  Search wells...")
+        self.search_input.setPlaceholderText("🔍  Search wells…")
         self.search_input.setStyleSheet("""
             QLineEdit {
                 background-color: #f8fafc;
@@ -492,14 +537,6 @@ class WellMasterDialog(QDialog):
         """)
         clear_search.clicked.connect(lambda: self.search_input.clear())
 
-        def _sep():
-            s = QFrame()
-            s.setFrameShape(QFrame.VLine)
-            s.setStyleSheet("color: #e2e8f0;")
-            s.setFixedWidth(16)
-            return s
-
-        # Selection actions
         self.save_btn = QPushButton("💾  Save")
         self.save_btn.setStyleSheet(btn_toolbar(_BRAND))
         self.save_btn.setToolTip("Save edits on checked wells")
@@ -510,7 +547,6 @@ class WellMasterDialog(QDialog):
         self.stage_btn.setToolTip("Move checked pending wells to the Add New Wells tab")
         self.stage_btn.clicked.connect(self.stage_selected_wells)
 
-        # Data / view actions
         self.refresh_btn = QPushButton("🔄  Refresh")
         self.refresh_btn.setStyleSheet(btn_toolbar(_NEUTRAL))
         self.refresh_btn.setToolTip(
@@ -536,31 +572,76 @@ class WellMasterDialog(QDialog):
         )
         self.add_column_btn.clicked.connect(self.add_column)
 
-        # Danger
         self.remove_well_btn = QPushButton("🗑  Remove")
         self.remove_well_btn.setStyleSheet(btn_toolbar(_DANGER))
         self.remove_well_btn.setToolTip("Permanently delete checked wells from PCE_WM")
         self.remove_well_btn.clicked.connect(self.remove_selected_well)
 
-        toolbar.addWidget(self.search_input)
-        toolbar.addWidget(clear_search)
-        toolbar.addWidget(_sep())
-        toolbar.addWidget(self.save_btn)
-        toolbar.addWidget(self.stage_btn)
-        toolbar.addWidget(_sep())
-        toolbar.addWidget(self.refresh_btn)
-        toolbar.addWidget(self.export_btn)
-        toolbar.addWidget(self.import_btn)
-        toolbar.addWidget(self.add_column_btn)
+        search_row = QWidget()
+        search_row_layout = QHBoxLayout(search_row)
+        search_row_layout.setContentsMargins(0, 0, 0, 0)
+        search_row_layout.setSpacing(4)
+        search_row_layout.addWidget(self.search_input)
+        search_row_layout.addWidget(clear_search)
+
+        toolbar.addWidget(self._build_toolbar_group("Find", [search_row]))
+        toolbar.addWidget(self._build_toolbar_group("Edit", [self.save_btn, self.stage_btn]))
+        toolbar.addWidget(
+            self._build_toolbar_group(
+                "Data",
+                [self.refresh_btn, self.export_btn, self.import_btn],
+            )
+        )
+        toolbar.addWidget(self._build_toolbar_group("Advanced", [self.add_column_btn]))
         toolbar.addStretch()
-        toolbar.addWidget(_sep())
-        toolbar.addWidget(self.remove_well_btn)
+        toolbar.addWidget(self._build_toolbar_group("Danger", [self.remove_well_btn]))
 
         layout.addWidget(toolbar_frame)
 
-        # Status
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(8)
+        filter_label = QLabel("Show:")
+        filter_label.setStyleSheet("color: #475569; font-size: 12px; font-weight: 600;")
+        filter_row.addWidget(filter_label)
+
+        self._filter_chip_group = QButtonGroup(self)
+        self._filter_chip_group.setExclusive(True)
+
+        self.filter_chip_all = QPushButton("All")
+        self.filter_chip_complete = QPushButton("Complete")
+        self.filter_chip_pending = QPushButton("Pending")
+        for chip in (
+            self.filter_chip_all,
+            self.filter_chip_complete,
+            self.filter_chip_pending,
+        ):
+            chip.setCheckable(True)
+            chip.setStyleSheet(_WELL_FILTER_CHIP_STYLE)
+            chip.setCursor(Qt.PointingHandCursor)
+            self._filter_chip_group.addButton(chip)
+
+        self.filter_chip_all.setChecked(True)
+        self.filter_chip_all.clicked.connect(lambda: self._set_pending_filter("all"))
+        self.filter_chip_complete.clicked.connect(lambda: self._set_pending_filter("complete"))
+        self.filter_chip_pending.clicked.connect(lambda: self._set_pending_filter("pending"))
+
+        filter_row.addWidget(self.filter_chip_all)
+        filter_row.addWidget(self.filter_chip_complete)
+        filter_row.addWidget(self.filter_chip_pending)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
+        self.snowflake_progress = QProgressBar()
+        self.snowflake_progress.setStyleSheet(progress_bar_style())
+        self.snowflake_progress.setVisible(False)
+        self.snowflake_progress.setTextVisible(True)
+        layout.addWidget(self.snowflake_progress)
+
         self.status_label = QLabel("Loading wells...")
-        self.status_label.setStyleSheet("color: #64748b; font-style: italic; padding: 5px; font-size: 12px;")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet(
+            "color: #64748b; font-style: italic; padding: 5px; font-size: 12px;"
+        )
         layout.addWidget(self.status_label)
 
         # Table
@@ -643,6 +724,135 @@ class WellMasterDialog(QDialog):
         btn_layout.addStretch()
 
         layout.addLayout(btn_layout)
+
+    def _build_toolbar_group(self, title: str, widgets) -> QFrame:
+        frame = QFrame()
+        frame.setStyleSheet("QFrame { background: transparent; border: none; }")
+        outer = QVBoxLayout(frame)
+        outer.setSpacing(4)
+        outer.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(title)
+        label.setStyleSheet(_TOOLBAR_GROUP_LABEL_STYLE)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.setContentsMargins(0, 0, 0, 0)
+        for widget in widgets:
+            row.addWidget(widget)
+        outer.addWidget(label)
+        outer.addLayout(row)
+        return frame
+
+    def _set_pending_filter(self, filter_key: str) -> None:
+        if filter_key not in ("all", "complete", "pending"):
+            return
+        self._pending_filter = filter_key
+        self._refresh_well_table_view()
+
+    def _wells_matching_pending_filter(self, wells):
+        if self._pending_filter == "complete":
+            return [w for w in wells if not WellMasterDB.is_pending(w)]
+        if self._pending_filter == "pending":
+            return [w for w in wells if WellMasterDB.is_pending(w)]
+        return list(wells)
+
+    def _wells_matching_search(self, wells, search_text: str):
+        if not search_text:
+            return list(wells)
+        filtered = []
+        for well in wells:
+            searchable = [
+                well.get("well_name", ""),
+                well.get("gas_idrec", ""),
+                well.get("pressures_idrec", ""),
+                well.get("formation", ""),
+                well.get("layer", ""),
+                well.get("pad_name", ""),
+                well.get("composite_name", ""),
+            ]
+            if any(search_text in str(s).lower() for s in searchable):
+                filtered.append(well)
+        return filtered
+
+    def _refresh_well_table_view(self) -> None:
+        base = self._current_tab_well_source()
+        by_filter = self._wells_matching_pending_filter(base)
+        search_text = self.search_input.text().strip().lower() if self.search_input else ""
+        visible = self._wells_matching_search(by_filter, search_text)
+        self.display_wells(visible)
+        self._update_filter_chip_labels()
+        if search_text or self._pending_filter != "all":
+            self.status_label.setText(
+                f"Showing {len(visible)} of {len(base)} wells "
+                f"({len(self.complete_wells)} complete, {len(self.pending_wells)} pending)"
+            )
+
+    def _update_filter_chip_labels(self) -> None:
+        if not self.filter_chip_all:
+            return
+        visible_base = self._current_tab_well_source()
+        n_all = len(visible_base)
+        n_complete = sum(1 for w in visible_base if not WellMasterDB.is_pending(w))
+        n_pending = sum(1 for w in visible_base if WellMasterDB.is_pending(w))
+        self.filter_chip_all.setText(f"All ({n_all})")
+        self.filter_chip_complete.setText(f"Complete ({n_complete})")
+        self.filter_chip_pending.setText(f"Pending ({n_pending})")
+
+    def _set_filter_chips_enabled(self, enabled: bool) -> None:
+        for chip in (
+            self.filter_chip_all,
+            self.filter_chip_complete,
+            self.filter_chip_pending,
+        ):
+            if chip is not None:
+                chip.setEnabled(enabled)
+
+    def _set_snowflake_import_busy(self, busy: bool) -> None:
+        if self.snowflake_progress is not None:
+            self.snowflake_progress.setVisible(busy)
+            if busy:
+                set_progress_bar_busy(
+                    self.snowflake_progress,
+                    message="Querying Snowflake…",
+                )
+        if busy:
+            self._import_started_at = time.time()
+            self._import_elapsed_timer.start(1000)
+            self._tick_snowflake_import_elapsed()
+        else:
+            self._import_elapsed_timer.stop()
+            self._import_started_at = None
+        self._set_load_busy(busy)
+        if self.search_input is not None:
+            self.search_input.setEnabled(not busy)
+        self._set_filter_chips_enabled(not busy)
+
+    def _tick_snowflake_import_elapsed(self) -> None:
+        if self._import_started_at is None:
+            return
+        elapsed = int(time.time() - self._import_started_at)
+        self.status_label.setStyleSheet(
+            "color: #0f172a; font-weight: 600; padding: 5px; font-size: 12px;"
+        )
+        self.status_label.setText(
+            "Querying Snowflake for new wells — please wait "
+            f"({elapsed}s). Large queries can take several minutes; "
+            "the progress bar below confirms the app is still working."
+        )
+        if self.snowflake_progress is not None and self.snowflake_progress.isVisible():
+            set_progress_bar_busy(
+                self.snowflake_progress,
+                message=f"Snowflake query running… {elapsed}s",
+            )
+
+    def _on_snowflake_import_status(self, message: str) -> None:
+        self.status_label.setStyleSheet(
+            "color: #0f172a; font-weight: 600; padding: 5px; font-size: 12px;"
+        )
+        if self._import_started_at is not None:
+            elapsed = int(time.time() - self._import_started_at)
+            self.status_label.setText(f"{message} ({elapsed}s)")
+        else:
+            self.status_label.setText(message)
 
     def make_current_table_editable(self):
         """Set up delegates and editability for Current Wells tab"""
@@ -901,19 +1111,18 @@ class WellMasterDialog(QDialog):
     def _refresh_current_wells_after_staging_change(self):
         """Rebuild Current Wells grid after stage/unstage; clears stale edit row indices."""
         self.pending_current_edits.clear()
-        if self.search_input.text().strip():
-            self.filter_wells()
-        else:
-            self.display_wells(self._current_tab_well_source())
+        self._refresh_well_table_view()
 
     def _set_load_busy(self, busy):
         """Disable toolbar actions while a background load is running."""
         for btn in (
             self.save_btn,
+            self.stage_btn,
             self.refresh_btn,
             self.export_btn,
             self.import_btn,
-            self.remove_btn,
+            self.add_column_btn,
+            self.remove_well_btn,
         ):
             if btn is not None:
                 btn.setEnabled(not busy)
@@ -958,13 +1167,16 @@ class WellMasterDialog(QDialog):
 
         self.complete_wells.sort(key=lambda x: x.get('well_name', ''))
         self.pending_wells.sort(key=lambda x: x.get('well_name', ''))
-        self.display_wells(self._current_tab_well_source())
         self.make_current_table_editable()
+        self._refresh_well_table_view()
 
         sync_note = (
             f", {composite_updates} composite name(s) updated"
             if composite_updates
             else ""
+        )
+        self.status_label.setStyleSheet(
+            "color: #64748b; font-style: italic; padding: 5px; font-size: 12px;"
         )
         self.status_label.setText(
             f"Loaded {len(self.all_wells)} wells "
@@ -1139,33 +1351,8 @@ class WellMasterDialog(QDialog):
                 )
 
     def filter_wells(self):
-        """Filter wells based on search text"""
-        search_text = self.search_input.text().lower()
-
-        base = self._current_tab_well_source()
-
-        if not search_text:
-            self.display_wells(base)
-            return
-
-        filtered = []
-        for well in base:
-            searchable = [
-                well.get('well_name', ''),
-                well.get('gas_idrec', ''),
-                well.get('pressures_idrec', ''),
-                well.get('formation', ''),
-                well.get('layer', ''),
-                well.get('pad_name', ''),
-                well.get('composite_name', '')
-            ]
-            if any(search_text in str(s).lower() for s in searchable):
-                filtered.append(well)
-
-        self.display_wells(filtered)
-        self.status_label.setText(
-            f"Showing {len(filtered)} of {len(base)} wells"
-        )
+        """Filter wells based on search text and pending filter chips."""
+        self._refresh_well_table_view()
 
     def on_staged_item_changed(self, item):
         """Handle cell edits in staged table"""
@@ -1308,20 +1495,23 @@ class WellMasterDialog(QDialog):
             QMessageBox.information(self, "Busy", "Snowflake import query already running.")
             return
 
-        self.import_btn.setEnabled(False)
+        self._set_snowflake_import_busy(True)
         self._import_worker = WellMasterSnowflakeImportWorker(self.all_wells)
-        self._import_worker.status_signal.connect(self.status_label.setText)
+        self._import_worker.status_signal.connect(self._on_snowflake_import_status)
         self._import_worker.finished_signal.connect(self._on_snowflake_import_finished)
         self._import_worker.error_signal.connect(self._on_snowflake_import_error)
         self._import_worker.start()
 
     def _on_snowflake_import_error(self, message):
-        self.import_btn.setEnabled(True)
+        self._set_snowflake_import_busy(False)
         QMessageBox.critical(self, "Import Failed", f"Error importing wells:\n{message}")
+        self.status_label.setStyleSheet(
+            "color: #64748b; font-style: italic; padding: 5px; font-size: 12px;"
+        )
         self.status_label.setText("Import failed")
 
     def _on_snowflake_import_finished(self, result):
-        self.import_btn.setEnabled(True)
+        self._set_snowflake_import_busy(False)
         new_daily_wells = result.get("new_daily_wells", [])
         new_tester_wells = result.get("new_tester_wells", [])
 
