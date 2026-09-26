@@ -20,17 +20,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QStyledItemDelegate, QWi
                              QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
-from monthly_loader_dialog import MonthlyLoaderDialog
-from sales_ratios_dialog import SalesRatiosDialog
-from prodview_update_dialog import ProdviewUpdateDialog
-from well_master_gui import WellMasterDialog
-from survey_import_dialog import SurveyImportDialog
-from type_curves_import_dialog import TypeCurvesImportDialog
-from monthly_forecasts_import_dialog import MonthlyForecastsImportDialog
-from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 from app_paths import get_settings_path, get_logo_path, get_company_icon_path
-from settings_dialog import SettingsDialog
-from exports_dialog import ExportsDialog
 from styles import (
     company_name_style,
     app_name_style,
@@ -164,7 +154,7 @@ class ProductionUpdateGUI(QMainWindow):
         if os.path.isfile(logo_path):
             pixmap = QPixmap(logo_path)
             if not pixmap.isNull():
-                scaled = pixmap.scaledToHeight(98, Qt.SmoothTransformation)
+                scaled = pixmap.scaledToHeight(98, Qt.FastTransformation)
                 logo_label.setPixmap(scaled)
                 logo_label.setFixedSize(scaled.size())
         else:
@@ -216,7 +206,7 @@ class ProductionUpdateGUI(QMainWindow):
         if os.path.isfile(icon_path):
             icon_pix = QPixmap(icon_path)
             if not icon_pix.isNull():
-                icon_scaled = icon_pix.scaledToHeight(96, Qt.SmoothTransformation)
+                icon_scaled = icon_pix.scaledToHeight(96, Qt.FastTransformation)
                 icon_label.setPixmap(icon_scaled)
                 icon_label.setFixedSize(icon_scaled.size())
                 pce_icon_width = icon_scaled.width()
@@ -425,7 +415,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_well_master(self):
         """Open the well master list dialog"""
         self.log("Opening Well Master List...")
-        
+        from well_master_gui import WellMasterDialog
+
         dialog = WellMasterDialog(self)
         dialog.exec_()
         
@@ -435,7 +426,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_prodview_update(self):
         """Open the prodview update dialog"""
         self.log("Opening Prodview/Snowflake Update dialog...")
-        
+        from prodview_update_dialog import ProdviewUpdateDialog
+
         dialog = ProdviewUpdateDialog(self)
         dialog.exec_()
         
@@ -445,6 +437,7 @@ class ProductionUpdateGUI(QMainWindow):
     def open_sales_ratios(self):
         """Open the sales ratios update dialog"""
         self.log("Opening Sales Ratios Update dialog...")
+        from sales_ratios_dialog import SalesRatiosDialog
 
         config = configparser.ConfigParser()
         settings_file = get_settings_path()
@@ -463,7 +456,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_monthly_loader(self):
         """Open the monthly loader dialog"""
         self.log("Opening ValNav Monthly Update dialog...")
-        
+        from monthly_loader_dialog import MonthlyLoaderDialog
+
         # Load settings
         config = configparser.ConfigParser()
         settings_file = get_settings_path()
@@ -483,7 +477,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_survey_import(self):
         """Open the survey import dialog"""
         self.log("Opening Survey Data Import dialog...")
-        
+        from survey_import_dialog import SurveyImportDialog
+
         # Load settings
         config = configparser.ConfigParser()
         settings_file = get_settings_path()
@@ -502,7 +497,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_type_curves_import(self):
         """Open the type curves import dialog"""
         self.log("Opening Type Curves Import dialog...")
-        
+        from type_curves_import_dialog import TypeCurvesImportDialog
+
         # Load settings
         config = configparser.ConfigParser()
         settings_file = get_settings_path()
@@ -520,6 +516,7 @@ class ProductionUpdateGUI(QMainWindow):
     def open_monthly_forecasts_import(self):
         """Open monthly forecasts Excel import dialog."""
         self.log("Opening Monthly Forecasts Import...")
+        from monthly_forecasts_import_dialog import MonthlyForecastsImportDialog
 
         config = configparser.ConfigParser()
         settings_file = get_settings_path()
@@ -543,6 +540,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_settings(self):
         """Open the settings dialog"""
         self.log("Opening Settings dialog...")
+        from settings_dialog import SettingsDialog
+
         dialog = SettingsDialog(self)
         if dialog.exec_():
             self.log("Settings saved")
@@ -555,7 +554,8 @@ class ProductionUpdateGUI(QMainWindow):
     def open_exports(self):
         """Open the exports/reports dialog"""
         self.log("Opening Exports/Reports dialog...")
-        
+        from exports_dialog import ExportsDialog
+
         dialog = ExportsDialog(self)
         dialog.exec_()
         
@@ -565,6 +565,7 @@ class ProductionUpdateGUI(QMainWindow):
     def open_whitson_mass_upload(self):
         """Open the Whitson+ Mass Upload dialog"""
         self.log("Opening Whitson+ Mass Upload...")
+        from whitson_mass_upload_dialog import WhitsonMassUploadDialog
 
         config = configparser.ConfigParser()
         settings_file = get_settings_path()

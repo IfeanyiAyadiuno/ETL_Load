@@ -7,10 +7,9 @@ daily rows for dates that have not occurred yet (avoids end-of-month padding).
 
 from __future__ import annotations
 
+import calendar
 from datetime import date, timedelta
 from typing import Tuple
-
-import pandas as pd
 
 # Days back from local calendar ``date.today()`` for the last included production day.
 PRODVIEW_DATA_LAG_DAYS = 2
@@ -30,13 +29,22 @@ def prodview_effective_end_date(data_lag_days: int | None = None) -> date:
     return _today() - timedelta(days=lag)
 
 
+def _subtract_calendar_months(d: date, months: int) -> date:
+    """Month-aligned lookback (matches former ``pd.DateOffset(months=...)`` behavior)."""
+    month_index = d.year * 12 + (d.month - 1) - months
+    year, month = divmod(month_index, 12)
+    month += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+
+
 def quick_update_start_date(effective_end: date | None = None) -> date:
     """
     First calendar day for Prodview Snowflake rolling window: *effective_end* minus QUICK_UPDATE_LOOKBACK_MONTHS
-    on a month-aligned offset (same as ``pd.DateOffset(months=...)``).
+    on a month-aligned offset.
     """
     end = effective_end or prodview_effective_end_date()
-    return (pd.Timestamp(end) - pd.DateOffset(months=QUICK_UPDATE_LOOKBACK_MONTHS)).date()
+    return _subtract_calendar_months(end, QUICK_UPDATE_LOOKBACK_MONTHS)
 
 
 def quick_update_date_range(data_lag_days: int | None = None) -> Tuple[date, date]:
