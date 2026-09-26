@@ -676,7 +676,7 @@ def fetch_cda_data(
             df = pd.read_sql(query, conn, params=params or None)
         else:
             frames = []
-            chunk_size = 500
+            chunk_size = 800
             for i in range(0, len(well_names), chunk_size):
                 chunk = well_names[i : i + chunk_size]
                 placeholders = ",".join("?" for _ in chunk)
@@ -1135,6 +1135,7 @@ def calculate_sequences(
     *,
     days_seq_seed: Optional[Dict[str, int]] = None,
     day_seq_uprt_seed: Optional[Dict[str, int]] = None,
+    already_sorted: bool = False,
 ):
     """
     Calculate Days Seq and Day Seq UPRT for each well.
@@ -1144,7 +1145,8 @@ def calculate_sequences(
     """
     days_seq_seed = days_seq_seed or {}
     day_seq_uprt_seed = day_seq_uprt_seed or {}
-    df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
+    if not already_sorted:
+        df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
 
     if days_seq_seed:
         wn_key = df["Well Name"].astype(str).str.strip()
@@ -1173,7 +1175,12 @@ def calculate_sequences(
     return df
 
 
-def calculate_cumulatives(df, *, cum_seeds: Optional[Dict[str, Dict[str, float]]] = None):
+def calculate_cumulatives(
+    df,
+    *,
+    cum_seeds: Optional[Dict[str, Dict[str, float]]] = None,
+    already_sorted: bool = False,
+):
     """
     Calculate cumulative totals for each well.
 
@@ -1184,7 +1191,8 @@ def calculate_cumulatives(df, *, cum_seeds: Optional[Dict[str, Dict[str, float]]
     ``cum_seeds`` adds per-well starting totals (last row before a patch window).
     """
     cum_seeds = cum_seeds or {}
-    df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
+    if not already_sorted:
+        df = df.sort_values(["Well Name", "Date"]).reset_index(drop=True)
 
     for source_col, target_col in _CUMULATIVE_PAIRS:
         values = pd.to_numeric(df[source_col], errors="coerce").fillna(0.0)
@@ -1283,6 +1291,8 @@ _PRODUCTION_SEQUENCE_SELECT_SQL = (
 )
 
 _SEQ_STAGING_TABLE = "#PCE_Production_Seq_Staging"
+_SEQ_EXCLUDE_WELLS_TEMP = "#PCE_Seq_Exclude_Wells"
+_SEQUENCE_EXCLUDE_TEMP_MIN_WELLS = 16
 
 
 def _dataframe_for_sequence_source(df: pd.DataFrame) -> pd.DataFrame:
@@ -1290,6 +1300,31 @@ def _dataframe_for_sequence_source(df: pd.DataFrame) -> pd.DataFrame:
     out = df[list(_PRODUCTION_SEQUENCE_SOURCE_COLUMNS)].copy()
     out["Date"] = pd.to_datetime(out["Date"], errors="coerce").dt.date
     return out
+
+
+def _production_sequence_select_from_sql(*, table_alias: str = "p") -> str:
+    cols = ", ".join(f"{table_alias}.[{c}]" for c in _PRODUCTION_SEQUENCE_SOURCE_COLUMNS)
+    return f"SELECT {cols} FROM dbo.PCE_Production AS {table_alias}"
+
+
+def _load_sequence_exclude_wells_temp(cursor, well_names: List[str]) -> None:
+    """Stage rolling-window well names for NOT EXISTS (faster than huge NOT IN lists)."""
+    cursor.execute(
+        f"IF OBJECT_ID('tempdb..{_SEQ_EXCLUDE_WELLS_TEMP}') IS NOT NULL "
+        f"DROP TABLE {_SEQ_EXCLUDE_WELLS_TEMP}"
+    )
+    cursor.execute(
+        f"CREATE TABLE {_SEQ_EXCLUDE_WELLS_TEMP} "
+        "([Well Name] NVARCHAR(4000) NOT NULL PRIMARY KEY)"
+    )
+    if not well_names:
+        return
+    insert_sql = f"INSERT INTO {_SEQ_EXCLUDE_WELLS_TEMP} ([Well Name]) VALUES (?)"
+    cursor.fast_executemany = True
+    rows = [(wn,) for wn in well_names]
+    batch_size = SQL_INSERT_BATCH_SIZE
+    for i in range(0, len(rows), batch_size):
+        cursor.executemany(insert_sql, rows[i : i + batch_size])
 
 
 def _production_sequence_where_sql(
@@ -1315,8 +1350,15 @@ def _production_sequence_where_sql(
 
 def _production_sequence_select_sql(*, exclude_well_names: Optional[List[str]] = None) -> Tuple[str, List]:
     """Build SELECT for sequence rebuild; optionally skip rolling-window wells."""
-    where_sql, params = _production_sequence_where_sql(exclude_well_names=exclude_well_names)
-    sql = _PRODUCTION_SEQUENCE_SELECT_SQL + where_sql + " ORDER BY [Well Name], [Date]"
+    where_sql, params = _production_sequence_where_sql(
+        exclude_well_names=exclude_well_names,
+        table_alias="p",
+    )
+    sql = (
+        _production_sequence_select_from_sql(table_alias="p")
+        + where_sql
+        + " ORDER BY p.[Well Name], p.[Date]"
+    )
     return sql, params
 
 
@@ -1347,8 +1389,8 @@ def apply_production_sequences_from_scratch(
     out = filter_to_first_production(df.copy())
     if out.empty:
         return out
-    out = calculate_sequences(out)
-    out = calculate_cumulatives(out)
+    out = calculate_sequences(out, already_sorted=True)
+    out = calculate_cumulatives(out, already_sorted=True)
     out = calculate_monthly_averages(out)
     out = add_on_production_year(out)
     if for_persist:
@@ -1414,7 +1456,7 @@ SET {set_clause}
 FROM dbo.PCE_Production AS p
 INNER JOIN {_SEQ_STAGING_TABLE} AS s
     ON p.[Well Name] = s.[Well Name]
-   AND CAST(p.[Date] AS DATE) = s.[Date]
+   AND p.[Date] = s.[Date]
 """.strip()
 
 
@@ -1422,7 +1464,7 @@ def _sequence_staging_insert_rows(df: pd.DataFrame) -> List[Tuple]:
     cols = ["Well Name", "Date", *PRODUCTION_SEQUENCE_RECALC_COLUMNS]
     sub = df[cols].astype(object)
     sub[sub.isna()] = None
-    return list(sub.itertuples(index=False, name=None))
+    return [tuple(row) for row in sub.to_numpy()]
 
 
 def _apply_sequence_updates_via_staging(
@@ -1479,22 +1521,39 @@ def fetch_pce_production_for_sequence_rebuild(
         excluded_names = sorted(
             {str(w).strip() for w in exclude_well_names if str(w).strip()}
         )
-    where_sql, count_params = _production_sequence_where_sql(
-        exclude_well_names=excluded_names or None,
+    use_exclude_temp = len(excluded_names) >= _SEQUENCE_EXCLUDE_TEMP_MIN_WELLS
+    cursor = conn.cursor()
+    if use_exclude_temp:
+        _load_sequence_exclude_wells_temp(cursor, excluded_names)
+
+    where_parts = [
+        "p.[Well Name] NOT LIKE N'% - TC'",
+        "p.[Well Name] NOT LIKE N'YE2%'",
+    ]
+    params: List = []
+    if excluded_names:
+        if use_exclude_temp:
+            where_parts.append(
+                f"NOT EXISTS (SELECT 1 FROM {_SEQ_EXCLUDE_WELLS_TEMP} AS e "
+                "WHERE e.[Well Name] = p.[Well Name])"
+            )
+        else:
+            placeholders = ",".join("?" for _ in excluded_names)
+            where_parts.append(f"p.[Well Name] NOT IN ({placeholders})")
+            params.extend(excluded_names)
+
+    query = (
+        _production_sequence_select_from_sql(table_alias="p")
+        + " WHERE "
+        + " AND ".join(where_parts)
+        + " ORDER BY p.[Well Name], p.[Date]"
     )
-    count_sql = "SELECT COUNT(*) FROM dbo.PCE_Production" + where_sql
-    count_cur = conn.cursor()
-    count_cur.execute(count_sql, count_params or None)
-    row_count = count_cur.fetchone()[0] or 0
     scope = (
         f"excluding {lf.num(len(excluded_names))} rolling-window well(s)"
         if excluded_names
-        else "all wells"
+        else "gathered wells only (type-curve rows skipped)"
     )
-    load_msg = (
-        f"Loading {lf.num(row_count)} PCE_Production row(s) for sequence rebuild ({scope})"
-    )
-    query, params = _production_sequence_select_sql(exclude_well_names=exclude_well_names)
+    load_msg = f"Loading PCE_Production for sequence rebuild ({scope})"
     with lf.activity_log(log_fn, load_msg):
         df = pd.read_sql(query, conn, params=params or None)
     if not df.empty:

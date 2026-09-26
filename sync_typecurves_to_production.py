@@ -49,26 +49,41 @@ _TC_OPTIONAL_GATHERED_COLUMNS = (
 )
 
 
-def _pce_tc_column_exists(cursor, column_name: str) -> bool:
-    cursor.execute("SELECT COL_LENGTH('dbo.PCE_TC', ?)", column_name)
-    row = cursor.fetchone()
-    return row is not None and row[0] is not None
+def _pce_tc_optional_columns_on_server(cursor) -> frozenset:
+    """One round-trip for optional gathered columns (avoids per-column COL_LENGTH calls)."""
+    names = list(_TC_OPTIONAL_GATHERED_COLUMNS)
+    placeholders = ",".join("?" for _ in names)
+    cursor.execute(
+        f"""
+        SELECT c.name
+        FROM sys.columns AS c
+        INNER JOIN sys.objects AS o ON o.object_id = c.object_id
+        WHERE o.name = N'PCE_TC'
+          AND SCHEMA_NAME(o.schema_id) = N'dbo'
+          AND c.name IN ({placeholders})
+        """,
+        names,
+    )
+    return frozenset(row[0] for row in cursor.fetchall())
 
 
-def _pce_tc_has_gathered_columns(cursor) -> bool:
-    return _pce_tc_column_exists(cursor, "Gathered Gas (e³m³/d)")
+def _pce_tc_has_gathered_columns(cursor, *, optional: frozenset | None = None) -> bool:
+    present = optional if optional is not None else _pce_tc_optional_columns_on_server(cursor)
+    return "Gathered Gas (e³m³/d)" in present
 
 
-def _pce_tc_has_gathered_condensate_columns(cursor) -> bool:
-    return _pce_tc_column_exists(cursor, "Gathered Condensate (m³/d)")
+def _pce_tc_has_gathered_condensate_columns(cursor, *, optional: frozenset | None = None) -> bool:
+    present = optional if optional is not None else _pce_tc_optional_columns_on_server(cursor)
+    return "Gathered Condensate (m³/d)" in present
 
 
-def _read_pce_tc_dataframe(conn) -> pd.DataFrame:
+def _read_pce_tc_dataframe(conn, *, optional_columns: frozenset | None = None) -> pd.DataFrame:
     """Load PCE_TC; tolerate DBs that have not run gathered-column migrations yet."""
     cur = conn.cursor()
-    present_optional = [
-        c for c in _TC_OPTIONAL_GATHERED_COLUMNS if _pce_tc_column_exists(cur, c)
-    ]
+    on_server = optional_columns
+    if on_server is None:
+        on_server = _pce_tc_optional_columns_on_server(cur)
+    present_optional = [c for c in _TC_OPTIONAL_GATHERED_COLUMNS if c in on_server]
     select_cols = list(_TC_BASE_COLUMNS) + present_optional
     select_sql = (
         "SELECT\n    "
@@ -256,8 +271,10 @@ def sync_tc_to_production(
             return {"ok": True, "rows_deleted": 0, "rows_inserted": 0}
 
         cursor = conn.cursor()
-        has_gathered = _pce_tc_has_gathered_columns(cursor)
-        has_gathered_cond = _pce_tc_has_gathered_condensate_columns(cursor)
+        optional_cols = _pce_tc_optional_columns_on_server(cursor)
+        has_gathered = _pce_tc_has_gathered_columns(cursor, optional=optional_cols)
+        has_gathered_cond = _pce_tc_has_gathered_condensate_columns(cursor, optional=optional_cols)
+        tc_dirty = False
         # Backfill dbo.PCE_TC.[Pad Name] when legacy rows lack the PCE-TC- prefix (same rules as import).
         pad_fixes: List[Tuple] = []
         for _, row in df.iterrows():
@@ -284,8 +301,7 @@ def sync_tc_to_production(
                 """,
                 pad_fixes,
             )
-            conn.commit()
-            df = _read_pce_tc_dataframe(conn)
+            tc_dirty = True
         if has_gathered:
             cursor.execute(
                 """
@@ -297,8 +313,7 @@ def sync_tc_to_production(
                 """
             )
             if cursor.rowcount:
-                conn.commit()
-                df = _read_pce_tc_dataframe(conn)
+                tc_dirty = True
         if has_gathered and has_gathered_cond:
             cursor.execute(
                 """
@@ -310,8 +325,10 @@ def sync_tc_to_production(
                 """
             )
             if cursor.rowcount:
-                conn.commit()
-                df = _read_pce_tc_dataframe(conn)
+                tc_dirty = True
+        if tc_dirty:
+            conn.commit()
+            df = _read_pce_tc_dataframe(conn, optional_columns=optional_cols)
         cursor.fast_executemany = True
         cursor.execute(
             """
