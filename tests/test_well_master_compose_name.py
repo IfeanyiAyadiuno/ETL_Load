@@ -52,6 +52,35 @@ class TestWellMasterComposeName(unittest.TestCase):
         self.assertEqual(cleaned["pad_name"], "Pad A")
         self.assertEqual(cleaned["exception"], "N")
 
+    def test_normalize_bounded_accepts_allowed_values(self):
+        self.assertEqual(WellMasterDB.normalize_bounded("Bounded"), "Bounded")
+        self.assertEqual(WellMasterDB.normalize_bounded(" unbounded "), "Unbounded")
+        self.assertIsNone(WellMasterDB.normalize_bounded(""))
+        self.assertIsNone(WellMasterDB.normalize_bounded(None))
+        self.assertIsNone(WellMasterDB.normalize_bounded(1.0))
+
+    def test_prepare_well_update_rejects_bounded_in_numeric_field(self):
+        prepared, err = WellMasterDB._prepare_well_update_for_sql(
+            {
+                "well_name": "L-16",
+                "lateral_length": "Bounded",
+            }
+        )
+        self.assertIsNone(prepared)
+        self.assertIn("must be a number", err)
+
+    def test_prepare_well_update_normalizes_bounded(self):
+        prepared, err = WellMasterDB._prepare_well_update_for_sql(
+            {
+                "well_name": "L-16",
+                "bounded": "bounded",
+                "lateral_length": 2500,
+            }
+        )
+        self.assertIsNone(err)
+        self.assertEqual(prepared["bounded"], "Bounded")
+        self.assertEqual(prepared["lateral_length"], 2500.0)
+
 
 if __name__ == "__main__":
     unittest.main()

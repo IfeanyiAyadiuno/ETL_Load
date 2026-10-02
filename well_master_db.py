@@ -69,6 +69,20 @@ CUSTOM_FIELD_TYPES = {
     "date": ("DATE", "date"),
 }
 
+BOUNDED_ALLOWED_VALUES = frozenset({"Bounded", "Unbounded"})
+
+_WM_FLOAT_FIELDS = frozenset(
+    {
+        "lateral_length",
+        "horizontal_distance_right",
+        "horizontal_distance_left",
+        "vertical_distance_above",
+        "vertical_distance_below",
+    }
+)
+
+_bounded_column_verified = False
+
 
 def _coercion_type_from_sql(data_type) -> str:
     """Map a SQL Server DATA_TYPE to one of: float / int / date / text."""
@@ -133,8 +147,7 @@ class WellMasterDB:
                 else:
                     exception_val = str(exception_val).strip().upper()
 
-                bounded_val = row[18]
-                bounded_val = str(bounded_val).strip() if bounded_val is not None else ""
+                bounded_val = WellMasterDB.normalize_bounded(row[18]) or ""
 
                 well = {
                     'well_name': row[0],
@@ -255,6 +268,168 @@ class WellMasterDB:
             return None
         s = str(value).strip()
         return s if s else None
+
+    @staticmethod
+    def normalize_bounded(value):
+        """Return 'Bounded', 'Unbounded', or None (clear). Reject non-text numeric legacy values."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s in BOUNDED_ALLOWED_VALUES:
+            return s
+        titled = s.title()
+        if titled in BOUNDED_ALLOWED_VALUES:
+            return titled
+        return None
+
+    @staticmethod
+    def _coerce_wm_float(value):
+        """Coerce a main-grid float field; reject obvious non-numeric labels."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        s = str(value).strip().replace(",", "")
+        if not s:
+            return None
+        if s in BOUNDED_ALLOWED_VALUES:
+            return None
+        return WellMasterDB._coerce_additional_float(s)
+
+    @staticmethod
+    def _coerce_wm_int(value):
+        if value is None:
+            return None
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        s = str(value).strip().replace(",", "")
+        if not s:
+            return None
+        if s in BOUNDED_ALLOWED_VALUES:
+            return None
+        return WellMasterDB._coerce_additional_int(s)
+
+    @staticmethod
+    def _prepare_well_update_for_sql(update):
+        """
+        Trim text, normalize Bounded, and coerce numeric main-grid fields.
+        Returns (prepared_dict, error_message).
+        """
+        out = WellMasterDB.sanitize_well_update(update)
+        wn = out.get("well_name") or "Well"
+
+        if "bounded" in out:
+            raw_bounded = update.get("bounded")
+            if raw_bounded is not None and str(raw_bounded).strip():
+                normalized = WellMasterDB.normalize_bounded(raw_bounded)
+                if normalized is None:
+                    return None, (
+                        f"{wn}: Bounded must be 'Bounded' or 'Unbounded' "
+                        f"(got {raw_bounded!r})"
+                    )
+                out["bounded"] = normalized
+            else:
+                out["bounded"] = None
+
+        for key in _WM_FLOAT_FIELDS:
+            if key not in out:
+                continue
+            raw = out[key]
+            if raw is None:
+                continue
+            coerced = WellMasterDB._coerce_wm_float(raw)
+            if coerced is None and str(raw).strip():
+                return None, f"{wn}: {key.replace('_', ' ')} must be a number"
+            out[key] = coerced
+
+        if "on_production_year" in out and out["on_production_year"] is not None:
+            raw = out["on_production_year"]
+            coerced = WellMasterDB._coerce_wm_int(raw)
+            if coerced is None and str(raw).strip():
+                return None, f"{wn}: On Production Year must be a whole year (e.g. 2024)"
+            out["on_production_year"] = coerced
+
+        return out, None
+
+    @staticmethod
+    def _ensure_bounded_column_is_text(cursor):
+        """
+        PCE_WM.[Bounded] must be NVARCHAR for 'Bounded'/'Unbounded'.
+        Some databases had a FLOAT column with the same name, which causes ODBC 8114.
+        """
+        global _bounded_column_verified
+        if _bounded_column_verified:
+            return None
+
+        cursor.execute(
+            """
+            SELECT DATA_TYPE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = 'dbo'
+              AND TABLE_NAME = 'PCE_WM'
+              AND COLUMN_NAME = 'Bounded'
+            """
+        )
+        row = cursor.fetchone()
+        if row is None:
+            _bounded_column_verified = True
+            return (
+                "PCE_WM is missing column [Bounded]. "
+                "Run scripts/add_pce_wm_completion_columns.sql on the database."
+            )
+
+        dtype = (row[0] or "").strip().lower()
+        if dtype in ("nvarchar", "varchar", "nchar", "char"):
+            _bounded_column_verified = True
+            return None
+
+        if dtype not in ("float", "real", "decimal", "numeric", "int", "bigint", "smallint", "tinyint"):
+            _bounded_column_verified = True
+            return (
+                f"PCE_WM.[Bounded] has unexpected type {dtype!r}; "
+                "expected NVARCHAR(20). Contact your DBA or run "
+                "scripts/fix_pce_wm_bounded_nvarchar.sql."
+            )
+
+        try:
+            cursor.execute(
+                """
+                IF EXISTS (
+                    SELECT 1 FROM sys.check_constraints
+                    WHERE name = 'CK_PCE_WM_Bounded'
+                      AND parent_object_id = OBJECT_ID('dbo.PCE_WM')
+                )
+                    ALTER TABLE dbo.PCE_WM DROP CONSTRAINT CK_PCE_WM_Bounded;
+                """
+            )
+            cursor.execute(
+                "ALTER TABLE dbo.PCE_WM ALTER COLUMN [Bounded] NVARCHAR(20) NULL;"
+            )
+            cursor.execute(
+                """
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.check_constraints
+                    WHERE name = 'CK_PCE_WM_Bounded'
+                      AND parent_object_id = OBJECT_ID('dbo.PCE_WM')
+                )
+                    ALTER TABLE dbo.PCE_WM ADD CONSTRAINT CK_PCE_WM_Bounded
+                        CHECK ([Bounded] IS NULL OR [Bounded] IN (N'Bounded', N'Unbounded'));
+                """
+            )
+            _bounded_column_verified = True
+            return None
+        except Exception as exc:
+            return (
+                f"PCE_WM.[Bounded] is {dtype} but must be NVARCHAR(20) to store "
+                f"'Bounded'/'Unbounded'. Auto-fix failed: {exc}. "
+                "Run scripts/fix_pce_wm_bounded_nvarchar.sql as a database admin."
+            )
 
     @staticmethod
     def sanitize_well_update(update):
@@ -431,8 +606,15 @@ WHERE
             errors = []
             wells_to_purge = set()
 
+            bounded_col_err = WellMasterDB._ensure_bounded_column_is_text(cursor)
+            if bounded_col_err:
+                return 0, [bounded_col_err]
+
             for raw_update in updates:
-                update = WellMasterDB.sanitize_well_update(raw_update)
+                update, prep_err = WellMasterDB._prepare_well_update_for_sql(raw_update)
+                if prep_err:
+                    errors.append(prep_err)
+                    continue
                 well_name = update.get("well_name")
                 if not well_name:
                     errors.append("Missing well name")
@@ -482,9 +664,16 @@ WHERE
                 }
 
                 for key, db_field in field_mapping.items():
-                    if key in update and update[key] is not None:
-                        set_clauses.append(f"{db_field} = ?")
-                        params.append(update[key])
+                    if key not in update:
+                        continue
+                    val = update[key]
+                    if val is None:
+                        continue
+                    set_clauses.append(f"{db_field} = ?")
+                    if key == "bounded":
+                        params.append(str(val))
+                    else:
+                        params.append(val)
 
                 if not set_clauses:
                     errors.append(f"No fields to update for {well_name}")
@@ -517,7 +706,13 @@ WHERE
         except Exception as e:
             if conn:
                 conn.rollback()
-            return 0, [str(e)]
+            msg = str(e)
+            if "8114" in msg and "nvarchar" in msg.lower() and "float" in msg.lower():
+                msg += (
+                    " Saving Bounded/Unbounded requires PCE_WM.[Bounded] as NVARCHAR(20). "
+                    "Run scripts/fix_pce_wm_bounded_nvarchar.sql on the database."
+                )
+            return 0, [msg]
         finally:
             if conn:
                 conn.close()
